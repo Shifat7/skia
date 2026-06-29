@@ -1,0 +1,17 @@
+/target/
+*.pyc
+__pycache__/
+node_modules/
+.env
+*.swp
+*.swo
+.DS_Store
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+*.wasm
+.vscode/
+.idea/
+*.rs.bk
