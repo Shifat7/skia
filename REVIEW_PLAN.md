@@ -70,7 +70,7 @@ AI coding tools are producing code faster than engineers can review it. Existing
 | CLI framework | clap (derive) | — | Standard Rust CLI lib |
 | Serialization | MessagePack (rmp-serde) | JSON, protobuf | Compact binary for cache, serde-native |
 | File watching | notify | inotify directly | Cross-platform, well-maintained |
-| Git | git2 | CLI calls | Full git capabilities without shelling out |
+| git2 (git2-rs) | gix | CLI calls | Battle-tested. Full git capabilities. 20MB binary cost is acceptable for Phase 0. |
 | Diagrams | seedursive (Mermaid lib) | Hand-rolled strings | Rust-native Mermaid generation |
 | Async | tokio | async-std | De facto Rust async runtime |
 | Error handling | anyhow + thiserror | — | Standard Rust error pattern |
@@ -516,3 +516,10 @@ Week 5: T13 (watch) + T14 (dogfood CI) + T15 (docs)
 | D6 | Watch mode default debounce 300ms | Avoids re-analysis storms during saves with autosave | Architecture |
 | D7 | Conservative intent inference | False positives erode trust. Better to miss than mislead. | PRD |
 | D8 | Plugin API deferred to Phase 2 | Let the core API stabilize first | Plan |
+| D9 | Add LanguageParser trait stubs in Phase 0 | Freeze interface now for backward compatibility when plugins arrive in Phase 2 | Autoplan CEO |
+| D10 | Linear pass execution, skip scheduler | Only 3 passes — scheduler adds complexity without benefit. Add scheduler when >5 passes. | Autoplan Eng |
+| D11 | Add "real-world TS" + "broken code" test fixtures | Better coverage of edge cases and error detection paths | Autoplan Eng |
+| D12 | Add incremental comparison test | Full analysis → modify 1 file → incremental → verify output matches | Autoplan Eng |
+| D13 | git2 (git2-rs) over gix | Battle-tested, full features. 20MB binary cost acceptable for Phase 0. Revisit later. | Autoplan Eng |
+| D14 | Prebuilt binaries in CI (Phase 0) | Low effort, eliminates Rust toolchain requirement for basic usage | Autoplan DX |
+| D15 | Error message format: what + why + fix | Design once, apply everywhere. Prevents silent failures. | Autoplan DX |
