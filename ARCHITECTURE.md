@@ -1,452 +1,364 @@
-# Skia Architecture
+# Skia Architecture -- Phase 0 Target
 
-**Skia** is a multi-language structured code analysis tool. It parses source code into a semantic intermediate representation, runs analysis passes over it, and generates review artifacts as markdown/mermaid/JSON files.
-
----
-
-## 1. System architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      CLI Layer (skia-cli)                        │
-│  review | watch | report | init | config                        │
-│  Uses clap for argument parsing, drives the pipeline             │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Pipeline Orchestrator                         │
-│  Manages: parse → analysis → generate cycles                    │
-│  Incremental mode: only re-process changed files                 │
-│  Full mode: process entire codebase                              │
-│  Watch mode: filesystem watcher → incremental re-run             │
-└──────────┬──────────────────┬──────────────────┬─────────────────┘
-           │                  │                  │
-           ▼                  ▼                  ▼
-┌──────────────────┐ ┌──────────────────┐ ┌──────────────────────┐
-│    Parser Layer  │ │ Analysis Engine  │ │   Generator Layer    │
-│ (tree-sitter)    │ │ (pass-based)     │ │ (multi-format)       │
-│                  │ │                  │ │                      │
-│  ┌────────────┐  │ │  ┌────────────┐  │ │  ┌───────────────┐   │
-│  │ TypeScript │  │ │  │ Flow       │  │ │  │ Markdown      │   │
-│  │ Python     │  │ │  │ Pattern    │  │ │  │ Mermaid       │   │
-│  │ Go         │  │ │  │ Structural │  │ │  │ JSON          │   │
-│  │ Rust       │  │ │  │ SDLC       │  │ │  │ SARIF         │   │
-│  └────────────┘  │ │  │ Security   │  │ │  └───────────────┘   │
-│   (plugins)      │ │  └────────────┘  │ │                      │
-│                  │ │   (plugins)      │ │                      │
-└──────────────────┘ └──────────────────┘ └──────────────────────┘
-                             │
-                             ▼
-              ┌─────────────────────────────┐
-              │       .skia/ Output          │
-              │  review/*.md                 │
-              │  review/**/*.mmd             │
-              │  review/**/*.json            │
-              │  report.md                   │
-              │  diff.md                     │
-              └─────────────────────────────┘
-```
+> **Nothing described in this document has been implemented.** This
+> is a target architecture for Phase 0, written to guide future
+> implementation. There is no source code, no Cargo workspace, and
+> no compiled binary. Every crate, struct, and code snippet below is
+> a design proposal, not working code.
 
 ---
 
-## 2. Data model
+## 1. Overview
 
-### 2.1 Core types
+Skia Phase 0 is a single, synchronous, single-threaded Rust binary
+that:
 
-```rust
-/// A source file after parsing
-struct SourceFile {
-    path: PathBuf,
-    language: Language,
-    ast: TreeSitterTree,
-    comments: Vec<Comment>,
-}
+1. Reads the exact staged diff and staged file snapshots from git.
+2. Parses base and staged TypeScript snapshots with Tree-sitter.
+3. Selects one changed function or method.
+4. Derives a small set of supported syntax-delta evidence.
+5. Shows changed code and asks one deterministic causal question.
+6. Records the user's explanation or skip in a local JSON receipt
+   bound to a hash of the staged diff.
 
-/// A semantic unit extracted from AST
-struct Declaration {
-    name: String,
-    kind: DeclKind,                    // Function, Class, Interface, Type, Variable
-    span: SourceSpan,                  // File, start_line, end_line, start_col, end_col
-    visibility: Visibility,            // Public, Private, Protected, Module
-    signature: Signature,              // Type parameters, parameters, return type
-    doc_comment: Option<String>,
-    annotations: Vec<Annotation>,
-    // Populated during analysis passes
-    intent: Option<String>,            // Inferred from name + body + comments
-    side_effects: Vec<Effect>,         // What external state this mutates
-    preconditions: Vec<Condition>,
-    postconditions: Vec<Condition>,
-    error_paths: Vec<ErrorPath>,       // Error cases and whether handled
-}
-
-/// A type definition
-struct TypeDecl {
-    name: String,
-    kind: TypeKind,                    // Struct, Enum, Union, Alias, Interface, Class
-    fields: Vec<Field>,
-    type_params: Vec<TypeParam>,
-    implements: Vec<TypeRef>,          // Traits, interfaces, parent classes
-    span: SourceSpan,
-}
-
-/// A call or usage relationship
-struct Relation {
-    kind: RelationKind,                // Calls, Implements, Extends, Contains, Imports
-    source: DeclarationRef,
-    target: DeclarationRef,
-    span: SourceSpan,
-}
-```
-
-### 2.2 Semantic graph
-
-All declarations and relations form a semantic graph. Analysis passes walk this graph to produce artifacts:
-
-```rust
-struct SemanticGraph {
-    files: Vec<SourceFile>,
-    declarations: Vec<Declaration>,
-    types: Vec<TypeDecl>,
-    relations: Vec<Relation>,
-    // Cached lookups
-    decl_by_name: HashMap<String, Vec<DeclarationRef>>,
-    file_by_path: HashMap<PathBuf, FileIndex>,
-    // Incremental tracking
-    changed_files: HashSet<PathBuf>,
-    dependent_files: HashSet<PathBuf>,   // Files that import changed files
-}
-```
+No async runtime. No plugin system. No file watcher. No cache. No
+whole-repository semantic model. No answer grading. No network calls.
 
 ---
 
-## 3. Parser layer
+## 2. Crate structure
 
-### 3.1 Tree-sitter integration
+A single Cargo package with one binary target:
 
-All parsing goes through tree-sitter. Each language is a separate tree-sitter grammar compiled into a shared library.
-
-```rust
-trait LanguageParser {
-    fn language(&self) -> Language;
-    fn parse(&self, source: &str, path: &Path) -> Result<SourceFile>;
-    fn extract_declarations(&self, ast: &TreeSitterTree) -> Vec<Declaration>;
-    fn extract_types(&self, ast: &TreeSitterTree) -> Vec<TypeDecl>;
-    fn extract_relations(&self, ast: &TreeSitterTree) -> Vec<Relation>;
-    fn extract_comments(&self, ast: &TreeSitterTree) -> Vec<Comment>;
-}
+```
+skia/
+  Cargo.toml
+  src/
+    main.rs       # entry point, CLI parsing, orchestration
+    git.rs        # staged/base snapshots, diff metadata, hashing
+    parser.rs     # Tree-sitter parsing and entity extraction
+    evidence.rs   # supported syntax-delta comparisons
+    question.rs   # causal prompt catalogue and selection
+    receipt.rs    # receipt schema and JSON writing
+    prompt.rs     # diff-first terminal interaction
 ```
 
-### 3.2 Incremental parsing
-
-Re-parsing a changed file is O(file size). Tree-sitter supports incremental parsing natively — we reuse the existing AST and only re-parse the changed range.
-
-### 3.3 Plugin interface
-
-Language parsers are loaded dynamically at runtime:
-
-```toml
-# config.toml
-[parsers]
-typescript = { path = "~/.skia/parsers/libtreesitter_typescript.so" }
-python = { path = "~/.skia/parsers/libtreesitter_python.so" }
-```
-
-Users can author custom parsers for in-house DSLs.
+A workspace split between core and CLI crates adds complexity without
+value at this scale. It can be revisited only when a second consumer of
+the library exists.
 
 ---
 
-## 4. Analysis engine
+## 3. Technology choices
 
-The analysis engine runs passes over the semantic graph. Each pass produces typed analysis results that feed into generators.
+| Component | Proposed crate | Notes |
+|-----------|---------------|-------|
+| CLI parsing | `clap` (derive) | Standard Rust CLI library. |
+| Tree-sitter bindings | `tree-sitter` | Rust FFI bindings to the Tree-sitter C library. |
+| TypeScript grammar | `tree-sitter-typescript` | Provides `Typescript` and `Tsx` language variants. This crate compiles and links the C grammar library. |
+| Git invocation | `std::process::Command` | Invoke `git` as a subprocess with structured argument arrays. No shell string, no `libgit2` dependency. |
+| JSON serialization | `serde` + `serde_json` | For versioned local receipts only. |
+| Diff hashing | `sha2` | SHA-256 binding a receipt to the exact staged diff bytes. |
+| Time formatting | `time` | UTC RFC 3339 receipt fields and path-safe filenames. |
+| Error handling | `anyhow` | Application-level context and error propagation. |
+| Terminal I/O | `std::io` (stdin/stdout) | No TUI framework. Simple line-based prompting. |
 
-### 4.1 Pass architecture
+### What is not used
 
-```rust
-trait AnalysisPass {
-    fn name(&self) -> &'static str;
-    fn run(&self, graph: &SemanticGraph, config: &Config) -> PassResult;
-    fn dependencies(&self) -> Vec<&'static str>;  // Passes that must run first
-}
+- **No `tokio` or async runtime.** The tool is synchronous: read
+  diff, parse, prompt, write, exit.
+- **No `libgit2` / `git2` crate.** Git is invoked as a subprocess
+  with structured argument arrays via `std::process::Command`. This
+  avoids a C dependency and keeps the build simple. The trade-off is
+  a dependency on `git` being installed on the user's PATH.
+- **No `notify` or file watcher.** No watch mode in Phase 0.
+- **No plugin framework.** No dynamic loading, no WASM, no trait
+  objects for pluggable parsers or passes.
+- **No `rmp-serde` or MessagePack.** No cache in Phase 0. Receipts
+  are JSON.
+- **No Mermaid or report generator.** Phase 0 produces terminal
+  output and one local JSON receipt format only.
 
-enum PassResult {
-    IntentMap(HashMap<DeclarationRef, InferredIntent>),
-    TypeFlow(Vec<TypeFlowEdge>),
-    DependencyGraph(DependencyGraph),
-    PatternIndex(Vec<CodePattern>),
-    ErrorCoverage(Vec<ErrorCoverageEntry>),
-    ContractViolations(Vec<Violation>),
-    SDLCAnalysis(SDLCAnalysis),
-    // ...
-}
-```
+### Tree-sitter supplies syntax, not semantic proof
 
-### 4.2 Pass ordering
+The `tree-sitter` crate provides Rust bindings to the Tree-sitter
+parsing library. TypeScript and TSX use separate generated grammars.
+Tree-sitter provides concrete syntax trees, source ranges, and query
+matching; it does not provide TypeScript type inference, symbol
+resolution, complete call graphs, intent inference, or control-flow
+proof.
 
-```
-Parse ──► Type Resolution ──► Flow Analysis ──► Pattern Detection
-            │                      │                   │
-            ▼                      ▼                   ▼
-      Type Drift Dect.      Error Coverage       Pattern Index
-                                              Missing Abstractions
-            │                      │                   │
-            ▼                      ▼                   ▼
-      Combined Analysis ─────► Generator
-```
+Phase 0 therefore limits evidence to directly observed syntax deltas
+inside one changed entity. Any future compiler-, LSP-, or LLM-backed
+analysis must be introduced as a separate capability with explicit
+accuracy tests and claims.
 
-### 4.3 Pass: Intent inference
-
-For each function:
-1. Extract doc comment (if any) → primary intent signal
-2. Parse function name → verb + noun decomposition (`normalizeEmail` = "normalize" + "email")
-3. Analyze function body patterns → what operations does it perform?
-4. Compare name-derived intent vs body-derived intent → flag mismatch
-5. Check preconditions (early returns on null/none, type guards)
-6. Check postconditions (return type analysis, assertion patterns)
-
-**Confidence scoring:**
-- Doc comment explicit → 9/10
-- Name clear + body matches → 7/10
-- Name clear + body ambiguous → 5/10 (flag as "speculative")
-- Name unclear → skip
-
-### 4.4 Pass: Dependency analysis
-
-1. Walk imports/requires at module level → module dependency graph
-2. Walk function calls → function-level dependency graph
-3. Detect cycles via Tarjan's algorithm
-4. Detect layers:
-   - Define layers from project conventions OR explicit config
-   - Flag violations: `ui → data` (bypasses service layer)
-5. Compute fan-in/fan-out per module
-
-### 4.5 Pass: Type drift detection
-
-1. Collect all types at each boundary (API, DB, Frontend)
-2. Cross-reference by field name + shape similarity
-3. Flag mismatches:
-   - `string` vs `string?` → nullable mismatch
-   - `User` vs `API.User` (same fields) → possible mapping error
-   - Field exists in one but not the other
-   - Type changed between versions (git-aware)
-
-### 4.6 Pass: Pattern detection
-
-1. Normalize AST subtrees (replace identifiers with placeholders)
-2. Hash normalized subtrees → detect structural duplicates
-3. Cluster similar subtrees → candidate patterns
-4. For each pattern:
-   - Count occurrences
-   - Check for minor variations (differences in branches)
-   - Suggest unification
-
-### 4.7 Pass: Error coverage
-
-1. Find try/catch, Result types, Option/Optional types
-2. Trace error propagation paths
-3. For each error path:
-   - Is there a handler? (catch block, match arm, if/else, fallback)
-   - Does the error cross a module boundary without translation?
-   - Is the handler a no-op? (`catch(e) {}` or `except: pass`)
-4. Flag holes:
-   - Function returns nullable but caller doesn't check
-   - API call without timeout/retry
-   - Catch block that swallows without log
+References: [Tree-sitter Rust bindings](https://docs.rs/tree-sitter/latest/tree_sitter/)
+and [TypeScript/TSX grammars](https://github.com/tree-sitter/tree-sitter-typescript).
 
 ---
 
-## 5. Generator layer
+## 4. Data flow
 
-### 5.1 Format plugins
-
-```rust
-trait OutputGenerator {
-    fn format(&self) -> OutputFormat;
-    fn generate_intents(&self, intents: &IntentMap) -> String;
-    fn generate_type_flow(&self, flows: &[TypeFlowEdge]) -> String;
-    fn generate_dependency_graph(&self, deps: &DependencyGraph) -> String;
-    fn generate_pattern_index(&self, patterns: &[CodePattern]) -> String;
-    fn generate_error_coverage(&self, errors: &[ErrorCoverageEntry]) -> String;
-    fn generate_report(&self, all_results: &AnalysisResults) -> String;
-}
 ```
-
-### 5.2 File layout
-
-```rust
-enum OutputPath {
-    ReviewIntents,           // .skia/review/intents.md
-    ReviewTypeSchema,        // .skia/review/types/schema.mmd
-    ReviewTypeDrift,         // .skia/review/types/drift.md
-    ReviewTypeFlow(DeclName),// .skia/review/types/flows/{name}.md
-    ReviewDeps,              // .skia/review/structure/deps.mmd
-    ReviewLayers,            // .skia/review/structure/layers.md
-    ReviewStates,            // .skia/review/structure/states.mmd
-    ReviewPatternIndex,      // .skia/review/patterns/index.md
-    ReviewDuplicates,        // .skia/review/patterns/duplicates.md
-    ReviewMissingAbstractions,// .skia/review/patterns/missing.md
-    ReviewErrorCoverage,     // .skia/review/errors/coverage.md
-    Report,                  // .skia/report.md
-    Diff,                    // .skia/diff.md
-}
+raw staged diff + index paths + HEAD
+       |
+       v
+  Build immutable review snapshot
+  - raw diff bytes and SHA-256
+  - base file content from HEAD (when present)
+  - staged file content from the index
+  - changed staged line ranges
+       |
+       v
+  Parse base and staged .ts/.tsx snapshots
+  with the matching Tree-sitter grammar
+       |
+       v
+  Find changed functions/methods and select one
+  by changed-line count, then file/line order
+       |
+       v
+  Compare supported syntax within that entity
+  - signature
+  - call expressions
+  - branches
+  - throw/catch constructs
+       |
+       v
+  Show changed code + evidence + causal question
+  [a] answer  [s] show more code  [k] skip
+       |
+       v
+  Write local receipt containing diff hash,
+  evidence, response, show-code action, and duration
+       |
+       v
+  Exit
 ```
 
 ---
 
-## 6. Incremental analysis
+## 5. Component design
 
-The key performance requirement is speed. On a 100KLOC codebase, a full scan should take < 30 seconds. An incremental scan (one file changed) should take < 1 second.
+### 5.1 Git snapshot builder (`git.rs`)
 
-### 6.1 Change detection
+The review target is the index, not the working tree. The component:
 
-```rust
-enum ChangeKind {
-    FileAdded(PathBuf),
-    FileModified(PathBuf, String),    // old content hash
-    FileDeleted(PathBuf),
-    Renamed { from: PathBuf, to: PathBuf },
-}
+1. Reads a NUL-delimited added/modified path list with `git diff
+   --cached --name-status -z --diff-filter=AM`.
+2. Reads raw zero-context diff bytes with color, text conversion, and
+   external diff helpers disabled.
+3. Computes SHA-256 over those exact bytes.
+4. Reads each staged file from the index (`git show :path`).
+5. Reads the base file from `HEAD` when it exists (`git show
+   HEAD:path`). Added files use an empty base snapshot.
+6. Parses changed staged-line ranges from hunk headers.
 
-struct IncrementalContext {
-    pending_changes: Vec<ChangeKind>,
-    previous_graph: SemanticGraph,   // serialized from .skia/cache/
-    previous_artifacts: HashMap<OutputPath, String>,
-}
+The component never reads the working-tree copy of a reviewed file;
+that copy may contain unstaged edits. Paths, commands, and raw output
+must be tested with spaces and non-ASCII characters. Phase 0 rejects
+renames, deletions, binary files, submodules, and unsupported status
+codes with an explicit message rather than silently reviewing the
+wrong content.
+
+All subprocesses use `std::process::Command` with structured arguments
+and run at the discovered repository root. No shell is involved.
+
+### 5.2 Parser and entity extractor (`parser.rs`)
+
+The parser chooses the TypeScript grammar for `.ts` and the TSX grammar
+for `.tsx`, then parses both base and staged snapshots. Phase 0 extracts
+only named function declarations and named class/object methods. Each
+entity records kind, name, file, staged source span, and a handle to its
+base and staged syntax nodes when both exist.
+
+An entity qualifies when its staged span overlaps at least one changed
+staged-line range. New entities have no base node. Deleted entities are
+outside Phase 0. If syntax errors overlap the candidate entity, Skia
+must show the parse limitation and fall back or stop; it must not derive
+confident evidence from the invalid region.
+
+Selection is deterministic: choose the entity containing the largest
+number of changed staged lines, then break ties by path and starting
+line. This strategy is simple enough to test and more relevant than
+always selecting the first file.
+
+If no supported entity qualifies, the tool prints "No supported changed
+function or method found" and exits without a receipt.
+
+### 5.3 Syntax-delta evidence (`evidence.rs`)
+
+The evidence layer compares supported node families within the base and
+staged entity. Phase 0 can emit:
+
+- before/after function signature text;
+- added or removed call-expression callee text;
+- added or removed conditional/loop branch text;
+- added `throw` or `catch` constructs.
+
+Matching is deliberately conservative. It may use normalized node text
+and stable local ordering, but it must prefer an explicit fallback over
+claiming a semantic relationship it cannot prove. Evidence items contain
+a kind, add/remove/change direction, staged line when applicable, and a
+short source-derived summary.
+
+### 5.4 Question catalogue (`question.rs`)
+
+The catalogue is a static ordered list of trigger/prompt templates. A
+question contains an ID, required evidence kind, and a prompt renderer.
+Selection follows the order in PRD.md Section 6. It is deterministic
+for a given evidence set.
+
+There is no expected-answer function and no free-text classifier in
+Phase 0. The product is testing whether a developer explains the
+change, not whether a string matcher can certify comprehension.
+
+### 5.5 Receipt writer (`receipt.rs`)
+
+The writer serializes the versioned schema from PRD.md Section 7,
+including the staged-diff SHA-256, evidence, response, show-code action,
+and duration. The path format is:
+
+```
+.skia/receipts/{YYYYMMDDTHHMMSSZ}-{diffHashPrefix}-{entitySlug}.json
 ```
 
-### 6.2 Re-analysis strategy
+The writer creates `.skia/receipts/` when needed, sanitizes filenames,
+and fails clearly on write errors. Receipts are gitignored and may
+contain sensitive source-derived summaries; no upload path exists.
 
-| Change type | What re-parses | What re-analyzes |
-|-------------|---------------|------------------|
-| File added | New file | All passes on new file + affected files (importers) |
-| File modified | Changed file | All passes on changed file + direct importers |
-| File deleted | None | Remove from graph, update dependents |
-| Renamed | Both paths | Update path references |
+### 5.6 Terminal prompt (`prompt.rs`)
 
-### 6.3 Cache structure
+Simple line-based I/O using `std::io::stdin` and `std::io::stdout`:
+
+1. Print entity, file, staged line range, changed lines, and evidence.
+2. Print the causal question.
+3. Print `[a] answer  [s] show more code  [k] skip`.
+4. If `a`, read a one-to-three-sentence explanation.
+5. If `s`, print the full staged entity plus bounded local context,
+   record `showed_code = true`, and prompt again.
+6. If `k`, record the skip without pretending the review passed.
+7. Write the receipt and exit.
+
+No TUI framework, answer grading, or network call is involved. ANSI
+color may be added only when it degrades cleanly in non-interactive
+terminals.
+
+---
+
+## 6. Git invocation strategy
+
+Skia invokes `git` as a subprocess using `std::process::Command`
+with structured argument arrays. It does not use a shell string and
+does not depend on `libgit2`.
+
+Commands used in Phase 0:
+
+| Command | Arguments | Purpose |
+|---------|-----------|---------|
+| `git rev-parse` | `--show-toplevel` | Discover repository root. |
+| `git rev-parse` | `HEAD` | Identify the base commit. |
+| `git symbolic-ref` | `--short -q HEAD` | Read branch name without mislabeling detached HEAD. |
+| `git diff` | `--cached --name-status -z --diff-filter=AM` | Read supported staged paths robustly. |
+| `git diff` | `--cached --unified=0 --no-color --no-ext-diff --no-textconv` | Produce raw parseable diff bytes and changed ranges. |
+| `git show` | `:path` | Read the staged snapshot from the index. |
+| `git show` | `HEAD:path` | Read the base snapshot when it exists. |
+
+All invocations run at the discovered root, check exit status, retain
+stderr for diagnostics, and place revision/path expressions in a
+single argument. The snapshot tests must cover spaces, non-ASCII paths,
+new files, detached HEAD, and unstaged edits adjacent to staged edits.
+
+### Why subprocess git for Phase 0
+
+The required operations are native git concepts and are available in
+the developer environments Skia targets. Structured subprocess
+invocation keeps the initial dependency surface small and avoids shell
+injection. The trade-off is a runtime dependency on a compatible `git`
+binary. If process portability becomes a measured problem, the project
+can evaluate `gix` or `git2` later rather than predicting the need now.
+
+---
+
+## 7. Error handling
+
+All fallible operations return `Result<T, anyhow::Error>`. The main
+function prints user-friendly error messages and exits with a
+non-zero code. Errors are not silenced.
+
+Error cases that must be handled:
+
+- Not a git repository.
+- No staged changes.
+- `git` not found on PATH.
+- Unsupported staged status (rename, deletion, binary, submodule).
+- Base or staged snapshot cannot be read from git.
+- Diff/path parsing is ambiguous.
+- Tree-sitter reports an error overlapping the selected entity.
+- No supported changed function or method exists.
+- `.skia/receipts/` cannot be created or written.
+- Receipt filename sanitization produces a collision.
+
+---
+
+## 8. Testing strategy
+
+### Pure base/staged fixtures
+
+Each fixture contains a base snapshot, staged snapshot, changed-line
+metadata, and expected entity/evidence/question output:
 
 ```
-.skia/cache/
-├── graph.msgpack           # Serialized SemanticGraph (incremental baseline)
-├── ast/
-│   └── {file_hash}.msgpack # Per-file AST cache
-├── passes/
-│   └── {pass_name}.msgpack # Per-pass intermediate results
-└── artifacts/
-    └── {artifact_path}.txt  # Generated artifact content
+fixtures/
+  added-branch/
+    base.ts
+    staged.ts
+    expected.json
+  changed-signature-tsx/
+    base.tsx
+    staged.tsx
+    expected.json
+  ...
 ```
 
----
+The corpus must cover every evidence kind plus fallbacks and known
+limits: overloads, generics, decorators, nested functions, anonymous
+callbacks, syntax errors, and unsupported entity kinds.
 
-## 7. Git-aware features
+### Temporary-repository snapshot tests
 
-Skia integrates with git to understand what changed in the current branch.
+Tests create real temporary git repositories and verify that Skia:
 
-```rust
-struct GitContext {
-    current_branch: String,
-    base_branch: String,           // main/master
-    changed_files: Vec<PathBuf>,   // Files in current diff
-    base_commit: String,
-    head_commit: String,
-}
-```
+- reviews the index rather than adjacent unstaged edits;
+- handles added files and detached HEAD;
+- rejects unsupported statuses explicitly;
+- preserves paths with spaces and non-ASCII characters;
+- computes a stable hash for the exact raw staged diff.
 
-- `skia review` without args → analyzes files changed in current diff vs base branch
-- `skia review --all` → analyzes entire codebase
-- `skia report` → full analysis (baseline for later comparison)
-- Auto-detects base branch (main, master, or git symbolic ref)
+### Golden interaction and receipt tests
 
----
+End-to-end tests inject stdin and capture stdout, covering answer,
+show-more-code, skip, invalid menu input, and write failure. Golden
+receipts normalize timestamp and duration while preserving the staged
+diff hash, evidence, prompt, and response structure.
 
-## 8. Configuration
+### Behavioral validation
 
-```toml
-# .skia/config.toml (generated by skia init)
-
-[project]
-name = "my-project"
-languages = ["typescript", "python"]
-
-[analysis]
-depth = "balanced"           # "quick" | "balanced" | "deep"
-error_analysis = true
-pattern_detection = true
-sdlc_analysis = true
-
-[output]
-format = "markdown"          # "markdown" | "json" | "sarif"
-diagram_format = "mermaid"   # "mermaid" | "excalidraw" | "plantuml"
-open_after_generate = false
-
-[display]
-show_speculative = false     # Show low-confidence findings
-severe_only = false          # Only critical/high severity
-
-[git]
-auto_base = true             # Auto-detect base branch
-hooks = ["pre-push"]         # Which hooks to install
-
-[layers]
-# Custom layer definitions for compliance checking
-ui = ["components/", "pages/", "views/"]
-service = ["services/", "usecases/"]
-data = ["repositories/", "db/", "models/"]
-
-[watch]
-debounce_ms = 300
-exclude = ["node_modules/", "target/", ".skia/", "dist/"]
-```
+Mechanical tests cannot show that the checkpoint improves
+comprehension. The four-week dogfood pilot in PRD.md Section 8 is a
+separate product test and must complete before the project adds an
+automatic git hook or expands language support.
 
 ---
 
-## 9. Plugin system
+## 9. Configuration
 
-Skia uses a plugin architecture at three levels:
+Phase 0 has no configuration file. No `.skia/config.toml`. No
+runtime flags beyond the command itself (`skia review`).
 
-| Plugin type | Interface | Loading |
-|-------------|-----------|---------|
-| Language parser | `LanguageParser` trait | Dynamic lib (.so/.dylib) or WASM |
-| Analysis pass | `AnalysisPass` trait | Dynamic lib or WASM |
-| Output generator | `OutputGenerator` trait | Dynamic lib or WASM |
-
-WASM plugins are preferred for ease of distribution and sandboxing. Native dynamic libs are available for performance-critical parsers.
-
----
-
-## 10. Performance targets
-
-| Operation | Target | Notes |
-|-----------|--------|-------|
-| Full scan, 10KLOC TS | < 5s | Cold cache |
-| Full scan, 100KLOC TS | < 30s | Cold cache |
-| Incremental (1 file) | < 1s | Hot cache |
-| Watch mode latency | < 500ms | From file save to artifact update |
-| Peak memory, 100KLOC | < 500MB | Under 10% of typical dev machine |
-
----
-
-## 11. Technology choices
-
-| Component | Choice | Why |
-|-----------|--------|-----|
-| Core language | Rust | Tree-sitter is Rust-native. Performance-critical analysis. |
-| Parser | Tree-sitter | Incremental parsing, multi-language, robust against syntax errors |
-| CLI framework | clap | Standard Rust CLI library |
-| Serialization | MessagePack (rmp-serde) | Compact, fast, good for cache |
-| Output formats | Hand-rolled markdown/mermaid | Simple, no heavy dependencies |
-| Plugin system | WASM (wasmtime) | Sandboxed, cross-platform, easy distribution |
-| File watching | notify (Rust) | Cross-platform filesystem events |
-| Git integration | git2 (libgit2) | Full git capabilities |
-
----
-
-## 12. Testing strategy
-
-| Level | What | How |
-|-------|------|-----|
-| Unit | Each analysis pass | Deterministic AST inputs → expected artifact output |
-| Integration | Full pipeline on sample repos | Known inputs → match against golden files |
-| Regression | Real-world OSS repos | Run on 5 popular TS repos, verify no crashes |
-| Performance | Benchmarks | criterion.rs benchmarks for each pass |
-| Dogfood | Skia analyzes itself | Meta — catches our own issues |
+Configuration introduces complexity and state. Phase 0 is a single
+command with deterministic behavior. If configuration becomes
+necessary (e.g., question catalogue tuning, receipt directory
+customization), it will be added in a later phase with evidence
+justifying the complexity.

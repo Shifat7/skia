@@ -1,0 +1,54 @@
+name: Benchmark fixture
+description: Submit a TypeScript diff that would make a good test case for entity extraction or question generation
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for submitting a benchmark fixture. This is a
+        documentation-only project. No source code or test runner
+        exists yet. Fixtures submitted here will be used when
+        implementation begins.
+  - type: textarea
+    id: typescript-code
+    attributes:
+      label: TypeScript source code
+      description: Paste the TypeScript code that the fixture is based on. Keep it under 50 lines.
+    validations:
+      required: true
+  - type: textarea
+    id: staged-diff
+    attributes:
+      label: Staged diff
+      description: Paste the git diff (unified format) that represents the staged change. Keep it under 50 changed lines.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-entity
+    attributes:
+      label: Expected entity extraction
+      description: What entity (kind, name, file, line range) should Skia extract from this diff?
+    validations:
+      required: true
+  - type: dropdown
+    id: entity-kind
+    attributes:
+      label: Entity kind
+      options:
+        - function
+        - method
+    validations:
+      required: true
+  - type: textarea
+    id: expected-question
+    attributes:
+      label: Expected evidence and question (optional)
+      description: Which syntax evidence and catalogue prompt should apply? Explain why.
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional notes (optional)
+      description: Any edge cases, tricky syntax, or other notes about this fixture.
+    validations:
+      required: false

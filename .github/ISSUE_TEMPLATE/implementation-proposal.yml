@@ -1,0 +1,51 @@
+name: Implementation proposal
+description: Propose how a specific Phase 0 component should be built
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for submitting an implementation proposal. This is
+        a documentation-only project. No source code exists yet.
+        Proposals will inform the implementation when it begins.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which component does this proposal address?
+      options:
+        - Git snapshot integrity (AC-1)
+        - TypeScript parser and entity selection (AC-2)
+        - Syntax-delta evidence (AC-3)
+        - Question and terminal interaction (AC-4)
+        - Receipt and privacy (AC-5)
+        - Test corpus and end-to-end proof (AC-6)
+        - Behavioral pilot design (AC-7)
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Proposed approach
+      description: Describe how you would implement this component. Include key data structures, algorithms, and any crates you would use.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: How does this satisfy the acceptance criteria?
+      description: Map your approach to the specific acceptance criteria in IMPLEMENTATION_PLAN.md.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Trade-offs and alternatives
+      description: What alternatives did you consider? What are the trade-offs of your proposed approach?
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and unknowns
+      description: What could go wrong? What is uncertain?
+    validations:
+      required: false

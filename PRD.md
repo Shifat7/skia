@@ -1,334 +1,471 @@
-# Skia — Product Requirements Document
+# Skia -- Product Requirements Document
 
-**Product:** Skia — Structured Code Review Lens
-**Status:** Pre-alpha / PRD v1
-**Target audience:** AI-assisted junior/mid engineers, team leads, OSS maintainers
-
----
-
-## 1. Product vision
-
-A codebase is a living system. AI tools write parts of it fast, but nobody reads it fast enough to catch the subtle breaks. Skia is the missing layer: a generated overlay of review artifacts that sits between the code and the human (or AI) reviewer. It makes the implicit visible — intent, structure, errors, patterns — so the reviewer can focus on judgment, not discovery.
-
-> "Check the shadow before you ship."
+**Product:** Skia -- local evidence-driven review checkpoint
+**Status:** Documentation-only. No runnable CLI exists. This PRD
+describes a proposed product, not a shipping one.
+**Version:** PRD v2 (repositions concept from autonomous semantic
+reviewer to local review checkpoint)
 
 ---
 
-## 2. Problem statement
+## 1. Product thesis
 
-### The core asymmetry
+AI-assisted coding tools can increase output faster than developers
+absorb the code. The product risk is not simply defective code; it is
+code that no human can explain well enough to maintain.
 
-| Before AI | Today |
-|-----------|-------|
-| Engineer writes every line by hand. Knows exactly what exists and where. Speed bottleneck is writing. | AI writes 80% of the code. Engineer reviews and assembles. Speed bottleneck is **understanding**. |
+Most review tools optimize for another machine-generated verdict:
+findings, comments, summaries, or graphs. Those may improve detection,
+but they do not prove that the author inspected or understood the
+change. Skia proposes a different product primitive: a local
+comprehension checkpoint.
 
-### The failure modes
+For one entity in a staged TypeScript diff, Skia surfaces structural
+evidence about the change and asks the developer to explain a causal
+property in their own words: what changed, how control or data moves
+through it, what can fail, or what a caller now observes. Phase 0 does
+not use an LLM to grade the explanation and does not claim the code is
+correct. It records the interaction in a local receipt bound to the
+staged diff.
 
-1. **Intent mismatch.** AI writes a function called `normalizeEmail` that silently strips everything after `+` in Gmail aliases. The intent (normalize) doesn't match the implementation (truncate).
-2. **Type boundary breaks.** API returns `email: string | undefined` but the model maps it to `string`. Crashes on the first user without an email.
-3. **Silent architecture drift.** AI adds a new data access pattern that bypasses the repository layer. Nobody notices until the 3rd bypass creates an inconsistent caching strategy.
-4. **Copy-paste blindness.** AI generates the same auth guard boilerplate in 6 files. One has a different edge case that returns 200 instead of 401. The senior would catch it. The junior doesn't know to look.
-5. **Error path neglect.** A `requests.get()` call with no try/except. Works fine with a network. Fails silently when it's 2am and the API is down.
-6. **DRY violations across files.** The AI doesn't know what it wrote in file A when it writes file B. Same validation logic lives in 3 places. A fix to one doesn't propagate.
-
-### Why existing tools don't solve this
-
-| Tool | Catches | Does NOT catch |
-|------|---------|----------------|
-| Linters (ESLint, Ruff) | Syntax, formatting, style | Intent mismatch, architecture drift |
-| Type checkers (TypeScript, mypy) | Type violations | Missing error paths, DRY violations |
-| Code quality (SonarQube) | Complexity, code smells | Cross-file patterns, contract drift |
-| Code review (human) | Everything | Cost: doesn't scale. Speed: doesn't match AI output rate |
-
-Skia fills the gap between **"no errors"** (linters) and **"correct design"** (human review). It's a structured intermediate representation that elevates what the reviewer sees from raw syntax to semantic intent.
+The product hypothesis is behavioral: a small amount of targeted
+friction can create a repeatable read-explain-ship habit. The first
+milestone is not feature breadth. It is evidence that developers
+inspect code they would otherwise have shipped on autopilot.
 
 ---
 
-## 3. Target users
+## 2. Target user and jobs-to-be-done
 
-### Primary: AI-assisted junior / mid engineer (the vibecoder)
+### Primary user: AI-assisted developer
 
-- Writes 60-80% of code via AI prompting
-- Reviews their own AI-generated code before submitting
-- Wants to understand what the code actually does without tracing every execution path
-- Doesn't know what to look for in a review — needs guardrails, not gatekeeping
-- Frustrated when "it works on my machine" breaks in review
+An individual developer who uses AI coding assistants (e.g., Copilot,
+Cursor, Claude Code) to generate a significant portion of their code.
+They stage and commit diffs that contain code they did not write
+line-by-line and may not have fully read.
 
-### Secondary: Senior engineer reviewing PRs
+**Job-to-be-done:** "When I stage an AI-assisted TypeScript change,
+make me inspect one meaningful changed behavior and explain it in my
+own words before I move on -- without pretending that this replaces a
+full code review."
 
-- Reviews 5-15 PRs per day, many AI-generated
-- Spends 40% of review time just *understanding* what the code does before evaluating it
-- Wants to skip "type boundary X is mismatched" and focus on "this architecture doesn't fit our scale"
-- Looks for patterns, not pixels
+### Secondary users are deferred
 
-### Tertiary: OSS maintainer
+Team leads may eventually value shared or aggregated review evidence,
+but Phase 0 receipts are local and gitignored. Skia must not claim a
+team-level assurance benefit until teams test whether these receipts
+are trustworthy, useful, and safe to share.
 
-- Reviews contributions from people with varying skill levels
-- Needs a shared context layer for codebase understanding
-- Can point contributors to Skia output: "look at the dependency graph — see why this doesn't fit?"
+### What Skia is not for
 
----
-
-## 4. Artifact catalog
-
-### 4.1 Intent declarations (Layer: Contract)
-
-Every exported function/class rendered as:
-
-```
-normalizeEmail: str → str
-  Intent: Lowercases email, removes dots before @ for Gmail, normalizes domain.
-  Pre: input is a valid email string (non-null, contains @)
-  Post: output is lowercase, with Gmail-specific normalization applied
-  Side effects: none (pure function)
-  Error paths: raises ValueError on malformed input
-  ⚠️ IMPLEMENTATION NOTE: Strips everything after '+' — this is NOT
-     standard normalization. If the system expects plus-addressed emails
-     to be distinct, this will deduplicate them.
-```
-
-### 4.2 Type flow traces (Layer: Contract)
-
-For every function, the types flowing in and out, annotated with nullable risk:
-
-```
-checkout(cart: Cart, user: User) → OrderResult
-  cart.items → validateInventory(items) → ValidationResult
-  user.credits → applyCredits(total, credits) → { finalTotal, creditsUsed }
-  paymentMethod = user.paymentMethod  ⚠️ nullable — no fallback
-  chargePayment(finalTotal, paymentMethod) → PaymentResult
-```
-
-### 4.3 Dependency graph (Layer: Structure)
-
-ASCII / Mermaid graph showing module relationships:
-
-```
-src/users/        → src/auth/, src/db/, src/email/
-src/checkout/     → src/users/ ⚠️ CYCLIC: checkout → users → checkout via EventBus
-src/payments/     → src/db/, src/billing/
-```
-
-Cycles highlighted. Fan-in/fan-out annotated. Layer violations flagged.
-
-### 4.4 Pattern index (Layer: Patterns)
-
-Code patterns detected across the codebase:
-
-```
-Pattern: Auth guard (if not authenticated → redirect)
-  Found in: 6 locations
-    auth/middleware.ts — standard
-    admin/dashboard.tsx:12 — inline ⚠️ different: returns 403 instead of redirect
-    api/routes/checkout.ts:8 — inline ⚠️ different: silently returns 200
-
-Pattern: Retry wrapper (exponential backoff on API call)
-  Found in: 2 locations
-    Should this be unified?
-```
-
-### 4.5 Error coverage map (Layer: Errors)
-
-Per-function error analysis:
-
-```
-findUser(id: UUID) → User | None
-  ├── db.query() — can raise ConnectionError    ✓ handled with retry
-  ├── db.query() — can raise Timeout             ✓ handled with fallback cache
-  └── result parsing — can raise ValueError      ✗ UNHANDLED — crashes if DB
-                                                     returns malformed row
-```
-
-### 4.6 Type drift detection (Layer: Contracts)
-
-Cross-boundary type comparison:
-
-```
-API.User.email: string
-DB.User.email: string?           ⚠️ Nullable mismatch — null DB value crashes API serialization
-
-Frontend.Cart.items: CartItem[]
-API.Cart.items: API.CartItem[]   ⚠️ Different types (same shape) — mapping layer might be wrong
-```
-
-### 4.7 SDLC compliance (Layer: Governance)
-
-```
-SOLID violations:
-  UserController: 4 responsibilities (validation, auth, business logic, formatting) — SRP violation
-
-Layer violations:
-  admin/Dashboard.tsx → direct SQL query (skips repository layer)
-
-API contract drift:
-  Actual response has field "user_name" but OpenAPI spec says "username"
-```
-
-### 4.8 State machine diagrams (Layer: Structure)
-
-For objects with state transitions:
-
-```
-OrderStatus: PENDING → CONFIRMED → SHIPPED → DELIVERED
-                              ↘ CANCELLED → REFUNDED
-  ⚠️ Missing: PENDING → CANCELLED (can a user cancel before confirmation?)
-```
+Skia is not for developers who write every line by hand and already
+read their own diffs carefully. It is not a replacement for human
+code review. It is not a linter or type checker. It is a checkpoint,
+not a gate.
 
 ---
 
-## 5. Output delivery
+## 3. Proposed workflow
 
-### 5.1 File structure
+The following workflow is the target for Phase 0. It has not been
+implemented.
 
-All artifacts write to `.skia/` at the project root (gitignored):
+1. The developer stages changes with `git add`.
+2. The developer runs `skia review`.
+3. Skia compares the git index with `HEAD`, reads the staged version of
+   changed `.ts` and `.tsx` files from the index, and computes a hash
+   for the exact staged diff.
+4. Skia parses the base and staged versions with Tree-sitter and maps
+   changed hunks to functions or methods.
+5. Skia selects exactly one changed entity using a deterministic
+   strategy and derives one or two structural evidence items, such as
+   a new call, added branch, or changed signature.
+6. Skia shows the entity, evidence, and changed source context before
+   asking a causal question from the catalogue in Section 6.
+7. The developer chooses one action:
+   - **Answer** -- write a one-to-three-sentence explanation.
+   - **Show more code** -- inspect the full entity plus bounded local
+     context, then answer or skip.
+   - **Skip** -- continue without an explanation; the skip is recorded.
+8. Skia records the prompt, response, show-code action, duration, and
+   staged-diff hash in a local JSON receipt. It does not grade free
+   text in Phase 0.
+9. The session ends: one entity, one question, one receipt.
 
+### What the workflow does not do
+
+- It does not block a commit or claim that the code passed review.
+- It does not scan the whole codebase, resolve a complete call graph,
+  or analyze changes outside the staged set.
+- It does not infer intent, prove type flow, or determine error-path
+  completeness.
+- It does not use an LLM or send code, prompts, or receipts over the
+  network.
+- It does not share receipts with a team unless a later, separately
+  validated design adds an explicit opt-in mechanism.
+
+---
+
+## 4. Functional requirements
+
+### FR-1: Staged snapshot and diff reading
+
+Skia must inspect the git index, not the working-tree copy, so
+unstaged edits cannot leak into the review. It must obtain the staged
+diff, changed file paths, changed line ranges, the staged file content,
+and the corresponding `HEAD` content when available. All git commands
+must use structured process arguments rather than a shell string.
+Phase 0 supports added and modified `.ts`/`.tsx` files; renames,
+deletions, submodules, and binary files must fail or skip explicitly.
+
+### FR-2: Base and staged TypeScript parsing
+
+Skia must parse the base and staged snapshots of supported TypeScript
+files with the matching Tree-sitter TypeScript or TSX grammar. It must
+report syntax-error nodes and avoid producing evidence that depends on
+an invalid region. Partial parsing may still support unaffected
+entities, but silent recovery is not acceptable.
+
+### FR-3: Changed-entity extraction and selection
+
+Skia must identify named function declarations and named methods whose
+staged source span overlaps a changed hunk. Phase 0 deliberately omits
+classes as whole entities, interfaces, aliases, and enums because they
+do not support the initial causal-question catalogue. If multiple
+entities qualify, Skia must choose one reproducibly using a documented
+risk proxy, initially the entity with the most changed lines and then
+file/line order as a tie-breaker.
+
+### FR-4: Evidence derivation and question selection
+
+Skia must compare the base and staged syntax for the selected entity
+and derive only evidence it can support directly: changed signature,
+new or removed call expression, added or removed branch, added throw,
+or added catch. It must select one applicable causal question template
+from Section 6. Evidence is deterministic; the developer's free-text
+explanation is not automatically judged.
+
+### FR-5: Diff-first terminal interaction
+
+Skia must present the entity, staged source location, changed lines,
+and structural evidence before the question. It must offer three
+actions: answer, show more code, and skip. An answer is one to three
+sentences. Skia must not label a free-text explanation correct or
+incorrect in Phase 0. On request, it displays the full staged entity
+plus bounded local context and records that action.
+
+### FR-6: Local receipt writing
+
+Skia must write a JSON receipt to `.skia/receipts/` after each
+session. The receipt schema is defined in Section 7 and must bind the
+interaction to a hash of the staged diff. It records evidence,
+response, whether more code was shown, duration, and skip state. The
+`.skia/` directory is gitignored and the tool makes no network calls.
+
+### FR-7: Non-git graceful failure
+
+Outside a git repository, Skia must print a clear error and exit
+non-zero. With no supported staged TypeScript changes, it must explain
+that there is nothing to review, exit successfully, and write no
+receipt.
+
+---
+
+## 5. Non-functional requirements
+
+### NFR-1: Single-threaded, synchronous
+
+Phase 0 must be single-threaded and synchronous. No async runtime,
+no background tasks, no file watchers. The tool runs, interacts, and
+exits.
+
+### NFR-2: No external network calls
+
+Skia must not make any network calls. No telemetry, no update checks,
+no LLM API calls. All processing is local.
+
+### NFR-3: Reproducible selection
+
+Given the same staged diff, Skia must select the same entity, derive
+the same evidence, and ask the same question. Receipt timestamps,
+durations, and user responses are session-specific; the staged-diff
+hash allows a receipt to be traced to the reviewed snapshot.
+
+### NFR-4: Minimal dependencies
+
+Phase 0 must use the smallest practical set of Rust crates. No
+plugin frameworks, no async runtimes, no serialization libraries
+beyond what is needed for JSON receipt output.
+
+### NFR-5: Honest failure
+
+Unsupported statuses, entities, or parse regions must produce a clear
+limitation message. Skia must never turn uncertainty, a skip, or an
+internal failure into language that implies the change passed review.
+
+---
+
+## 6. Question catalogue
+
+Question selection is deterministic, but answers are open-ended. The
+catalogue ties a directly observed syntax delta to a causal explanation
+prompt. Phase 0 records the explanation; it does not score it.
+
+### Q-ERROR-1: Failure-path change
+
+**Trigger:** The staged entity adds a `throw_statement`, `catch_clause`,
+or a call inside a newly added catch block.
+
+**Evidence shown:** The added error-related construct and changed lines.
+
+**Question:** "Explain the failure path introduced or changed here.
+What triggers it, where is it handled, and what can the caller observe?"
+
+### Q-SIG-1: Signature change
+
+**Trigger:** Parameters or the declared return type differ between the
+base and staged entity.
+
+**Evidence shown:** The before and after signatures.
+
+**Question:** "Explain the contract change to `{name}`. Which callers
+or consumers may need to adapt, and what breaks if they do not?"
+
+Skia does not claim to identify every caller in Phase 0.
+
+### Q-BRANCH-1: Branch change
+
+**Trigger:** A staged hunk adds or removes an `if`, `switch`, ternary,
+or loop condition inside the selected entity.
+
+**Evidence shown:** The changed condition and its local branch body.
+
+**Question:** "What input or state reaches this branch, what happens
+on that path, and what result or side effect leaves the entity?"
+
+### Q-CALL-1: Call change
+
+**Trigger:** A call expression is added or removed inside the selected
+entity.
+
+**Evidence shown:** The callee text, add/remove direction, and changed
+line.
+
+**Question:** "Explain why `{callee}` is now called (or no longer
+called) here. What data reaches it, what comes back, and what changes
+for the caller of `{name}`?"
+
+### Q-CHANGE-1: Fallback explanation
+
+**Trigger:** The entity changed but none of the higher-priority syntax
+deltas apply.
+
+**Evidence shown:** The changed hunks within the entity.
+
+**Question:** "In one to three sentences, explain the behavior changed
+inside `{name}` and name one input or state that exercises it."
+
+### Selection order
+
+When more than one trigger applies, Phase 0 selects the first match in
+this order: Q-ERROR-1, Q-SIG-1, Q-BRANCH-1, Q-CALL-1, Q-CHANGE-1. This
+order is a testable design choice, not a claim that it reflects risk.
+
+### Catalogue expansion criteria
+
+A new question may be added only when:
+
+1. Its trigger and displayed evidence are deterministic and
+   AST-derivable.
+2. It asks for a causal explanation, not a trivia fact or automated
+   quality verdict.
+3. It can be exercised by a base/staged fixture pair with an expected
+   trigger and prompt.
+4. Dogfood or user evidence shows that the question is useful enough
+   to justify additional friction.
+
+---
+
+## 7. Receipt schema
+
+Each session produces one local JSON receipt in `.skia/receipts/`.
+The proposed schema is intentionally an interaction record, not a
+certificate that the change is correct.
+
+```json
+{
+  "schema_version": 1,
+  "timestamp": "2026-01-15T10:32:00Z",
+  "duration_ms": 47000,
+  "git": {
+    "base_commit": "abc123def456",
+    "branch": "feature/email-normalize",
+    "staged_diff_sha256": "4c6d...f921",
+    "staged_files": ["src/utils/email.ts"]
+  },
+  "entity": {
+    "kind": "function",
+    "name": "normalizeEmail",
+    "file": "src/utils/email.ts",
+    "start_line": 12,
+    "end_line": 24
+  },
+  "evidence": [
+    {
+      "kind": "added_branch",
+      "line": 13,
+      "summary": "Added early return when email is falsy"
+    }
+  ],
+  "question": {
+    "id": "Q-BRANCH-1",
+    "text": "What input reaches this branch, what happens on that path, and what result leaves the entity?"
+  },
+  "response": {
+    "action": "answer",
+    "explanation": "Undefined input now returns an empty string, so callers can no longer distinguish missing from empty.",
+    "showed_code": true
+  }
+}
 ```
-.skia/
-├── review/
-│   ├── intents.md              # Intent declarations for current diff
-│   ├── types/
-│   │   ├── schema.mmd          # ERD of all types
-│   │   ├── drift.md            # Cross-boundary type mismatches
-│   │   └── flows/              # Per-function type traces
-│   ├── structure/
-│   │   ├── deps.mmd            # Dependency graph
-│   │   ├── layers.md           # Layer compliance
-│   │   └── states.mmd          # State machine diagrams
-│   ├── patterns/
-│   │   ├── index.md            # Pattern index
-│   │   ├── duplicates.md       # Copy-paste detection
-│   │   └── missing.md          # Missing abstractions
-│   └── errors/
-│       └── coverage.md         # Error coverage map
-├── report.md                   # Full codebase report (aggregate)
-└── diff.md                     # Latest diff artifacts (auto-regenerated)
-```
 
-### 5.2 Output formats
+### Required semantics
 
-| Format | Usage |
-|--------|-------|
-| Markdown (.md) | Human-readable — CI output, PR comments |
-| Mermaid (.mmd) | Diagrams — embedded in docs, PRs, rendered in editors |
-| JSON (.json) | Machine-readable — IDE plugins, CI tools, AI agents |
-| SARIF (.sarif) | Standardized — integration with GitHub Code Scanning |
+| Field | Description |
+|-------|-------------|
+| `schema_version` | Integer schema version; starts at 1. |
+| `timestamp` | UTC completion time. Filenames use a compact, path-safe UTC form. |
+| `duration_ms` | Time from first display of evidence to answer or skip. |
+| `git.base_commit` | `HEAD` used as the base snapshot. |
+| `git.staged_diff_sha256` | SHA-256 of the exact raw staged diff reviewed. |
+| `git.branch` | Current branch name, including detached-HEAD handling. |
+| `git.staged_files` | Supported staged paths included in the review snapshot. |
+| `entity` | Kind, name, staged path, and staged source span. |
+| `evidence` | One or more deterministic AST-derived change facts; never a quality verdict. |
+| `question.id` | Catalogue identifier from Section 6. |
+| `question.text` | Prompt shown to the developer. |
+| `response.action` | `answer` or `skip`. |
+| `response.explanation` | Free text when the user answers; omitted on skip. |
+| `response.showed_code` | Whether the user requested expanded code context. |
 
-### 5.3 CLI interface
-
-```bash
-# Generate artifacts for the current diff vs base branch
-skia review                    # Full review artifacts
-skia review --depth types      # Just type artifacts
-skia review --depth patterns   # Just pattern artifacts
-skia review --output json      # Machine-readable output
-
-# Continuous mode
-skia watch                     # Watch filesystem + auto-regenerate
-skia watch --on-hook pre-push  # Only on git hooks
-
-# Reports
-skia report                    # Full codebase analysis (baseline)
-skia report --output sarif     # SARIF for GitHub integration
-
-# Configuration
-skia init                      # Create .skia/config.toml
-```
+Receipt filenames use
+`.skia/receipts/{YYYYMMDDTHHMMSSZ}-{diffHashPrefix}-{entitySlug}.json`.
+The implementation must sanitize entity names for cross-platform file
+systems. Receipts are gitignored and contain source-derived summaries;
+users should treat them as potentially sensitive local data.
 
 ---
 
-## 6. Integration points
+## 8. Validation metrics
 
-| Integration | How | Value |
-|------------|-----|-------|
-| **git hooks** | Pre-push hook auto-generates diff artifacts | Reviewer sees artifacts alongside diff |
-| **CI/CD** | CI step runs `skia review --output json` | PR comments with artifact links |
-| **GitHub PRs** | Comment with collapsible artifact sections | Shared context for reviewers |
-| **IDE (VS Code)** | LSP extension shows artifact annotations inline | Real-time feedback while coding |
-| **AI agents** | Agent reads `.skia/review/` before making changes | Agent understands what it's about to modify |
-| **Editor (Neovim/Helix)** | Telescope picker for artifacts | Quick navigation |
+Phase 0 has two separate bars: mechanical correctness and behavioral
+usefulness. Local receipts are not uploaded by default; pilot
+participants must explicitly export or share aggregate results.
 
----
+### Mechanical bar
 
-## 7. Success metrics
+| Metric | Proposed bar |
+|--------|--------------|
+| Supported-file snapshot correctness | Staged content, not working-tree content, is used in every fixture. |
+| Entity selection accuracy | 100% on the accepted base/staged fixture corpus. |
+| Evidence trigger accuracy | 100% precision on the accepted fixture corpus; unsupported cases must fall back rather than invent evidence. |
+| Determinism | Same staged diff produces the same entity, evidence, prompt, and diff hash. |
+| Receipt validity | Every generated receipt validates against the versioned schema. |
 
-| Metric | Target | Why |
-|--------|--------|-----|
-| **Time to first review artifact** | < 5 seconds on a 100KLOC codebase | Must feel instant |
-| **Artifact accuracy** | No false positives that mislead review | Wrong signal is worse than no signal |
-| **Review time reduction** | 30% less time spent understanding code | Measured in time-to-approve or first-review-comment |
-| **Bug catch rate** | 15% of review blockers caught by Skia first | Self-reported in PR comments |
-| **Adoption** | 200+ GitHub stars, 5+ active contributors | Validates the problem is real |
-| **Depth tuning** | Users actually use different depth levels | Proves the tunability isn't overengineering |
+Passing a curated fixture set is necessary, not proof of real-world
+reliability. The fixture corpus must include TSX, overloads, generics,
+decorators, nested functions, anonymous callbacks, syntax errors,
+new files, unstaged edits beside staged edits, and paths with spaces.
 
----
+### Behavioral pilot bar
 
-## 8. Phased delivery
+Run a four-week opt-in dogfood pilot before adding hooks, packages, or
+additional languages. Track:
 
-### Phase 0: Foundation (we are here)
-- Project scaffold, Rust + tree-sitter core
-- Single language support (TypeScript — most AI-generated code)
-- Basic artifact generation: intents, dependency graph
-- CLI skeleton: `skia review`, `skia init`
-- `.skia/` output directory structure
-- Watch mode via git hooks
+- answer, show-more-code, and skip rates;
+- median time from evidence display to response;
+- repeat use by participant and week;
+- explanation length and a blinded manual sample for causal depth;
+- whether participants report opening or reading code they otherwise
+  would have skipped;
+- uninstall or abandonment reasons.
 
-### Phase 1: Core artifacts
-- Intent declarations with pre/post condition inference
-- Dependency graph with cycle detection + layer violations
-- Type flow traces (nullable tracking, boundary mismatches)
-- Error coverage maps (try/catch analysis, unchecked exceptions)
+Initial decision thresholds, chosen to make the hypothesis falsifiable:
 
-### Phase 2: Pattern intelligence
-- Pattern index (detect repeated code structures)
-- Copy-paste detection (exact + near-duplicate)
-- Missing abstraction suggestions
-- Design pattern identification (Strategy, Factory detected from structure)
+- skip rate below 70% by week 4;
+- at least 50% of pilot users still use the manual command in week 4;
+- at least 40% report that the checkpoint changed what they inspected;
+- no evidence that the tool reviews unstaged or stale content.
 
-### Phase 3: Type intelligence
-- Cross-boundary type drift detection
-- Generic instantiation maps
-- Type similarity detection (same shape, different names)
-- Structural type diff on PR
-
-### Phase 4: SDLC & Security
-- SOLID violation detection
-- Layer compliance enforcement
-- Input validation coverage maps
-- Auth boundary analysis
-- Secret/credential scanning (baseline)
-
-### Phase 5: AI integration
-- AI agent reads `.skia/` context before edits
-- Skia-aware code generation prompts
-- Auto-create PR descriptions from artifact diffs
-- LLD diagram generation from architecture artifacts
-
-### Phase 6: Polyglot
-- Python support
-- Go support
-- Rust support
-- Language-neutral analysis engine
+These are product decision thresholds, not externally validated
+benchmarks. A later controlled test should compare maintenance or
+change-explanation performance with and without the checkpoint.
 
 ---
 
-## 9. Non-goals
+## 9. Kill or pivot criteria
 
-- **Not a linter.** Skia doesn't enforce style, formatting, or naming conventions. Use ESLint, Ruff, or rustfmt.
-- **Not a type checker.** Skia uses types for analysis but defers to the language's type system for validation.
-- **Not a test runner.** Skia analyzes test coverage but doesn't run tests.
-- **Not a CI/CD platform.** Skia generates files that CI/CD can consume.
-- **Not a code search engine.** Skia understands code structure, not arbitrary text queries.
-- **Not a mirror dir.** Skia does NOT generate a pseudo-code mirror of the codebase. It generates curated review artifacts.
+Stop, redesign, or narrow the project if any of the following holds:
+
+1. **Snapshot integrity is unreliable.** The tool cannot consistently
+   bind questions and receipts to the exact staged content.
+2. **Useful evidence requires pretending syntax is semantics.** If
+   causal prompts cannot be grounded without a compiler, LSP, or LLM,
+   add that dependency explicitly or abandon the claim.
+3. **Users route around the friction.** Skip rate remains at or above
+   70%, fewer than half of pilot users return in week 4, or the prompt
+   becomes a ritual response that does not require inspection.
+4. **No behavioral signal appears.** Pilot users do not inspect more
+   code, cannot explain changes better, or report only annoyance.
+5. **The wedge is not distinct.** Existing explanation-gate tools
+   deliver equal or better behavior change with less setup, leaving no
+   reason to adopt this project.
+6. **The name remains unresolved.** Do not publish packages or launch
+   publicly under a name dominated by Google's Skia project.
 
 ---
 
-## 10. Risks and mitigations
+## 10. Risks
 
-| Risk | Mitigation |
-|------|-----------|
-| **False positives erode trust** | Conservative analysis by default. Flag severity levels. Explicit "speculative" markers. |
-| **Performance on large codebases** | Incremental analysis (only changed files). Tree-sitter is fast by design. .skia/ cache. |
-| **Language coverage is too wide** | Start with TypeScript only. Prove the model works before expanding. |
-| **No one uses it** | Release early (Phase 0 usable). Dogfood on own projects. Publish comparison: "issues Skia caught in this PR." |
-| **Competing with existing tools** | Skia is complementary, not competitive. It feeds into SonarQube/SARIF rather than replacing them. |
-| **Maintenance burden** | Plugin architecture keeps core stable while language parsers evolve independently. |
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Open-ended prompts become ritual answers | High | High | Show evidence first, sample explanations manually, measure repeat behavior, and enforce kill criteria. |
+| Tree-sitter evidence is mistaken for semantic proof | High | High | Limit claims to syntax deltas; fail or fall back on unsupported cases; add compiler, LSP, or LLM support only as an explicit later decision. |
+| Working-tree content contaminates a staged review | Medium | High | Read snapshots from the git index and bind receipts to the staged-diff hash. |
+| Users skip or abandon the tool | High | High | Start with a manual command, record friction, and add hooks only after four-week retention evidence. |
+| Receipts expose sensitive design information | Medium | Medium | Keep them local and gitignored, document their contents, and do not add automatic upload. |
+| Name collision with Google's Skia prevents discovery | High | High | Resolve the rename before package publication or launch. |
+| A broader review tool absorbs the feature | Medium | High | Compete on verified behavior change and a narrow habit loop, not feature breadth. |
+
+---
+
+## 11. Phased roadmap
+
+### Phase 0 (proposed, not started)
+
+TypeScript, staged snapshot integrity, function/method extraction,
+syntax-delta evidence, causal question templates, diff-first terminal
+interaction, local receipts, fixture/golden tests, and a four-week
+manual-command dogfood pilot. No hook ships before the pilot meets the
+behavioral thresholds in Section 8.
+
+### Phase 1 (conditional on Phase 0 evidence)
+
+Refine evidence and prompts using pilot failures. Evaluate an opt-in
+non-blocking hook and a privacy-preserving local summary. Unstaged or
+branch-diff support is allowed only if snapshot identity remains clear.
+Team-visible receipts require a separate privacy and trust design.
+
+### Phase 2 (conditional on Phase 1 evidence)
+
+Evaluate additional entity types (enums, decorators, exported
+variables). Evaluate whether the checkpoint concept generalizes to
+other languages. No polyglot support without evidence.
+
+### Beyond Phase 2
+
+No features are planned beyond Phase 2. Inferred intent, type-flow
+analysis, error-path completeness, pattern intelligence, SARIF,
+plugins, LLM judging, CI PR comments, and full-codebase semantic
+graphs are explicitly deferred until evidence from prior phases
+justifies them.
