@@ -25,7 +25,7 @@ consistency with the project's stated scope.
 ### Scope changes
 
 The project's scope is deliberately narrow (Phase 0: TypeScript,
-staged diffs, one question, one receipt). Expanding scope requires:
+staged diffs, bounded review unit, one receipt). Expanding scope requires:
 
 1. Evidence that the current scope is insufficient.
 2. A concrete proposal for what to add.

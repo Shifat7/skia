@@ -13,10 +13,12 @@ body:
       label: Which component does this proposal address?
       options:
         - Git snapshot integrity (AC-1)
-        - TypeScript parser and entity selection (AC-2)
+        - TypeScript parser and entity processing (AC-2)
         - Syntax-delta evidence (AC-3)
-        - Question and terminal interaction (AC-4)
-        - Receipt and privacy (AC-5)
+        - Behavior Card and diff-first interaction (AC-4)
+        - Narrow source check (AC-4b)
+        - Optional probe spec (AC-4c)
+        - Comprehension receipt and privacy (AC-5)
         - Test corpus and end-to-end proof (AC-6)
         - Behavioral pilot design (AC-7)
     validations:

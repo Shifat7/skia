@@ -36,8 +36,8 @@ change.
 Focus areas where feedback is most valuable:
 
 - The proposed workflow (PRD.md Section 3).
-- The question catalogue (PRD.md Section 6).
-- The receipt schema (PRD.md Section 7).
+- The Behavior Card templates and source checks (PRD.md Section 6).
+- The comprehension receipt schema (PRD.md Section 7).
 - The entity extraction and selection strategy
   (ARCHITECTURE.md Section 5).
 - The kill criteria (PRD.md Section 9).
@@ -52,7 +52,23 @@ A good fixture:
 
 - Contains one or two named TypeScript functions or methods, or an
   unsupported construct that should exercise a clear fallback.
-- Has a clear expected entity extraction result.
+- Includes base and staged code so the diff is unambiguous.
+- Has a clear expected entity extraction result (kind, name, file,
+  line range).
+- States the expected evidence (syntax delta kind and direction).
+- States total, mapped, and unmapped changed TypeScript line counts;
+  unmapped imports or unsupported constructs must stay visible.
+- States source-check eligibility: whether JSON arguments can evaluate
+  an allowlisted atomic parameter predicate ending in a JSON-scalar
+  return or throw with a literal message, and what status (`source_derived_match`,
+  `source_derived_mismatch`, or `not_checkable`) should result.
+- States probe-spec eligibility: whether the entity is an exported
+  top-level function, JSON arguments map unambiguously to declared
+  parameter order, the card predicts return/throw, and whether
+  `draft_unexecuted` or `not_available` should result.
+- If the fixture has more than 3 supported entities or more than 150
+  added-plus-deleted TypeScript lines, states that the tool should refuse and
+  ask the developer to re-stage.
 - Is small enough to read in under a minute.
 - Does not depend on external packages or network access.
 

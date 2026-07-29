@@ -35,10 +35,11 @@ stronger product basis than passive summaries or syntax trivia.
 
 **Limits:** One novice sample, one application/task family, short
 follow-up, a blocking IDE intervention, and an LLM judge. It does not
-validate professional use, long-term retention, a non-blocking CLI, or
-Skia's deterministic prompts. The arXiv copy includes L@S 2026
-conference metadata but a placeholder DOI; use the linked source rather
-than overstating publication status.
+validate professional use, long-term retention, a non-blocking CLI,
+typed Behavior Cards, or Skia's deterministic prompts. VibeCheck
+supports causal teach-back, not typed cards specifically. The arXiv
+copy includes L@S 2026 conference metadata but a placeholder DOI; use
+the linked source rather than overstating publication status.
 
 ---
 
@@ -151,19 +152,38 @@ The evidence supports a problem statement, not a product verdict:
 2. Verification behavior is real, costly, and poorly represented by
    acceptance metrics.
 3. A causal teach-back gate has promising controlled evidence in a
-   novice setting.
+   novice setting. VibeCheck supports causal teach-back, not typed
+   Behavior Cards specifically.
 4. Passive summaries and review automation are not evidence that a
    human formed a usable mental model.
-5. Syntax tooling can ground prompts, but cannot certify understanding.
+5. Syntax tooling can ground typed card prompts, but cannot certify
+   understanding.
+6. None of the cited studies validates generated pseudocode as a safe
+   replacement for source review. A pseudocode arm is a comparison
+   condition, not the default source of truth.
 
 The smallest defensible test is therefore:
 
-- show the changed source and supported evidence first;
-- ask one causal question in the developer's own words;
-- record answer/show/skip behavior locally;
+- keep the raw changed source as the source of truth and show supported
+  evidence first;
+- bound the session and ask for a smaller staged change instead of
+  summarizing away excess review volume;
+- collect a typed Behavior Card for each supported changed entity
+  (within pilot budgets) predicting the change's behavior;
+- perform a narrow local source check only when JSON arguments evaluate
+  an allowlisted atomic branch predicate ending in a JSON-scalar return
+  or throw with a literal message, labelled in the receipt enum as
+  `source_derived_match`, `source_derived_mismatch`, or `not_checkable`;
+- produce a probe spec (structured JSON, never source code) for
+  eligible cards;
+- record total, mapped, and unmapped changed TypeScript lines plus
+  per-entity card/skip behavior, probe-spec status, and source-check
+  status locally;
 - avoid automated correctness claims;
 - measure repeat use and whether people inspect code they would have
-  skipped;
+  skipped, comparing against a raw-diff-only control;
+- track budget-refusal and restaging behavior to tune the pilot
+  budgets;
 - stop if the interaction becomes ritual friction.
 
 ## 7. Claims the project must not make
@@ -175,7 +195,11 @@ Until Skia has its own controlled evidence, it must not claim that it:
 - halves maintenance failures;
 - performs semantic analysis from Tree-sitter alone;
 - replaces code review, static analysis, type checking, or tests;
-- is battle-tested, production-ready, fast at scale, or widely used.
+- is battle-tested, production-ready, fast at scale, or widely used;
+- has verified, validated, or confirmed a card's prediction at runtime;
+- has run, passed, or executed a probe spec;
+- has covered the whole diff when changed lines remain unmapped or
+  cards were skipped.
 
 These are explicit truthfulness constraints for README, release notes,
 package metadata, and launch material.
