@@ -1,0 +1,48 @@
+name: Design feedback
+description: Provide feedback on the proposed product design, workflow, or schema
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for providing design feedback. This is a
+        documentation-only project. No source code exists. Please
+        focus your feedback on the proposed design as described in
+        the project documents.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does your feedback address?
+      options:
+        - Proposed workflow (PRD.md Section 3)
+        - Behavior Card templates and source checks (PRD.md Section 6)
+        - Comprehension receipt schema (PRD.md Section 7)
+        - Mapped/unmapped line coverage and card-status semantics (PRD.md Section 7)
+        - Entity extraction and bounded review unit (ARCHITECTURE.md Section 5)
+        - Pilot budgets and budget-refusal behavior (PRD.md Section 8)
+        - Kill criteria (PRD.md Section 9)
+        - Non-goals list (README.md)
+        - Open decisions (docs/OPEN_DECISIONS.md)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is the problem?
+      description: Describe what you think is wrong, missing, or unclear in the current design.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: What would you change?
+      description: Describe your proposed change or alternative.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Supporting evidence (optional)
+      description: If you have evidence (research, experience, data) that supports your feedback, describe it here. Include source names and limitations.
+    validations:
+      required: false

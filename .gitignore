@@ -15,3 +15,6 @@ venv/
 .vscode/
 .idea/
 *.rs.bk
+
+# Skia review receipts and local state
+.skia/

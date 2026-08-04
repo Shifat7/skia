@@ -1,0 +1,82 @@
+name: Benchmark fixture
+description: Submit a TypeScript diff that would make a good test case for entity extraction, Behavior Card validation, or source-check eligibility
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for submitting a benchmark fixture. This is a
+        documentation-only project. No source code or test runner
+        exists yet. Fixtures submitted here will be used when
+        implementation begins.
+  - type: textarea
+    id: typescript-code
+    attributes:
+      label: Base TypeScript source code
+      description: Paste the TypeScript code before the change (base/HEAD version). Keep it under 50 lines.
+    validations:
+      required: true
+  - type: textarea
+    id: staged-diff
+    attributes:
+      label: Staged code and diff
+      description: Paste the staged (after) code and the git diff (unified format) that represents the staged change. Keep it under 50 changed lines.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-entity
+    attributes:
+      label: Expected entity extraction
+      description: What entity (kind, name, file, line range) should Skia extract from this diff?
+    validations:
+      required: true
+  - type: dropdown
+    id: entity-kind
+    attributes:
+      label: Entity kind
+      options:
+        - function
+        - method
+    validations:
+      required: true
+  - type: textarea
+    id: expected-evidence
+    attributes:
+      label: Expected evidence (optional)
+      description: Which syntax delta (changed signature, added/removed call, added/removed branch, added throw/catch, or fallback changed hunk) should apply? Explain why.
+    validations:
+      required: false
+  - type: textarea
+    id: expected-line-mapping
+    attributes:
+      label: Expected mapped and unmapped changed lines (optional)
+      description: State total changed TypeScript lines, which overlap supported functions or methods, and which remain unmapped (for example imports or unsupported constructs).
+    validations:
+      required: false
+  - type: textarea
+    id: expected-source-check
+    attributes:
+      label: Expected source-check eligibility (optional)
+      description: Can JSON arguments evaluate an allowlisted atomic parameter predicate ending in a JSON-scalar return or throw with a literal message? State the expected enum status (source_derived_match, source_derived_mismatch, or not_checkable) and why.
+    validations:
+      required: false
+  - type: textarea
+    id: expected-probe-spec
+    attributes:
+      label: Expected probe spec eligibility (optional)
+      description: Is this an exported top-level function whose JSON arguments map unambiguously to declared parameter order and whose card predicts return/throw? State whether draft_unexecuted or not_available should result and why.
+    validations:
+      required: false
+  - type: textarea
+    id: expected-budget
+    attributes:
+      label: Expected budget behavior (optional)
+      description: If the fixture has more than 3 supported entities or more than 150 added-plus-deleted TypeScript lines, state that the tool should refuse and ask the developer to re-stage. Otherwise, state that it is within budget.
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional notes (optional)
+      description: Any edge cases, tricky syntax, or other notes about this fixture.
+    validations:
+      required: false
