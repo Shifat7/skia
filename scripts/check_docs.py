@@ -70,14 +70,66 @@ def read_utf8(path: Path) -> str | None:
 def markdown_links(path: Path, text: str) -> tuple[list[str], list[str]]:
     relative: list[str] = []
     external: list[str] = []
-    for match in re.finditer(r"!?\[[^\]]*\]\(([^)]+)\)", text):
-        target = match.group(1).strip()
+    raw_targets: list[str] = []
+
+    # Parse inline links with balanced parentheses so URLs such as
+    # https://example.test/api(v1) are not truncated at the first `)`.
+    for match in re.finditer(r"!?\[[^\]]*\]\(", text):
+        cursor = match.end()
+        depth = 1
+        escaped = False
+        target_chars: list[str] = []
+        while cursor < len(text):
+            char = text[cursor]
+            cursor += 1
+            if escaped:
+                target_chars.append(char)
+                escaped = False
+            elif char == "\\":
+                target_chars.append(char)
+                escaped = True
+            elif char == "(":
+                depth += 1
+                target_chars.append(char)
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+                target_chars.append(char)
+            else:
+                target_chars.append(char)
+        if depth:
+            error(f"{path.relative_to(ROOT)} has an unclosed inline Markdown link")
+            continue
+        raw_targets.append("".join(target_chars).strip())
+
+    # Parse reference-style definitions and verify every use resolves.
+    definitions: dict[str, str] = {}
+    for match in re.finditer(
+        r"(?m)^\s{0,3}\[([^\]]+)\]:\s*(<[^>]+>|\S+)", text
+    ):
+        definitions[match.group(1).strip().casefold()] = match.group(2).strip()
+    raw_targets.extend(definitions.values())
+
+    for match in re.finditer(r"(?<!!)\[([^\]\n]+)\]\[([^\]\n]*)\]", text):
+        label = match.group(1).strip()
+        reference = (match.group(2).strip() or label).casefold()
+        if reference not in definitions:
+            error(
+                f"{path.relative_to(ROOT)} has unresolved Markdown reference "
+                f"[{label}][{match.group(2)}]"
+            )
+
+    for raw_target in raw_targets:
+        target = raw_target.strip()
         if not target:
             continue
         if target.startswith("<") and ">" in target:
             target = target[1 : target.index(">")]
         else:
-            target = target.split()[0]
+            # A title may follow a valid destination. Unescaped spaces in the
+            # destination itself are invalid; angle brackets are required.
+            target = target.split(maxsplit=1)[0]
         if target.startswith(("http://", "https://")):
             external.append(target)
         elif target.startswith(("mailto:", "#")):
@@ -297,6 +349,34 @@ def check_contract_invariants() -> None:
     forbid_text("ARCHITECTURE.md", "`Tsx`")
     forbid_text("README.md", "generates review artifacts (intent, dependency graphs")
     forbid_text("README.md", "one Behavior Card per entity; therefore")
+
+    for path in ("PRD.md", "ARCHITECTURE.md", "IMPLEMENTATION_PLAN.md", "SECURITY.md"):
+        require_text(path, "provider endpoint allowlist")
+    require_text("docs/artifacts/README.md", '"claim_counts"')
+    require_text("docs/artifacts/README.md", '"subsystems"')
+    require_text("docs/artifacts/README.md", "non-manifest artifact hash")
+
+    implementation_text = (ROOT / "IMPLEMENTATION_PLAN.md").read_text(encoding="utf-8")
+    acceptance_ids = re.findall(r"(?m)^\|\s*(\d+\.\d+)\s*\|", implementation_text)
+    duplicate_acceptance_ids = [
+        item for item, count in Counter(acceptance_ids).items() if count > 1
+    ]
+    if duplicate_acceptance_ids:
+        error(
+            "IMPLEMENTATION_PLAN.md has duplicate acceptance-criterion IDs: "
+            f"{duplicate_acceptance_ids}"
+        )
+
+    decisions_text = (ROOT / "docs" / "OPEN_DECISIONS.md").read_text(encoding="utf-8")
+    decision_ids = re.findall(r"(?m)^##\s+(OD-\d+):", decisions_text)
+    duplicate_decision_ids = [
+        item for item, count in Counter(decision_ids).items() if count > 1
+    ]
+    if duplicate_decision_ids:
+        error(
+            "docs/OPEN_DECISIONS.md has duplicate decision IDs: "
+            f"{duplicate_decision_ids}"
+        )
 
     benchmark = (ISSUE_ROOT / "benchmark-fixture.yml").read_text(encoding="utf-8")
     if "unsupported / no entity" not in benchmark:

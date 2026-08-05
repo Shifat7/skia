@@ -42,8 +42,8 @@ Skia tests a narrower alternative:
 2. collapse supported behavior into a shorter, code-like evidence surface;
 3. ask the developer to predict one observable path;
 4. reveal a narrow source-derived comparison only after the prediction; and
-5. keep the original source, anchors, coverage limits, and uncertainty one
-   action away.
+5. keep the original source, anchors, coverage limits, and uncertainty behind
+   one labelled menu action (one terminal keystroke in Phase 0).
 
 The generated evidence is useful only when it is shorter than the source and
 truthful about what it omitted. If a safe reduction is not possible, Skia must

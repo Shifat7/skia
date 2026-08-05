@@ -201,8 +201,10 @@ Proposed local gitignored layout:
   repo-manifest-20260805T001500Z.json
 ```
 
-A same-second collision receives a suffix such as
-`20260805T001500Z-01`; the resolved run ID is used everywhere.
+Run IDs follow `basic-utc-timestamp [ "-" two-digit-sequence ]`. The first
+run in a second uses `20260805T001500Z`; an atomic collision retry uses
+`20260805T001500Z-01`, then `-02`, and so on. The resolved run ID is used in
+the directory, every filename, and the manifest.
 
 ### 5.1 HLD banner and shape
 
@@ -327,23 +329,60 @@ The manifest is the bundle authority:
     "status": "completed",
     "provider": "configured-agent",
     "model": "disclosed-at-runtime",
-    "external_egress_consented": true
+    "external_egress_consented": true,
+    "endpoint_allowlist": ["https://provider.example/api"]
   },
   "artifacts": [
     {
       "kind": "hld",
       "path": "repo-hld-20260805T001500Z.md",
       "sha256": "4c6d...f921"
+    },
+    {
+      "kind": "lld",
+      "path": "repo-lld-20260805T001500Z.md",
+      "sha256": "814a...3d20"
+    },
+    {
+      "kind": "collapsed_evidence",
+      "path": "repo-collapsed-evidence-20260805T001500Z.md",
+      "sha256": "5b0f...a19c"
+    },
+    {
+      "kind": "behavior_cards",
+      "path": "repo-behavior-cards-20260805T001500Z.json",
+      "sha256": "aa30...717b"
+    },
+    {
+      "kind": "coverage",
+      "path": "repo-coverage-20260805T001500Z.json",
+      "sha256": "d018...5cf3"
     }
   ],
+  "claim_counts": {
+    "deterministic": 42,
+    "model_derived": 12,
+    "uncertain": 3
+  },
+  "subsystems": {
+    "candidates": ["api", "billing", "persistence", "notifications", "web"],
+    "selected": ["billing", "persistence"],
+    "unchecked": ["api", "notifications", "web"]
+  },
+  "card_status": {
+    "architecture": "complete",
+    "selected_complete": 1,
+    "selected_skipped": 1
+  },
   "coverage_file": "repo-coverage-20260805T001500Z.json",
   "cards_file": "repo-behavior-cards-20260805T001500Z.json",
   "privacy_caveat": "Local bundle may contain sensitive architecture and code-derived claims; inspect and delete when no longer needed."
 }
 ```
 
-The final schema also records effective limits/configuration, every artifact
-hash, claim counts, selected/unselected subsystems, completion/card status,
+The final schema also records effective limits/configuration, every
+non-manifest artifact hash, claim counts, selected/unselected subsystems,
+completion/card status,
 errors, and deletion caveat. HLD and LLD claim IDs resolve through the manifest
 to derivation, confidence, anchors, and artifact location.
 

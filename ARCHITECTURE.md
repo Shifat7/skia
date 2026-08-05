@@ -403,8 +403,10 @@ claims before writing artifacts. Validation cannot prove semantic truth; that
 limit is included in the manifest.
 
 The adapter exposes no write, shell, network, Git mutation, or project-execution
-tools to the generating agent. Any provider-specific transport is outside the
-deterministic core and occurs only after consent.
+tools to the generating agent. Provider transport is outside the deterministic
+core, begins only after consent, and may reach only the explicitly disclosed
+provider endpoint set; redirects or fallback providers cannot expand that
+allowlist silently.
 
 ### 7.5 HLD
 
@@ -470,16 +472,17 @@ One UTC run ID is created before artifact writing:
   repo-manifest-20260805T001500Z.json
 ```
 
-If a same-second ID already exists, the writer atomically allocates a stable
-suffix such as `20260805T001500Z-01`. The directory and every filename use the
-resolved run ID.
+Run IDs follow `basic-utc-timestamp [ "-" two-digit-sequence ]`. The writer
+uses atomic create-new retries: `20260805T001500Z`, then
+`20260805T001500Z-01`, `-02`, and so on. It never checks and opens in separate
+steps. The directory and every filename use the resolved run ID.
 
 ### 8.2 Write sequence
 
 1. Create the new run directory atomically.
 2. Write an incomplete manifest with expected artifact names.
 3. Write each artifact with create-new semantics and owner-only permissions.
-4. Hash and validate every completed artifact.
+4. Hash and validate every completed non-manifest artifact.
 5. Write coverage and cards.
 6. Replace the manifest state with `complete` only after all required artifacts
    validate and are durable under the documented platform contract.
@@ -569,8 +572,10 @@ size budgets.
 
 Tests inject prompt instructions through code, comments, Markdown, package
 metadata, paths, and model output. The agent receives them as data and has no
-consequential tools. Network-denial tests cover staged mode. Agent mode tests
-prove no egress before consent and disclose the requested provider boundary.
+consequential tools. Network-denial tests cover staged mode. Agent-mode tests
+prove no egress before consent and, after consent, no network destination beyond
+the explicitly disclosed provider endpoint allowlist, including redirect and
+fallback-provider cases.
 
 ---
 

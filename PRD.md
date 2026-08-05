@@ -43,8 +43,8 @@ final result     -> clamp at 0, then round
 This is **collapsed equivalence evidence**, not proof of semantic equivalence.
 Phase 0 may call an item equivalent only within its declared supported syntax
 and path boundary. If safe reduction is not possible, the item is partial,
-unmapped, unsupported, or `not_checkable`; the original source remains one
-action away.
+unmapped, unsupported, or `not_checkable`; the original source remains behind
+one labelled menu action (one terminal keystroke in Phase 0).
 
 ### 1.2 Representation layers
 
@@ -399,9 +399,10 @@ subsystem relations and ask one observable architecture or flow prediction.
 
 ### 5.7 Timestamped local bundle
 
-A run uses one path-safe UTC run ID in basic ISO 8601 form, for example
-`20260805T001500Z`. If the directory already exists, creation is atomic and the
-run obtains a documented suffix rather than overwriting output.
+A run ID follows `basic-utc-timestamp [ "-" two-digit-sequence ]`. The first
+run in a second uses `20260805T001500Z`; an atomic create-new collision retry
+uses `20260805T001500Z-01`, then `-02`, and so on. No existing output is
+overwritten.
 
 ```text
 .skia/dist/20260805T001500Z/
@@ -425,7 +426,7 @@ The manifest is the bundle authority and records:
 - commit OID and branch/detached state;
 - scanner configuration and resource limits;
 - agent/provider/model disclosure and generation parameters;
-- cryptographic hash of each artifact;
+- cryptographic hash of each non-manifest artifact;
 - included, excluded, unsupported, failed, and unchecked coverage;
 - deterministic and model-derived claim counts;
 - selected and unselected subsystems;
@@ -480,7 +481,9 @@ works without ANSI color and has deterministic non-interactive failure.
 ### NFR-5: Privacy by default
 
 Staged mode has no network path. Repository mode performs no external egress
-until explicit agent consent. Local artifacts avoid unnecessary absolute paths,
+until explicit agent consent; after consent, transport is restricted to the
+disclosed provider endpoint allowlist and cannot silently follow redirects or
+fallback to another provider. Local artifacts avoid unnecessary absolute paths,
 user identity, environment variables, secrets, and raw source duplication.
 
 ### NFR-6: Schema-first outputs

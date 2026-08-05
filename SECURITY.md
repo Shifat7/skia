@@ -60,6 +60,8 @@ Required controls include:
 - zero network capability in staged mode;
 - explicit provider/model/file/byte/token/retention disclosure and consent
   before repository-mode egress;
+- an after-consent provider endpoint allowlist limited to disclosed
+  destinations, with redirect and fallback-provider tests;
 - no consequential tools for the HLD/LLD generation agent;
 - schema/anchor validation and deterministic/model-derived separation; and
 - secret/sensitive-path exclusion that fails closed and never promises perfect

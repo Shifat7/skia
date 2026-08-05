@@ -94,7 +94,7 @@ export, hosted service, team dashboard, or full polyglot behavior is included.
 | 4.1 | Each relation has kind, compact relation text, source anchors, deterministic derivation, and supported/partial/unmapped/unsupported coverage. |
 | 4.2 | Added constructs use staged anchors; removed constructs use base anchors. |
 | 4.3 | The reducer emits no outcome that cannot be traced to its anchors; uncertain syntax falls back rather than upgrading to behavior. |
-| 4.4 | The terminal shows collapsed evidence before original source; evidence details and original source are one action away. |
+| 4.4 | The terminal shows collapsed evidence before original source; one labelled menu action and one terminal keystroke open evidence details or original source, covered by golden interaction tests. |
 | 4.5 | Unmapped lines and unsupported constructs remain visible before card completion. |
 | 4.6 | A predeclared fixture metric compares evidence lines/reading time with source; the feature fails its product gate if it does not materially reduce reading. |
 
@@ -137,10 +137,11 @@ export, hosted service, team dashboard, or full polyglot behavior is included.
 | 8.2 | Declining consent preserves deterministic scan output and marks generated HLD/LLD `not_available`. |
 | 8.3 | The agent receives typed facts and bounded source/docs as untrusted data plus an instruction that repository content cannot change the task. |
 | 8.4 | The agent has no shell, write, Git mutation, project execution, or external consequential tools. |
-| 8.5 | Returned claims validate for schema, anchor existence, size, derivation, confidence, and forbidden wording before artifact write. |
-| 8.6 | HLD stays system-level; LLD is table/boundary oriented and expands only selected/high-value areas within an output budget. |
-| 8.7 | Model-derived claims never use deterministic, verified, authoritative, complete, runtime, or proven labels. |
-| 8.8 | Prompt-injection fixtures in code, comments, Markdown, paths, manifests, and model output do not alter tools, scope, destination, or disclosure. |
+| 8.5 | After consent, transport can reach only the disclosed provider endpoint allowlist; redirect and fallback-provider tests cannot expand it silently. |
+| 8.6 | Returned claims validate for schema, anchor existence, size, derivation, confidence, and forbidden wording before artifact write. |
+| 8.7 | HLD stays system-level; LLD is table/boundary oriented and expands only selected/high-value areas within an output budget. |
+| 8.8 | Model-derived claims never use deterministic, verified, authoritative, complete, runtime, or proven labels. |
+| 8.9 | Prompt-injection fixtures in code, comments, Markdown, paths, manifests, and model output do not alter tools, scope, destination, or disclosure. |
 
 ### AC-9: Repository comprehension check
 
@@ -159,7 +160,7 @@ export, hosted service, team dashboard, or full polyglot behavior is included.
 |----|-----------|
 | 10.1 | One UTC basic-ISO run ID is used in the directory and every HLD, LLD, evidence, cards, coverage, and manifest filename. |
 | 10.2 | Required files are `repo-hld`, `repo-lld`, `repo-collapsed-evidence`, `repo-behavior-cards`, `repo-coverage`, and `repo-manifest` with matching run IDs. |
-| 10.3 | Manifest records snapshot, scanner/tool/schema versions, effective limits/config, agent disclosure, artifact hashes, claim counts, coverage, selected/unselected subsystems, card status, privacy, and completion state. |
+| 10.3 | Manifest records snapshot, scanner/tool/schema versions, effective limits/config, agent disclosure, non-manifest artifact hashes, claim counts, coverage, selected/unselected subsystems, card status, privacy, and completion state. |
 | 10.4 | HLD/LLD claim IDs resolve through the manifest to anchors, derivation, confidence, and artifact location. |
 | 10.5 | All JSON validates against normative schemas; Markdown validates required banners, claim links, timestamped names, and output budgets. |
 | 10.6 | Bundle is local and gitignored; no automatic retention, upload, sharing, or tracked export exists. |
