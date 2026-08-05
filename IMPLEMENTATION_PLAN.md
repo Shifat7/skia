@@ -1,255 +1,280 @@
-# Skia -- Phase 0 Implementation Plan
+# Skia -- Proposed Implementation Plan
 
-> **Planning only.** The repository has no Cargo workspace, source
-> code, tests, package, or runnable command. This plan defines the
-> smallest implementation that can test the product hypothesis; it is
-> not evidence that the product works.
+> **Planning only.** No source, Cargo package, tests, generated artifact,
+> or runnable command exists. This plan defines gates for implementing the
+> reduced-reading staged mode and the TypeScript-first repository mode.
 
 ---
 
-## 1. Phase 0 outcome
+## 1. Outcome
 
-Phase 0 is complete only when a developer can run one manual command
-against a staged TypeScript diff, inspect evidence from each supported
-changed function or method within the pilot budget (at most 3 entities
-and 150 added-plus-deleted TypeScript lines), fill or skip a typed Behavior Card
-for each, see a narrow source check when applicable, receive a probe
-spec when eligible, and receive a local comprehension receipt bound to
-the exact staged snapshot. The receipt must expose total, mapped, and
-unmapped changed TypeScript lines so card completion cannot masquerade
-as full review coverage.
+The first validated product is not a broad code-review platform. It is two
+small comprehension workflows with explicit truth boundaries:
 
-The implementation must answer two separate questions:
+1. `skia review` displays collapsed equivalence evidence for a bounded staged
+   TypeScript change and asks one minimal path prediction before feedback.
+2. `skia repo review` scans one committed TypeScript-first repository snapshot,
+   optionally uses a configured agent to generate timestamped local HLD/LLD,
+   and asks one architecture plus developer-selected subsystem predictions.
 
-1. **Mechanical:** Can the tool review the correct staged bytes and
-   derive supported syntax-delta evidence, validate strongly typed
-   Behavior Cards, perform narrow source checks, produce probe specs
-   (structured JSON, never source code), and enforce budget limits
-   without inventing semantics or executing code?
-2. **Behavioral:** Does the Behavior Card interaction cause developers
-   to inspect and predict code they would otherwise have shipped
-   without reading, and does it outperform a raw-diff-only control?
-
-Feature breadth is not a success criterion.
+Phase 0 is done only when mechanical invariants pass and professional-developer
+tests reach a documented proceed, narrow, pivot, or stop decision.
 
 ---
 
 ## 2. Deliverables
 
-1. One synchronous Rust binary exposing `skia review` as the proposed
-   command name.
-2. Git index/base snapshot reader with staged-diff hashing.
-3. TypeScript and TSX parser for named functions and methods.
-4. Conservative syntax-delta evidence extractor.
-5. Ordered Behavior Card templates and narrow source-check logic.
-6. Optional probe spec generator for exported top-level functions
-   whose JSON arguments map unambiguously to declared parameter order
-   and whose cards predict return/throw outcomes (structured JSON,
-   never source code).
-7. Diff-first terminal interaction.
-8. Versioned local comprehension receipt writer with session scope
-   and per-entity entries.
-9. Pure fixtures, temporary-git-repository tests, and golden
-   interaction/receipt tests covering source-check eligibility, probe
-   spec eligibility, and budget-refusal behavior.
-10. A four-week manual-command dogfood pilot comparing raw-diff-only
-    versus Behavior Card, with a decision memo.
+1. One synchronous Rust binary with `review`, `repo review`, `runs list`,
+   `runs inspect`, and `runs delete` command contracts.
+2. Hardened read-only Git boundary and immutable logical snapshot capture.
+3. TypeScript/TSX parser pinned to compatible current crate versions.
+4. Versioned coverage model shared by both modes.
+5. Staged entity ownership and collapsed-evidence reducer.
+6. Minimal Behavior Card state machine, narrow source checker, and optional
+   unexecuted probe specification.
+7. Staged receipt JSON Schema and canonical fixtures.
+8. Repository inventory, structural model, subsystem discovery, and selection.
+9. Explicit-consent agent adapter with untrusted-content and read-only tool
+   constraints.
+10. Timestamped local HLD, LLD, collapsed evidence, cards, coverage, and
+    manifest bundle under `.skia/dist/`.
+11. Repository-bundle JSON Schemas and canonical Markdown fixtures.
+12. Pure fixtures, temporary-repository tests, golden interactions, security
+    tests, documentation CI, and a published validation decision memo.
 
-No hook, installer, package publication, additional language, LLM,
-CI review bot, or semantic graph is part of Phase 0. No probe spec
-is written into the project, run, or treated as a passed test.
+No source rewrite, automatic adoption, blocking Git hook, tracked architecture
+export, hosted service, team dashboard, or full polyglot behavior is included.
 
 ---
 
 ## 3. Acceptance criteria
 
-### AC-1: Git snapshot integrity
+### AC-1: Git and snapshot integrity
 
 | ID | Criterion |
 |----|-----------|
-| 1.1 | Outside a git repository, the command prints a clear error and exits non-zero. |
-| 1.2 | With no staged supported files, the command exits cleanly without a comprehension receipt. |
-| 1.3 | Added and modified `.ts`/`.tsx` paths are read from a NUL-delimited index status command. |
-| 1.4 | The staged file is read from the index; adjacent unstaged edits in the working tree never appear in displayed code, evidence, prompts, or receipts. |
-| 1.5 | The base snapshot is read from `HEAD`; a new file uses an empty base. |
-| 1.6 | The exact raw staged diff bytes are hashed with SHA-256, and the same index state yields the same hash. |
-| 1.7 | Paths with spaces and non-ASCII characters are preserved. |
-| 1.8 | Renames, deletions, binary files, submodules, and unsupported status codes are rejected or skipped with an explicit reason. |
-| 1.9 | Detached HEAD is represented explicitly rather than reported as a branch. |
-| 1.10 | Every git process uses structured arguments through `std::process::Command`; no shell string is constructed. |
+| 1.1 | Outside Git, both review commands fail clearly and non-zero. |
+| 1.2 | Staged mode captures one immutable logical index snapshot; concurrent `git add` cannot mix displayed/parsed blobs with another diff hash. |
+| 1.3 | Repository mode captures one commit OID and reads its tree by OID; dirty index/working-tree content is disclosed and excluded. |
+| 1.4 | The complete staged NUL-delimited status set is read before partitioning supported entries. |
+| 1.5 | Added/modified regular `.ts` and `.tsx` files are supported; delete, rename, copy, conflict, type change, symlink, submodule, binary, non-regular mode, and unknown states have stable explicit reasons. |
+| 1.6 | Detached and unborn HEAD are represented explicitly; repository mode requires a commit, while staged mode can use an empty base on the first commit. |
+| 1.7 | Path bytes are preserved internally; spaces, non-ASCII, non-UTF-8 where supported, and control characters are escaped safely for display. |
+| 1.8 | `GIT_OPTIONAL_LOCKS=0`, `GIT_NO_LAZY_FETCH=1`, no pager, no terminal prompt, no external diff/textconv, controlled environment, timeout, and output limits are tested. |
+| 1.9 | Missing partial-clone objects fail locally and never trigger network access. |
+| 1.10 | Git and project state are unchanged after success and every failure path. |
 
-### AC-2: Parsing and deterministic entity processing
-
-| ID | Criterion |
-|----|-----------|
-| 2.1 | `.ts` snapshots use the TypeScript grammar and `.tsx` snapshots use the TSX grammar. |
-| 2.2 | Named function declarations and named methods are extracted with kind, name, path, and staged line span. |
-| 2.3 | An entity qualifies when its staged span overlaps an added/new-side range or its paired base span overlaps a deleted/old-side range. Wholly deleted entities remain unsupported and their lines stay unmapped. |
-| 2.4 | All supported entities are processed in deterministic path/line order (not a randomly or heuristically selected single entity). |
-| 2.5 | The same review snapshot always processes the same entities in the same order. |
-| 2.6 | A syntax error overlapping a candidate entity is reported; the tool does not derive confident evidence from that invalid region. |
-| 2.7 | If no supported entity qualifies, the command explains the limit and writes no comprehension receipt. |
-| 2.8 | Interfaces, aliases, enums, anonymous callbacks, and whole classes are not silently treated as supported Phase 0 entities. |
-| 2.9 | When the staged change exceeds 3 supported entities or 150 added-plus-deleted TypeScript lines, the tool refuses to process, asks the developer to re-stage a smaller coherent change, and writes no receipt. The 3/150 budgets are product-experiment defaults, not risk-science benchmarks. |
-| 2.10 | One Behavior Card per entity; therefore 1-3 cards per session within the pilot budget. |
-| 2.11 | Every added and deleted TypeScript diff line is counted as mapped to a supported staged/base entity or unmapped. The terminal and receipt expose both counts; completed cards never imply coverage of unmapped lines. |
-
-### AC-3: Conservative syntax-delta evidence
+### AC-2: Resource and storage safety
 
 | ID | Criterion |
 |----|-----------|
-| 3.1 | A changed declared signature produces exact before/after signature evidence. |
-| 3.2 | Added or removed call expressions produce callee text, direction, and staged line evidence. |
-| 3.3 | Added or removed branch/loop conditions produce source-derived condition evidence. |
-| 3.4 | Added `throw` or `catch` constructs produce error-related evidence without claiming complete error flow. |
-| 3.5 | Unsupported body changes produce the generic changed-hunk fallback, not fabricated semantic evidence. |
-| 3.6 | Evidence is diff-first and source-grounded: changed lines plus conservative syntax delta are shown before the card prompt. No summary-first UI, whole-codebase graph, or hidden AI judgment. |
-| 3.7 | Every evidence item has a base/staged fixture pair and expected output. |
-| 3.8 | The accepted fixture corpus has no false positive evidence; uncertain cases fall back or stop. |
+| 2.1 | Per-file, total-byte, file-count, parse-time, run-time, terminal-input, subprocess-output, artifact-output, and agent-token limits are versioned and tested. |
+| 2.2 | Hitting a limit produces partial coverage or a stop; no complete claim is emitted after silent truncation. |
+| 2.3 | `.skia/` is the only writable root; no source, index, object database, hook, manifest, package file, or project documentation is modified. |
+| 2.4 | Writers reject output-root symlinks/link-following and create directories/files atomically with create-new semantics. |
+| 2.5 | Owner-only permissions are used where supported; same-second run collisions receive a documented suffix and never overwrite. |
+| 2.6 | Interrupted runs remain explicitly incomplete or are safely removed. |
+| 2.7 | `runs list`, `runs inspect`, and `runs delete` expose a local lifecycle without upload. |
 
-### AC-4: Behavior Card and diff-first interaction
-
-| ID | Criterion |
-|----|-----------|
-| 4.1 | The terminal shows each entity, staged location, changed lines, and conservative syntax delta before the card prompt for that entity. |
-| 4.2 | Card template selection follows this order: error, signature, branch, call, fallback. |
-| 4.3 | The card collects GIVEN (`{arguments: object|array|null, state_note: string|null}`), WHEN (`{entity: string, invocation: string}`), THEN (`{kind: return_value|thrown_error|side_effect, value: JSON value|string|null}`), BECAUSE (one or two causal sentences), and IMPACT (one caller consequence or risk). |
-| 4.4 | The card is rendered in a typed, compact form in the terminal and stored as structured JSON. It is not labeled correct or incorrect in Phase 0. |
-| 4.5 | Show more code prints the full staged entity plus bounded local context and then prompts again. |
-| 4.6 | Skip exits for that entity without implying that review passed. |
-| 4.7 | Invalid menu input re-prompts safely. |
-| 4.8 | The tool works without ANSI color in a non-interactive terminal. |
-| 4.9 | The submitted card is persisted before source-check feedback and is not rewritten afterward in Phase 0. |
-| 4.10 | One card per entity; 1-3 cards per session within the pilot budget. |
-
-### AC-4b: Narrow source check
+### AC-3: TypeScript parsing and coverage
 
 | ID | Criterion |
 |----|-----------|
-| 4b.1 | A check is eligible only when JSON arguments evaluate one allowlisted atomic branch predicate (boolean parameter, `!parameter`, or parameter-to-JSON-literal comparison with `===`, `!==`, `<`, `<=`, `>`, or `>=`) ending in a JSON-scalar literal return or a throw with a literal message. |
-| 4b.2 | The receipt enum result is `source_derived_match`, `source_derived_mismatch`, or `not_checkable`. The terminal UI shows human-readable labels (`source-derived match`, `source-derived mismatch`, `not checkable`). |
-| 4b.3 | No source check is ever labeled correct, incorrect, or runtime verified; a match concerns the displayed local branch only and never proves whole-function reachability. |
-| 4b.4 | Method state, property access, helper calls, coercive equality, mutation, compound predicates, non-literal endpoints, and side-effect-only cards report `not_checkable` and stay ungraded. |
+| 3.1 | Pinned `tree-sitter` and `tree-sitter-typescript` versions use current `LANGUAGE_TYPESCRIPT` and `LANGUAGE_TSX` APIs. |
+| 3.2 | Syntax errors, invalid encoding, oversized blobs, unsupported modes, generated/vendor paths, unsupported languages, and unresolved imports are explicit coverage events. |
+| 3.3 | Coverage arithmetic is internally consistent and schema-validated. |
+| 3.4 | Every mapped staged line belongs to at most one supported entity under a fixture-tested nested-entity ownership rule. |
+| 3.5 | Repository inventory classifies every captured tree entry as included, excluded, unsupported, or failed. |
+| 3.6 | Detailed behavior evidence is limited to TS/TSX; manifests, configuration, and docs may inform structure; other source languages remain unsupported coverage. |
 
-### AC-4c: Optional probe spec
-
-| ID | Criterion |
-|----|-----------|
-| 4c.1 | A probe spec is eligible only for an exported top-level function whose JSON arguments map unambiguously to declared parameter order (no receiver, destructuring, rest/default ambiguity, missing, or extra values) and whose THEN predicts a return or throw. |
-| 4c.2 | Every eligible probe spec is `{status: draft_unexecuted, invoke: {entity, arguments}, expect: {kind, value}}`. Ineligible cards produce `{status: not_available, reason}`. |
-| 4c.3 | Phase 0 never writes a probe spec into the project, runs it, treats it as a test, or includes a `framework_hint` or code text. |
-| 4c.4 | Side-effect predictions (THEN kind = `side_effect`) are not eligible without a later adapter. |
-| 4c.5 | The probe spec may be printed or stored alongside the receipt. |
-
-### AC-5: Versioned local comprehension receipt and privacy
+### AC-4: Collapsed equivalence evidence
 
 | ID | Criterion |
 |----|-----------|
-| 5.1 | Each session creates one JSON comprehension receipt matching PRD.md Section 7, covering 1-3 entities within the pilot budget. |
-| 5.2 | The receipt includes schema version, UTC timestamp, duration, session `card_status` (complete/partial/skipped), session scope counts (supported entity count plus total, mapped, and unmapped changed TS lines), base commit, branch/detached state, staged paths, staged-diff hash, an entry for every supported entity (kind, name, path, span, evidence, behavior card with template/given `{arguments, state_note}`/when `{entity, invocation}`/then `{kind, value}`/because/impact, source check with status `source_derived_match`/`source_derived_mismatch`/`not_checkable` and observed_endpoint when present, probe spec with status `draft_unexecuted`/`not_available` and invoke/expect or reason, show-code state, per-entity action), and privacy caveat. |
-| 5.3 | `behavior_card` is present only for entities whose action is `complete`. No correctness field exists. `card_status` describes supported-entity card completion only; it never implies diff coverage or a review pass, and it never suppresses the unmapped-line count. |
-| 5.4 | The filename is path-safe and collision-resistant across supported platforms. |
-| 5.5 | `.skia/` is created when needed and remains gitignored. |
-| 5.6 | Receipt write failures are visible and return non-zero. |
-| 5.7 | No code, diff, receipt, card, probe spec, telemetry, update check, or identifier leaves the machine. A network-denial test or equivalent verification documents this. |
-| 5.8 | No process execution beyond read-only git occurs. No project file writes occur. No package commands are run. |
-| 5.9 | `changed_ts_lines` equals `mapped_changed_ts_lines + unmapped_changed_ts_lines` in every receipt. |
+| 4.1 | Each relation has kind, compact relation text, source anchors, deterministic derivation, and supported/partial/unmapped/unsupported coverage. |
+| 4.2 | Added constructs use staged anchors; removed constructs use base anchors. |
+| 4.3 | The reducer emits no outcome that cannot be traced to its anchors; uncertain syntax falls back rather than upgrading to behavior. |
+| 4.4 | The terminal shows collapsed evidence before original source; one labelled menu action and one terminal keystroke open evidence details or original source, covered by golden interaction tests. |
+| 4.5 | Unmapped lines and unsupported constructs remain visible before card completion. |
+| 4.6 | A predeclared fixture metric compares evidence lines/reading time with source; the feature fails its product gate if it does not materially reduce reading. |
 
-### AC-6: Test corpus and end-to-end proof
+### AC-5: Minimal Behavior Card and source check
 
 | ID | Criterion |
 |----|-----------|
-| 6.1 | At least 20 base/staged fixtures cover every evidence kind, fallback, TSX, overloads, generics, decorators, nested functions, anonymous callbacks, syntax errors, new files, unsupported entities, and over-budget changes. Fixtures include expected source-check eligibility, expected probe spec eligibility, and expected budget status. |
-| 6.2 | Fixtures cover every allowlisted predicate operator with JSON arguments, JSON-scalar return endpoints, and throws with literal messages. Method state, property access, helper calls, coercive equality, mutation, compound predicates, non-literal endpoints, and side effects verify `not_checkable`. |
-| 6.3 | Every eligible exported top-level function fixture produces `{status: draft_unexecuted, invoke, expect}`. Methods, destructured/rest/default-ambiguous signatures, missing/extra arguments, and side effects produce `{status: not_available, reason}`. No probe spec contains source code, a `framework_hint`, or code text or causes a project write/package command. |
-| 6.4 | Temporary-repository tests cover index-vs-working-tree isolation, detached HEAD, path edge cases, unsupported statuses, stable diff hashing, budget refusal (over 3 entities or 150 lines), and no process execution beyond read-only git. |
-| 6.5 | Golden interaction tests cover fill card, show-more-code, skip, invalid input, source-check feedback after card persistence, multi-entity sessions, budget refusal, no supported entity, and write failure. |
-| 6.6 | Golden comprehension receipts normalize timestamp and duration while preserving diff hash, total/mapped/unmapped line counts, per-entity entries (evidence, card, source check, probe spec, action), and session `card_status`. |
-| 6.7 | All tests run offline and deterministically. |
-| 6.8 | Once source exists, CI runs formatting, linting, tests, and a dependency/license check on pull requests. CI is not added before there is code to exercise. |
+| 5.1 | The system supplies `GIVEN` and `WHEN`; the developer supplies `THEN` or skips. |
+| 5.2 | `BECAUSE` is conditional after mismatch or explicit/risk-focused request; `IMPACT` is conditional on a risk prompt. |
+| 5.3 | Prediction is persisted before feedback and is immutable; later reflection is separate. |
+| 5.4 | Prompt count, completed prediction count, skip count, and mapped/unmapped coverage are distinct. |
+| 5.5 | Source-check fixtures define both branch outcomes, early returns, blocks, multiple matches, argument binding, shadowing, changed-range overlap, scalar comparison, throw comparison, and every `not_checkable` reason. |
+| 5.6 | Status is exactly `source_derived_match`, `source_derived_mismatch`, or `not_checkable`; no correctness, runtime, equivalence, coverage, or review-pass claim exists. |
+| 5.7 | Probe specs remain structured JSON, `draft_unexecuted` or `not_available`, and are never source code or executed. |
 
-### AC-7: Behavioral pilot
+### AC-6: Staged receipt
 
 | ID | Criterion |
 |----|-----------|
-| 7.1 | The manual command is dogfooded for four weeks before any automatic hook is added. |
-| 7.2 | Participants explicitly consent before sharing receipt-derived metrics; default operation remains local with no telemetry. |
-| 7.3 | The pilot compares raw-diff-only (control) versus Behavior Card. A third plain-pseudocode arm may be added if sample size allows. |
-| 7.4 | The pilot records code-open/scroll behavior, card completion rate, skip rate, repeat use, maintenance/change-explanation performance, friction (duration, qualitative reports), budget-refusal and restaging behavior, unmapped-line ratio, and abandonment reasons. |
-| 7.5 | A blinded manual sample checks whether cards contain causal content rather than copied syntax. |
-| 7.6 | The decision memo applies the thresholds and kill criteria in PRD.md Sections 8-9 without moving the goalposts. Kill if ritual cards, no behavioral gain over raw-diff-only, or excessive friction. |
+| 6.1 | A normative versioned JSON Schema defines required/optional fields, bounds, nullability, formats, additional properties, complete/partial/skipped sessions, detached/unborn state, interruption, and collision behavior. |
+| 6.2 | The receipt binds base/index identity, path/mode/blob manifest, canonical diff hash, evidence, scenario, prediction, optional reflection, source check, probe status, actions, duration, and privacy caveat. |
+| 6.3 | `card_status` describes prediction completion only and cannot suppress coverage. |
+| 6.4 | Canonical examples are generated or validated from fixtures rather than manually duplicated. |
+
+### AC-7: Repository structural model
+
+| ID | Criterion |
+|----|-----------|
+| 7.1 | Repository mode inventories TS/TSX, manifests, lockfiles, build/test/TypeScript config, docs, generated/vendor paths, fixtures, unsupported languages, and failures from one commit tree. |
+| 7.2 | Structural model IDs are stable for files, declarations, packages, entry points, import/direct-call edges, configuration, documents, subsystems, coverage, and unresolved references. |
+| 7.3 | Import resolution is bounded to fixture-supported deterministic forms; dynamic, aliased, generated, framework, and cross-language edges remain unresolved without a tested resolver. |
+| 7.4 | Candidate subsystem membership cites deterministic package/directory/entry/import evidence; model-derived names/rationales are separate. |
+| 7.5 | All candidates expose cross-boundary/unresolved edges, confidence, and coverage before selection. |
+
+### AC-8: Agent boundary and HLD/LLD
+
+| ID | Criterion |
+|----|-----------|
+| 8.1 | No repository material leaves the machine before an explicit consent screen names provider/model when available, proposed files/bytes/tokens, exclusions, retention caveat, and local output path. |
+| 8.2 | Declining consent preserves deterministic scan output and marks generated HLD/LLD `not_available`. |
+| 8.3 | The agent receives typed facts and bounded source/docs as untrusted data plus an instruction that repository content cannot change the task. |
+| 8.4 | The agent has no shell, write, Git mutation, project execution, or external consequential tools. |
+| 8.5 | After consent, transport can reach only the disclosed provider endpoint allowlist; redirect and fallback-provider tests cannot expand it silently. |
+| 8.6 | Returned claims validate for schema, anchor existence, size, derivation, confidence, and forbidden wording before artifact write. |
+| 8.7 | HLD stays system-level; LLD is table/boundary oriented and expands only selected/high-value areas within an output budget. |
+| 8.8 | Model-derived claims never use deterministic, verified, authoritative, complete, runtime, or proven labels. |
+| 8.9 | Prompt-injection fixtures in code, comments, Markdown, paths, manifests, and model output do not alter tools, scope, destination, or disclosure. |
+
+### AC-9: Repository comprehension check
+
+| ID | Criterion |
+|----|-----------|
+| 9.1 | Every successful generated snapshot includes one architecture card. |
+| 9.2 | `repo_card_cap` includes the architecture card. |
+| 9.3 | When subsystem candidates exceed remaining slots, the developer must select subsystems; no silent grouping, ranking, or sampling occurs. |
+| 9.4 | Unselected subsystems are recorded as `unchecked`; selected, completed, skipped, and unchecked states remain distinct. |
+| 9.5 | Repository cards ask one observable architecture/flow prediction. A model-generated answer is never deterministic ground truth. |
+| 9.6 | Source-check status exists only for a supported deterministic path; otherwise the card stays ungraded or `not_checkable`. |
+
+### AC-10: Timestamped repository bundle
+
+| ID | Criterion |
+|----|-----------|
+| 10.1 | One UTC basic-ISO run ID is used in the directory and every HLD, LLD, evidence, cards, coverage, and manifest filename. |
+| 10.2 | Required files are `repo-hld`, `repo-lld`, `repo-collapsed-evidence`, `repo-behavior-cards`, `repo-coverage`, and `repo-manifest` with matching run IDs. |
+| 10.3 | Manifest records snapshot, scanner/tool/schema versions, effective limits/config, agent disclosure, non-manifest artifact hashes, claim counts, coverage, selected/unselected subsystems, card status, privacy, and completion state. |
+| 10.4 | HLD/LLD claim IDs resolve through the manifest to anchors, derivation, confidence, and artifact location. |
+| 10.5 | All JSON validates against normative schemas; Markdown validates required banners, claim links, timestamped names, and output budgets. |
+| 10.6 | Bundle is local and gitignored; no automatic retention, upload, sharing, or tracked export exists. |
+
+### AC-11: Verification and documentation health
+
+| ID | Criterion |
+|----|-----------|
+| 11.1 | Pure fixtures, temporary Git repositories, golden terminal sessions, golden artifacts, security tests, and network-denial tests cover every acceptance family. |
+| 11.2 | CI runs formatting, linting, unit/integration/golden tests, schemas, dependency/license/security checks, Markdown lint, relative/external link checks, issue-form YAML validation, JSON-fence parsing, and terminology/schema drift checks when relevant files exist. |
+| 11.3 | No test executes repository package code or requires network except isolated provider-adapter contract tests. |
+| 11.4 | Every completion claim names the command run and its output. |
+
+### AC-12: Behavioral validation
+
+| ID | Criterion |
+|----|-----------|
+| 12.1 | Moderated feasibility tests compare raw source, collapsed evidence, and collapsed evidence plus minimal card with professional AI-assisted TypeScript developers. |
+| 12.2 | Repository-mode feasibility separately tests whether HLD/LLD plus selected cards reduce time-to-accurate architecture understanding without hiding coverage. |
+| 12.3 | Activity, completion, skip, return, selection, friction, and self-report remain secondary feasibility measures. |
+| 12.4 | Any efficacy claim uses one objective primary comprehension outcome, an attention-matched control, preregistration, blinded scoring, baseline adjustment, ITT analysis, delayed novel transfer, missing-data/contamination rules, and a minimum worthwhile effect. |
+| 12.5 | Decision memo applies precommitted proceed/narrow/pivot/stop criteria without moving thresholds after results. |
 
 ---
 
 ## 4. Implementation order
 
-### Step 0: Resolve blockers
+### Step 0: Resolve release and contract blockers
 
-- Decide the project name before any package, binary, registry entry,
-  or public launch.
-- Confirm the comprehension receipt privacy model and pilot consent process.
-- Freeze the supported Phase 0 file/status matrix.
+- Rename the project and command before package publication.
+- Freeze pinned Rust/crate versions and MSRV.
+- Approve status/mode matrices, entity ownership, collapsed-evidence grammar,
+  schema locations, limits, agent consent contract, default card cap, retention,
+  and evaluation design.
+- Add documentation-only CI before accepting more large specification changes.
 
-### Step 1: Scaffold and git snapshot tests
+### Step 1: Immutable Git and storage foundations
 
-Create the minimal Cargo workspace and implement AC-1 first. A review
-question is worthless if it is bound to the wrong bytes.
+Implement AC-1 and AC-2 first with failing regression probes for concurrent
+index mutation, filtered statuses, unborn HEAD, symlink modes, partial-clone
+lazy fetch, collisions, and link-following. Nothing else is trustworthy until
+snapshot and output identity are correct.
 
-### Step 2: Parser and entity fixtures
+### Step 2: Shared TypeScript and coverage core
 
-Implement AC-2 using pure base/staged fixtures. Keep the supported
-entity set narrow until it is reliable.
+Implement AC-3 with pinned APIs, pure fixtures, resource limits, and coverage
+schemas. Keep staged/repository consumers thin over the same scanner facts.
 
-### Step 3: Evidence, Behavior Card templates, and source checks
+### Step 3: Staged reduced-reading vertical slice
 
-Implement AC-3, AC-4, AC-4b, and AC-4c together so every card prompt
-is backed by visible source-derived evidence and every source check
-is truthfully labelled. Implement probe spec generation as structured
-JSON with explicit eligibility rules and no source code.
+Implement AC-4 through AC-6 as one vertical slice:
 
-### Step 4: Interaction and comprehension receipt
+- one supported entity;
+- collapsed evidence;
+- one minimal prediction;
+- persist-before-feedback source check;
+- receipt validation; and
+- golden terminal output.
 
-Implement AC-5 and golden terminal tests. Do not add card grading,
-hooks, or network behavior. Verify probe spec eligibility rules and
-no project writes.
+Expand operators/entities only through failing fixtures.
 
-### Step 5: Harden and automate tests
+### Step 4: Repository deterministic vertical slice
 
-Complete AC-6, publish the fixture corpus, and add CI only after the
-repository contains runnable code and tests.
+Implement AC-7 and deterministic portions of AC-10:
 
-### Step 6: Dogfood before distribution
+- committed-tree inventory;
+- structural model;
+- candidate subsystems;
+- coverage and manifest;
+- local timestamped bundle without HLD/LLD; and
+- developer subsystem selection.
 
-Run AC-7 with the manual command. Publish a decision memo that either:
+### Step 5: Agent-assisted architecture slice
 
-- proceeds to an opt-in non-blocking hook;
-- changes the interaction based on observed failure modes; or
-- stops the project because the behavioral wedge did not hold.
+Implement AC-8, AC-9, and remaining AC-10 behind explicit consent. Start with
+one adapter, one constrained HLD/LLD schema, no tools beyond bounded read
+context, and adversarial prompt-injection fixtures.
+
+### Step 6: Harden, automate, and document
+
+Complete AC-11. Add CI only when there is runnable code for code checks, while
+documentation checks should already exist. Publish canonical schemas and
+fixtures.
+
+### Step 7: Feasibility before hooks or distribution
+
+Run AC-12. A decision memo chooses proceed, narrow, pivot, or stop. Do not add
+hooks, tracked exports, team surfaces, or more languages before this gate.
 
 ---
 
-## 5. Definition of Phase 0 done
+## 5. Definition of done
 
-Phase 0 is done only when all mechanical acceptance criteria pass and
-the behavioral pilot reaches a documented proceed/pivot/stop decision.
-A green test suite alone is not product validation.
+Phase 0 is done only when:
 
-Package publication, installation scripts, badges, launch campaigns,
-additional languages, and the name `Skia` itself are outside the done
-definition until the name and adoption decisions are resolved. No
-probe spec may be treated as a passed test, run, or written into the
-project.
+- every applicable AC-1 through AC-11 test passes with command/output evidence;
+- staged collapsed evidence demonstrably reduces reading without unacceptable
+  omission on the accepted corpus;
+- repository artifacts stay within reading and output budgets and pass factual
+  grounding review;
+- privacy and prompt-injection tests pass;
+- the professional validation decision is documented; and
+- the project is renamed for release.
+
+A green test suite does not prove comprehension. A completed card does not
+prove coverage. A generated HLD/LLD does not become maintained architecture by
+existing.
 
 ---
 
 ## 6. Explicit exclusions
 
-This plan contains no person-hour estimates, AI implementation-time
-estimates, week-by-week delivery promises, adoption claims, or
-performance guarantees. It does not authorize intent inference,
-type-flow analysis, complete error-flow analysis, pattern intelligence,
-SARIF, plugins, LLM judging, CI review comments, a full-codebase
-semantic graph, arbitrary TypeScript execution, project file writes
-beyond the comprehension receipt, package command execution, source
-code generation, or treating a probe spec as a run, passed, or
-executed test.
+This plan does not authorize automatic source rewriting or adoption, project
+code execution, package scripts, repository plugins, inferred runtime
+semantics, complete call graphs, full polyglot behavior, blocking hooks,
+team-visible scores, tracked HLD/LLD export, CI review comments, SARIF, hosted
+storage, or claims that model output is verified.

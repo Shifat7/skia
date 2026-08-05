@@ -1,201 +1,254 @@
 # Open Decisions
 
-These decisions remain unresolved. A decision is closed only when the
-maintainer records the choice, evidence, and consequences in this file
-or a linked issue.
+A decision closes only when the maintainer records the chosen option, evidence,
+consequences, and affected contracts here or in a linked issue. Defaults below
+are experiment starting points, not validated truths.
 
 ---
 
-## OD-1: Project name (release blocker)
+## OD-1: Project and command name (release blocker)
 
-**Question:** What unique project and command name should replace
-"Skia" before publication?
+**Question:** What unique project and command name replaces "Skia"?
 
-Google's long-established [Skia graphics
-project](https://github.com/google/skia) dominates search and registry
-identity. Its build infrastructure also contains an AI code-review
-command named
-[`autoreview`](https://skia.googlesource.com/buildbot/+/000a3a9c8c31aa9751e8c64f6ec6e45b30fe2cc9/cmd/autoreview/README.md),
-which makes the collision especially damaging for this category.
+Google's [Skia graphics project](https://github.com/google/skia),
+[skia.org](https://skia.org/), the existing
+[`skia` Rust crate registry record](https://crates.io/api/v1/crates/skia), and the existing
+[`skia` npm package](https://www.npmjs.com/package/skia) make the current name
+unusable for clear search and registry identity.
 
-**Decision rule:** Choose a name that is available on the intended
-package registries, does not collide with a prominent developer tool or
-trademark, is easy to spell and search, and can own an unambiguous CLI
-command.
+**Decision rule:** Verify trademark/search risk plus command and intended
+registry availability. Rename the command, `.skia/` directory, schemas, examples,
+and documentation atomically before release.
 
-**Blocks:** Package publication, installation docs, badges, launch
-campaign, and public benchmarks under the current name.
+**Blocks:** Package publication, release binaries, install docs, public launch,
+and stable artifact paths.
 
 ---
 
-## OD-2: Is deterministic syntax evidence sufficient for typed Behavior Cards?
+## OD-2: Collapsed-equivalence grammar
 
-**Question:** Can Tree-sitter-derived signature/call/branch/error
-changes produce typed Behavior Card prompts that require meaningful
-prediction, and can narrow source checks provide useful feedback
-without a compiler, LSP, or LLM?
+**Question:** Which behavior relations can be reduced safely and still be
+materially shorter than source?
 
-**Current Phase 0 choice:** Start with conservative syntax evidence,
-typed Behavior Cards, and narrow source checks (`source_derived_match`,
-`source_derived_mismatch`, or `not_checkable`). Do not grade cards. Do not
-execute arbitrary TypeScript.
+**Current proposal:** Guards, branches, direct transformations, direct calls,
+direct side effects, literal errors, declared contract changes, and an explicit
+fallback. Every relation has source anchors and supported/partial/unmapped/
+unsupported coverage.
 
-**Decision rule:** Dogfood first. If card prompts are routinely
-trivial, ambiguous, or misleading, do not expand the templates by
-pretending syntax is semantics. Either add a more capable analysis
-dependency with explicit accuracy tests or stop the product hypothesis.
+**Unknowns:**
+
+- canonical relation syntax and ordering;
+- duplicate or interacting branches;
+- stateful and cross-function behavior;
+- minimum reading reduction;
+- when details are required to avoid ambiguity; and
+- false-confidence rate when users do not open source.
+
+**Decision rule:** Accept a relation family only after independent fixture
+review shows high precision and a predeclared reading reduction. Prefer fallback
+over stronger prose.
 
 ---
 
-## OD-3: Comprehension receipt privacy and lifecycle
+## OD-3: Minimal Behavior Card scenarios
+
+**Question:** How should the system choose a concrete `GIVEN`/`WHEN` without
+turning scenario selection into an untrusted generated answer?
+
+**Current proposal:** System supplies the scenario; developer predicts `THEN`;
+`BECAUSE` is conditional after mismatch or explicit/risk request; `IMPACT` is
+conditional for high-risk paths.
+
+**Unknowns:**
+
+- deterministic scenario generation versus developer selection;
+- representative versus adversarial inputs;
+- invalid or ambiguous invocation rendering;
+- risk-focused prompts; and
+- whether one prediction is enough to change behavior.
+
+**Decision rule:** Scenario generation must be fixture-tested, disclose its
+basis, and remain independent from the developer's answer. Stop or redesign if
+the card becomes trivia or ritual.
+
+---
+
+## OD-4: Atomic staged snapshot strategy
+
+**Question:** Which read-only design binds diff, paths, modes, blob bytes, and
+receipt to one immutable logical index state?
+
+**Candidate approaches:**
+
+- copied temporary index addressed through `GIT_INDEX_FILE`;
+- index checksum plus ordered blob-OID manifest and final revalidation; or
+- another design proven by concurrent mutation tests.
+
+**Constraint:** Do not write Git objects merely to create an immutable tree.
+All statuses must be discovered before supported filtering. Lazy fetch and
+optional locks remain disabled.
+
+**Decision rule:** Choose the smallest approach that passes index-race,
+partial-clone, path-byte, status, mode, and zero-Git-write tests.
+
+---
+
+## OD-5: Repository subsystem discovery
+
+**Question:** What evidence defines a top-level subsystem and when may the agent
+rename, merge, or split scanner groups?
+
+**Current proposal:** Deterministic candidates use package/workspace boundaries,
+directory roots, entry points, and import communities. Agent labels/rationales
+remain model-derived.
+
+**Decision rule:** Every candidate exposes membership evidence, unresolved and
+cross-boundary edges, confidence, and coverage before the developer selects it.
+A label must not be presented as a proven bounded context.
+
+---
+
+## OD-6: Repository card cap
+
+**Question:** What default `repo_card_cap` preserves a short session?
+
+**Current proposal:** The architecture card consumes one slot. When subsystem
+count exceeds remaining slots, the developer selects subsystems; unselected
+subsystems are recorded `unchecked`. No silent grouping, ranking, or sampling.
+
+**Decision rule:** Use moderated professional testing to choose a default from
+completion time, comprehension, skip, and abandonment. Keep the cap configurable
+within a documented safe range.
+
+---
+
+## OD-7: Agent adapters and consent
 
 **Questions:**
 
-- Should comprehension receipts contain the full behavior card or
-  only local metrics?
-- How long should receipts remain on disk?
-- Should there be a local delete/inspect command before any sharing
-  feature exists?
-- Can a team request receipts without turning a learning aid into
-  surveillance or a gameable compliance artifact?
+- Which agent/provider is supported first?
+- What files, byte/token budget, and source slices may cross the boundary?
+- Which secret/sensitive paths are excluded before prompting?
+- How are provider retention and training terms disclosed?
+- What local-model adapter satisfies the same contract?
 
-**Current Phase 0 choice:** One local, gitignored JSON file per session;
-no upload, aggregation, or team dashboard. Receipts include a staged
-diff hash, source-derived evidence summaries, and a behavior card but
-not the full diff.
+**Current proposal:** Explicit consent names provider/model when available,
+proposed egress, exclusions, retention caveat, and output path. Declining still
+produces deterministic scan output; HLD/LLD become `not_available`.
 
-**Blocks:** Team-facing claims and any telemetry or sharing mechanism.
+**Decision rule:** No adapter ships until prompt-injection, no-write,
+no-consequential-tool, schema, anchor, output-limit, and disclosure tests pass.
 
 ---
 
-## OD-4: Hook timing and blocking behavior
+## OD-8: HLD/LLD factual-accuracy bar
 
-**Question:** After the manual workflow is validated, should an opt-in
-hook run before commit or push, and should it ever block?
+**Question:** What minimum source grounding and factual accuracy justifies
+showing agent-generated architecture?
 
-**Current Phase 0 choice:** No hook until the four-week manual-command
-pilot meets the decision thresholds in PRD.md. Any first hook is
-non-blocking and explicitly installed.
+**Current proposal:** HLD is system-level and concise; LLD uses tables and
+expands selected/high-value areas only. Every claim has observed/model-derived
+status, anchors where possible, confidence, and caveats.
 
-**Risks:** Pre-commit may be too frequent; pre-push may be too late;
-blocking can encourage ritual answers and bypasses; silent automatic
-installation violates user control.
+**Decision rule:** Precommit a blinded audit rubric for factual accuracy,
+fabricated intent/runtime topology, anchor validity, unresolved edges, and
+reading cost. Stop or narrow if generated documents are too long or materially
+wrong.
 
 ---
 
-## OD-5: Behavioral pilot design
+## OD-9: TypeScript-first repository boundaries
+
+**Question:** Which manifests, configuration, docs, generated/vendor paths,
+fixtures, and import-resolution forms are included?
+
+**Current proposal:** Detailed behavior is TS/TSX only. Manifests,
+configuration, lockfiles, and docs inform structure. Other languages are
+inventory-level unsupported coverage.
+
+**Decision rule:** Freeze a versioned inclusion/status matrix and resource
+limits. Add one new resolver or source category only with dedicated fixtures and
+coverage semantics.
+
+---
+
+## OD-10: Timestamp and collision format
+
+**Question:** Is second-resolution basic ISO 8601 plus a collision suffix the
+right local run identity?
+
+**Current proposal:** `YYYYMMDDTHHMMSSZ`; atomically allocate `-01`, `-02`, and
+so on when needed. Directory and every filename use the resolved run ID.
+
+**Decision rule:** Verify path safety, lexical ordering, cross-platform behavior,
+concurrent creation, and usability before schema version 1 freezes.
+
+---
+
+## OD-11: Local artifact retention and deletion
 
 **Questions:**
 
-- How many developers and what experience mix are practical?
-- What constitutes evidence that a Behavior Card caused code
-  inspection?
-- How will card depth be sampled without uploading private source or
-  creating an LLM-judge dependency?
-- What comparison condition is feasible after dogfood: raw-diff-only,
-  Behavior Card, or plain pseudocode?
+- What default retention, if any, applies to receipts and repository bundles?
+- Should incomplete runs be retained for diagnosis or removed automatically?
+- What does `runs inspect` redact?
+- What deletion guarantees can be made across platforms?
 
-**Current minimum:** Four weeks of opt-in manual-command use comparing
-raw-diff-only versus Behavior Card (optionally a third plain-pseudocode
-arm if sample size allows), explicit consent for exported aggregate
-data, code-open/scroll and card-completion/skip and retention metrics,
-maintenance/change-explanation performance, friction, qualitative
-interviews, and a decision memo applying the precommitted thresholds.
+**Current proposal:** No automatic upload, sharing, tracked export, or team
+surface. Provide list, inspect, and delete. Files use atomic create-new and
+owner-only permissions where supported.
+
+**Decision rule:** Test with developers and security reviewers. Do not keep full
+architecture history by default without a clear user benefit.
 
 ---
 
-## OD-6: Supported TypeScript surface
+## OD-12: Resource limits
 
-**Question:** Should Phase 0 remain limited to named function
-declarations and named methods, or include arrow functions assigned to
-variables?
+**Question:** What file-count, per-file-byte, total-byte, parse-time, run-time,
+artifact-size, and agent-context/output limits fit realistic TypeScript
+repositories?
 
-**Current choice:** Named function declarations and named methods only.
-Arrow functions, anonymous callbacks, interfaces, aliases, enums, and
-whole classes are unsupported fixtures, not silently approximated.
-
-**Decision rule:** Add one entity shape only when extraction identity
-and base/staged matching are reliable across a dedicated fixture set,
-and when the shape supports a meaningful Behavior Card template.
+**Decision rule:** Measure representative repositories and publish the limit
+profile. Limit failures must create partial coverage or stop; no silent
+truncation may support a complete claim.
 
 ---
 
-## OD-7: Pilot budgets for the bounded review unit
+## OD-13: Professional validation design
 
-**Question:** Are the provisional 3-entity and 150-added-plus-deleted-line
-budgets the right defaults for the pilot?
+**Questions:**
 
-**Current Phase 0 choice:** Phase 0 processes every supported changed
-function/method in deterministic path/line order, but only when the
-staged change is at or below 3 supported entities and 150 added-plus-deleted
-TypeScript lines. If either budget is exceeded, the tool refuses to
-summarize or sample away review debt and asks the developer to re-stage
-a smaller coherent change. The 3/150 budgets are product-experiment
-defaults, not risk-science benchmarks.
+- What objective primary comprehension outcome and minimum worthwhile effect
+  justify the interaction cost?
+- Which professional population, tasks, repositories, and attention-matched
+  control are feasible?
+- How are delayed transfer, contamination, attrition, and missing data handled?
+- How are HLD/LLD factual accuracy and reading cost measured separately?
 
-**Decision rule:** Track budget-refusal and restaging behavior in the
-pilot. If developers frequently re-stage the same large diff unchanged,
-tune the budget or reconsider the refusal model.
-
----
-
-## OD-8: Unmapped changed-line tolerance
-
-**Question:** How much changed TypeScript outside supported functions or
-methods can remain unmapped before the Phase 0 interaction becomes too
-partial to be useful?
-
-**Current Phase 0 choice:** Count and display total, mapped, and unmapped
-changed TypeScript lines. `card_status` describes supported-entity card
-completion only and never suppresses the unmapped count.
-
-**Decision rule:** Track unmapped-line ratio in fixtures and the pilot.
-If most real changes remain unmapped, expand one entity shape with
-reliable fixtures or stop claiming the current checkpoint covers a
-meaningful review unit.
+**Current minimum:** Moderated feasibility first, followed only if justified by
+a preregistered trial with blinded scoring, baseline adjustment,
+intention-to-treat analysis, delayed novel transfer, and fixed proceed/narrow/
+pivot/stop criteria.
 
 ---
 
-## Resolved in this revision
+## Resolved for the current proposal
 
-- **Entity selection:** All supported changed entities are processed in
-  deterministic path/line order (not a randomly or heuristically selected
-  single entity). Phase 0 checks against pilot budgets of 3 supported
-  entities and 150 added-plus-deleted TypeScript lines; over-budget changes are
-  refused and the developer is asked to re-stage.
-- **Card evaluation:** No automated correct/incorrect judgment in
-  Phase 0. Source checks use receipt enum values `source_derived_match`,
-  `source_derived_mismatch`, or `not_checkable`; the terminal UI shows
-  human-readable labels (`source-derived match`, `source-derived
-  mismatch`, `not checkable`). Never correct, incorrect, or runtime
-  verified.
-- **File filter:** `.ts` and `.tsx` only.
-- **Snapshot source:** Review the git index, never the working-tree
-  copy.
-- **Initial evidence order:** error, signature, branch, call, fallback.
-- **Interaction model:** Strongly typed Behavior Card
-  (GIVEN `{arguments, state_note}` / WHEN `{entity, invocation}` /
-  THEN `{kind, value}` / BECAUSE / IMPACT) replaces free-text causal
-  question. One card per entity; 1-3 cards per session within the
-  pilot budget.
-- **Source check:** Narrow local branch check only when JSON arguments
-  evaluate one allowlisted atomic predicate ending in a JSON-scalar
-  return or a throw with a literal message. Method state, helper/property access, coercive
-  equality, mutation, compound predicates, non-literal endpoints, and
-  side effects stay `not_checkable`; a match never proves whole-function
-  reachability.
-- **Probe spec:** Replaces the earlier executable-looking scaffold concept. Probe specs are
-  structured JSON (`{status: draft_unexecuted, invoke, expect}` or
-  `{status: not_available, reason}`), never source code, never run,
-  never written into the project, and contain no `framework_hint` or
-  code text. Side-effect predictions are not eligible without a
-  later-phase adapter.
-- **Receipt:** Renamed to comprehension receipt; schema version
-  bumped to 3. One receipt per session includes total, mapped, and
-  unmapped changed TypeScript lines, per-entity entries, and session
-  `card_status` (`complete`, `partial`, or `skipped`). `card_status`
-  describes card completion only and never implies coverage or a
-  review pass.
-- **No execution:** Phase 0 performs no arbitrary TypeScript execution,
-  project file writes, source code generation, or package commands
-  beyond read-only git.
+- **Primary UX:** Reduce reading. Collapsed equivalence evidence is the default;
+  original source and details remain on demand.
+- **Card interaction:** System supplies `GIVEN`/`WHEN`; developer predicts
+  `THEN`; `BECAUSE` and `IMPACT` are conditional.
+- **Feedback order:** Persist prediction before source-check feedback.
+- **Staged budget:** Provisional maximum 3 supported entities and 150
+  added-plus-deleted TypeScript lines; refuse rather than silently sample.
+- **Repository scope:** Agent-assisted, TypeScript-first detailed analysis;
+  manifests/config/docs inform structure; other languages remain explicit
+  unsupported coverage.
+- **Repository checks:** One architecture card plus developer-selected subsystem
+  cards. Excess subsystems remain `unchecked`.
+- **Artifact lifecycle:** Timestamped HLD, LLD, collapsed evidence, cards,
+  coverage, and manifest are local/gitignored under `.skia/dist/`.
+- **Agent claims:** Always model-derived with anchors/uncertainty, never
+  deterministic or authoritative.
+- **No adoption:** Comprehension runs do not rewrite or adopt source.

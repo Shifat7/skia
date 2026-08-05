@@ -1,293 +1,334 @@
 # Skia
 
-A local comprehension checkpoint for AI-assisted developers.
-On a staged diff, Skia shows evidence from changed TypeScript
-entities, collects a typed Behavior Card for each supported entity
-that predicts the change's behavior, performs a narrow source check
-when possible, and records what the developer inspected and predicted.
-It is designed to interrupt prompt-to-commit autopilot, not to
-automate review judgment.
+> **Read less code. Predict the behavior that matters.**
 
-> **This project is documentation-only.** There is no runnable CLI,
-> no compiled binary, and no installable package. Every code example
-> and interaction mockup on this page describes a proposed design,
-> not a working tool. Do not attempt to install or run Skia.
+Skia is a proposed local comprehension checkpoint for developers working with
+AI-generated code. It compresses supported TypeScript behavior into a short,
+source-anchored view, asks one concrete prediction, and reveals feedback only
+after the developer answers.
 
-> **Name collision.** "Skia" is also the name of Google's widely used
-> 2D graphics library (skia.org). This project is unrelated to that
-> library. The name collision is a severe search and discovery
-> problem that must be resolved before any public release. See
-> [docs/OPEN_DECISIONS.md](docs/OPEN_DECISIONS.md) for details. The
-> project is not renamed in this draft; renaming is an unresolved
-> pre-release decision.
-
----
-
-## The problem
-
-AI-assisted coding tools generate code faster than developers can
-read it. The bottleneck is no longer writing code; it is understanding
-what was written before it ships.
-
-## Why not raw review or generated pseudocode?
-
-Raw diffs remain the source of truth, but unbounded line-by-line review
-does not scale with AI output. Generated pseudocode is not a safe
-replacement: it is another lossy representation produced by the same
-class of system being reviewed, and it can omit exactly the branch,
-side effect, or failure path that matters.
-
-Skia therefore does not translate the whole change. It shows the real
-changed lines first, then asks the developer to predict one concrete
-input-to-outcome path in a structured Behavior Card. When volume exceeds
-a small pilot budget, Skia asks for a smaller staged change rather than
-compressing review debt into a summary. The bet is that **prediction
-plus evidence** will scale better than either raw-code endurance or
-passive pseudocode consumption. The pilot must prove that bet.
-
----
-
-## Proposed interaction (mockup, not a real session)
-
-The following is a labeled mockup of the intended terminal interaction.
-No part of this has been implemented.
-
+```text
+AI writes a change
+        |
+        v
+Skia captures the exact Git snapshot
+        |
+        v
+12 changed lines become 4 evidence lines
+        |
+        v
+Developer predicts one outcome
+        |
+        v
+Source-derived feedback + original code on demand
 ```
+
+> **Current status: documentation-only.** There is no CLI, package, binary, or
+> generated HLD/LLD yet. The commands below define the intended product.
+>
+> **Release blocker:** "Skia" conflicts with Google's established
+> [Skia graphics project](https://github.com/google/skia). The project and
+> command must be renamed before publication. See
+> [open decisions](docs/OPEN_DECISIONS.md).
+
+---
+
+## The idea in one screen
+
+| | Staged change | Whole repository |
+|---|---|---|
+| Command | `skia review` | `skia repo review` |
+| Snapshot | Exact staged Git index | One committed `HEAD` |
+| Default view | Collapsed changed behavior | Compact HLD, LLD, and architecture evidence |
+| Human check | Predict one observable result | One architecture question plus selected subsystems |
+| Source detail | TypeScript and TSX | TypeScript/TSX detail; manifests, config, and docs inform structure |
+| Output | Local comprehension receipt | Timestamped local bundle under `.skia/dist/` |
+| What stays visible | Unmapped changed lines | Unsupported languages and unchecked subsystems |
+
+The product is built around one constraint:
+
+> **A reduced view is useful only when it is shorter than the source and honest
+> about what it could not represent.**
+
+---
+
+## Mode 1 -- understand a staged change
+
+```text
 $ skia review
 
-Staged diff: 1 file changed, 1 supported changed entity.
-Budget: 1 supported entity, 3 changed TypeScript lines (within pilot limits).
-Mapping: 3 changed TypeScript lines inside supported entities; 0 unmapped.
+calculateFinalPrice                  12 changed lines -> 4 evidence lines
 
-Entity: calculateDiscount
-File:   src/pricing/discount.ts:8-16
+  total <= 0       -> return 0
+  active member    -> total * 0.90
+  valid promotion  -> subtract promotion amount
+  final result     -> clamp at 0, then round
 
-Changed lines + conservative syntax delta:
-  + 10   if (total <= 0) return 0;     [added_branch]
+BEHAVIOR CHECK
+Given: total=100, member=active, promotion=10
+When:  calculateFinalPrice(total, member, promotion)
+Expected return: ___
+> 80
 
-  --- Behavior Card ---
-  GIVEN:  { total: -1, member: false }
-  WHEN:   calculateDiscount(total, member)   [auto-filled]
-  THEN:   return_value 0                      [predicted: return value]
-  BECAUSE: A non-positive total hits the new early-return branch on
-           line 10 and returns the literal 0.
-  IMPACT: Negative totals are normalized to zero rather than surfaced;
-          callers that distinguish invalid from zero-priced lose that
-          signal.
+Source check: source-derived match for this displayed path
 
-Source check: source-derived match (literal return 0 on line 10)
-
-Probe spec: draft_unexecuted
-  { "invoke": { "entity": "calculateDiscount", "arguments": [-1, false] },
-    "expect": { "kind": "return_value", "value": 0 } }
-
-  [f] Fill card  [s] Show more code  [k] Skip
-
-> s
-  ... staged version of calculateDiscount, with changed lines highlighted ...
-
-> f
-Card recorded before the source-check result. Phase 0 does not rewrite
-that prediction after feedback.
-
-Comprehension receipt written locally to .skia/receipts/...
+[e] evidence details  [d] original staged diff  [n] next
 ```
 
-Phase 0 does not claim that a card is correct. It collects a typed
-prediction, performs a narrow source check only when a supported
-branch predicate is evaluable from the JSON arguments and ends in a
-directly observed JSON-scalar return or literal-message throw, and records the
-card, source-check status, optional
-probe spec, show-code action, and a hash that binds the receipt to the
-staged diff. The source check is labeled exactly as `source_derived_match`,
-`source_derived_mismatch`, or `not_checkable` in the receipt enum;
-it is never called runtime verified or correct. Complex behavior stays
-ungraded. The first validation question is whether this interaction
-creates real inspection rather than ritual card-filling.
+### What happened?
+
+```text
+Raw staged source
+      |
+      +-- deterministic syntax facts
+      |
+      +-- collapsed equivalence evidence       <- default reading surface
+      |
+      +-- system supplies GIVEN + WHEN
+      |
+      +-- developer supplies THEN
+      |
+      +-- prediction is saved
+      |
+      +-- narrow source check appears
+```
+
+The developer normally enters one value, not a five-field essay. `BECAUSE` is
+requested only after a mismatch or an explicit causal/risk prompt. `IMPACT` is
+reserved for a relevant high-risk path.
+
+The original source and expanded evidence are behind one labelled menu action
+and one terminal keystroke.
+
+### What if compression is unsafe?
+
+Skia does not fill the gap with confident prose:
+
+```text
+WARNING: 7 changed TypeScript lines are unmapped.
+
+Not represented:
+  - import change
+  - deleted callback
+  - compound stateful branch
+
+[d] inspect unmapped diff  [s] skip  [q] stop
+```
+
+A completed prediction covers one supported path. It never turns unmapped or
+unsupported code into reviewed coverage.
+
+### Initial boundary
+
+- TypeScript and TSX only
+- Named functions and methods only
+- At most 3 supported changed entities
+- At most 150 added-plus-deleted TypeScript lines
+- Manual command; no automatic Git hook
+
+These are pilot limits, not risk or safety benchmarks.
 
 ---
 
-## Proposed Phase 0 scope
+## Mode 2 -- understand a TypeScript-first repository
 
-Phase 0 is intentionally narrow. It covers:
+```text
+$ skia repo review
 
-- **TypeScript only.** Parse staged `.ts` and `.tsx` content via
-  Tree-sitter.
-- **Staged diffs only.** Compare the index with `HEAD`. No
-  full-codebase scan, branch review, or watch mode.
-- **Bounded review unit.** Phase 0 processes every supported changed
-  function/method in deterministic path/line order, but only when the
-  staged TypeScript change is at or below provisional pilot budgets of
-  **3 supported entities** and **150 added-plus-deleted TypeScript lines**. If
-  either budget is exceeded, Skia refuses to summarize or sample away
-  review debt: it asks the developer to re-stage a smaller coherent
-  change. The 3-entity and 150-line budgets are product-experiment
-  defaults, not risk-science benchmarks. One Behavior Card per entity;
-  therefore 1-3 cards per session. A session receipt records total and
-  unmapped changed TypeScript lines, an entry for every supported entity,
-  each card or skip, and card status (`complete`, `partial`, or
-  `skipped`). Card status describes form completion only; it is never a
-  coverage or review-pass claim.
-- **Changed-entity extraction.** Identify functions or methods whose
-  syntax overlaps a staged hunk. All supported entities are processed
-  in deterministic path/line order within the pilot budget.
-- **Diff-first evidence.** Show changed lines plus a conservative
-  syntax delta (changed signature, added/removed call, added/removed
-  branch, added throw/catch) before the Behavior Card prompt. No
-  summary-first UI, whole-codebase graph, or hidden AI judgment.
-- **Typed Behavior Card.** For each supported changed entity, the
-  terminal collects a structured card with strongly typed fields:
-  - **GIVEN:** `{ arguments: object|array|null, state_note: string|null }`
-    -- one concrete input/state example. JSON-compatible where possible;
-    `state_note` is free text only when state is not serializable.
-  - **WHEN:** `{ entity: string, invocation: string }` -- auto-filled
-    with the selected entity name and call context.
-  - **THEN:** `{ kind: return_value|thrown_error|side_effect, value: JSON value|string|null }`
-    -- the developer predicts one observable outcome.
-  - **BECAUSE:** one or two causal sentences tracing the relevant
-    branch or call.
-  - **IMPACT:** one caller/user-visible consequence or risk.
-  The card is rendered in a typed, compact form in the terminal but
-  stored as structured JSON. One card per entity, 1-3 cards per session.
-  No prose pseudocode language is introduced.
-- **Narrow source check.** Phase 0 does not execute arbitrary
-  TypeScript. A check is eligible only when the changed branch uses a
-  deliberately small predicate subset that can be evaluated from the
-  card's JSON arguments and ends in a directly observed literal return
-  or explicit throw. It labels the result `source_derived_match`,
-  `source_derived_mismatch`, or `not_checkable` in the receipt enum.
-  In the terminal UI, the same statuses appear as human-readable labels
-  (`source-derived match`, `source-derived mismatch`, `not checkable`).
-  Skia never calls the result runtime verified or correct. Complex
-  behavior stays ungraded.
-- **Optional probe spec.** Eligibility is limited to exported top-level
-  functions whose JSON arguments map unambiguously to declared parameter
-  order (no receiver, destructuring, rest/default ambiguity, missing, or
-  extra values) and whose card predicts a return or throw. Phase 0 may produce a
-  PROBE SPEC: a compact machine-readable experiment suggestion stored as
-  structured JSON, never source code. For eligible cards it produces
-  `{status: draft_unexecuted, invoke: {entity, arguments}, expect: {kind, value}}`;
-  otherwise `{status: not_available, reason}`. It is never written into
-  the project, never run, and has no `framework_hint` or code text.
-  Side-effect predictions are not eligible without a later adapter.
-- **Diff-first terminal interaction.** Show changed code and
-  conservative syntax delta before the card prompt. Offer fill card,
-  show more code, and skip. The submitted card is recorded before the
-  source-check result and is not rewritten after feedback in Phase 0.
-- **Local comprehension receipts.** Record the diff hash, total/mapped/
-  unmapped line fields (`changed_ts_lines`, `mapped_changed_ts_lines`,
-  `unmapped_changed_ts_lines`), an entry for every supported entity,
-  evidence, behavior card, source-check/probe status, show-code action,
-  session `card_status`, and duration in `.skia/receipts/`. Nothing is
-  uploaded; `card_status` never means coverage or a passed review.
-- **Fixture, golden, and dogfood tests.** Validate extraction, card
-  validation, source checks, probe spec generation, receipt integrity,
-  budget-refusal and restaging behavior mechanically, then test whether
-  people actually inspect and predict the code.
+Snapshot:     HEAD c8d1a18
+Scanned:      84 TypeScript files, 3 config files, 5 docs
+Unsupported:  2 Python files
+Subsystems:   api, billing, persistence, notifications, web
 
-An optional non-blocking git hook is considered only after the manual
-workflow survives dogfood validation.
+Architecture check: included
+Card cap: 3
+
+Select up to 2 subsystems:
+  [x] billing
+  [x] persistence
+  [ ] api
+  [ ] notifications
+  [ ] web
+```
+
+Repository mode has two layers:
+
+```text
+Committed repository snapshot
+        |
+        +-- deterministic scan facts
+        |     paths, packages, entry points, imports, exports, direct calls
+        |
+        +-- explicit agent consent
+        |
+        +-- model_derived drafts
+        |     HLD, LLD, subsystem labels, architecture relations
+        |
+        +-- architecture Behavior Card
+        |
+        +-- developer-selected subsystem cards
+```
+
+The architecture check is always included. When the repository has more
+subsystems than one short session should cover, the developer chooses which
+ones to check. Everything else is recorded as `unchecked`; Skia does not group,
+rank, or sample those areas silently.
+
+### Timestamped local output
+
+One run ID is shared by the directory and every filename:
+
+```text
+.skia/dist/20260805T001500Z/
+  repo-hld-20260805T001500Z.md
+  repo-lld-20260805T001500Z.md
+  repo-collapsed-evidence-20260805T001500Z.md
+  repo-behavior-cards-20260805T001500Z.json
+  repo-coverage-20260805T001500Z.json
+  repo-manifest-20260805T001500Z.json
+```
+
+All artifacts are local and gitignored. The manifest binds them to the same
+commit, run ID, scanner version, model/provider disclosure, claim provenance,
+artifact hashes, selected/unchecked subsystems, and coverage.
+
+HLD and LLD are review aids, not authoritative architecture documentation.
+
+### Agent privacy boundary
+
+Before any repository context leaves the machine, Skia must show:
+
+- provider and model;
+- proposed files and byte/token budget;
+- sensitive-path exclusions;
+- provider retention caveat;
+- allowed provider endpoints; and
+- local output location.
+
+The developer must consent explicitly. Declining preserves deterministic scan
+output and marks agent-generated HLD/LLD unavailable. A local-model adapter may
+be used when source cannot leave the machine.
 
 ---
 
-## Evidence
+## The truth contract
 
-The motivation is credible; the proposed product is not yet validated.
-None of these studies evaluate Skia.
+| Label | What it means | What it does not mean |
+|---|---|---|
+| `deterministic` | Directly computed from the captured snapshot | Correct intent or runtime behavior |
+| `model_derived` | Generated by the configured agent from bounded evidence | Verified, authoritative, or complete |
+| `developer_supplied` | Entered by the developer before feedback | Proven understanding |
+| `source_derived_match` | One prediction matches one supported source endpoint | Runtime verification or correctness |
+| `not_checkable` | The safe checker cannot judge this path | Failure or success |
+| `unchecked` | The subsystem was not selected | Reviewed coverage |
 
-| Source | What it found | What it does not prove |
-|--------|---------------|------------------------|
-| [VibeCheck / Explanation Gate, 2026](https://arxiv.org/abs/2602.20206), N=78 | In a between-subjects experiment with novices, unrestricted-AI participants failed a later 30-minute AI-blackout maintenance task 77% of the time versus 39% in the scaffolded-AI condition. The intervention required a causal teach-back before generated code could be applied. | One novice sample, one task, short follow-up, and an LLM judge. It does not validate a non-blocking CLI, typed Behavior Cards, or deterministic prompts for professionals. VibeCheck supports causal teach-back, not typed cards specifically. |
-| [More Code, Less Understanding?, 2026](https://personal.us.es/amarlop/wp-content/uploads/2026/03/More-Code-Less-Understanding-On-the-Impact-of-AI-Assistants-on-Developers-Productivity-and-Code-Ownership.pdf), N=69 | In a controlled within-subjects study, AI assistance more than doubled median task completeness but reduced correct answers about the participant's own implementation by 12.5 percentage points. | Short tasks and a question-based proxy for short-term ownership, not long-term maintainability. |
-| [Reading Between the Lines, CHI 2024](https://dl.acm.org/doi/10.1145/3613904.3641936), N=21 | Participants spent 34.3% of session time double-checking or editing Copilot suggestions; the CUPS taxonomy exposed verification and deferred-thought costs that acceptance metrics miss. | It measures interaction costs; it does not test comprehension checkpoints or claim that users accepted semantically wrong code. |
-| [Tree-sitter Rust bindings](https://docs.rs/tree-sitter/latest/tree_sitter/) | Tree-sitter exposes syntax trees and queries through Rust bindings; TypeScript and TSX use separate grammars. | Syntax is not intent, type inference, control-flow proof, or a complete semantic model. |
+Across both modes:
 
-Full evidence details and limitations are in
-[docs/VALIDATION.md](docs/VALIDATION.md).
-
----
-
-## Non-goals (explicitly cut or deferred)
-
-The following are out of scope for Phase 0 and will not be added
-without evidence that they solve a demonstrated problem:
-
-- Inferred intent or semantic mismatch detection
-- Type-flow tracing or nullable propagation analysis
-- Error-path completeness checking
-- Broad pattern intelligence (DRY detection, copy-paste, missing
-  abstractions)
-- Watch mode or file-system monitoring
-- SARIF output
-- Plugin architecture (language parsers, analysis passes, or
-  output generators)
-- Polyglot support (Python, Go, Rust, or other languages)
-- LLM-based card generation or source-check judging
-- CI-integrated PR comments or automated review gates
-- Full-codebase semantic graphs
-- IDE extensions or editor integrations
-- Pre-built binaries or package publication
-- Executable test generation: probe specs are structured JSON
-  experiment suggestions, never source code, never run, and never
-  written into the project
+- Raw source remains authoritative and available on demand.
+- Predictions are recorded before feedback.
+- Unsupported, excluded, failed, unmapped, and unchecked areas remain explicit.
+- Comprehension runs do not modify source, Git state, hooks, or project config.
+- Local artifacts may still be sensitive and require inspect/delete controls.
 
 ---
 
-## Open decisions
+## What Skia is not
 
-Key unresolved decisions are tracked in
-[docs/OPEN_DECISIONS.md](docs/OPEN_DECISIONS.md). The most pressing:
+```text
+not a linter              not a test runner
+not semantic proof        not a code-quality verdict
+not an AI PR reviewer     not a source-rewrite engine
+not employee scoring      not authoritative architecture docs
+```
 
-1. **Project name.** "Skia" collides with Google's graphics project
-   and blocks package publication or launch.
-2. **Evidence depth.** Whether deterministic syntax changes can drive
-   useful Behavior Cards and source checks without a compiler, LSP,
-   or LLM.
-3. **Receipt privacy.** What can be stored or shared without turning a
-   learning aid into surveillance or a gameable compliance artifact.
-4. **Hook timing.** Whether any opt-in hook should exist after the
-   manual workflow is validated.
-5. **Pilot budgets.** Whether the provisional 3-entity and 150-line
-   budgets are the right defaults for the pilot or should be tuned
-   based on observed budget-refusal and restaging behavior.
+The project must not claim that it improves comprehension, proves equivalence,
+covers an entire change/repository, or produces verified HLD/LLD until its own
+evidence supports those claims.
 
 ---
 
-## Ways to contribute now
+## Why test this?
 
-This is a documentation-only project. You can contribute by:
+Research suggests that AI assistance can increase output while weakening
+short-term understanding, and that causal teach-back can improve later
+maintenance performance in one novice setting. None of that evidence validates
+this product or its professional workflow.
 
-- **Design feedback.** Open an issue using the design feedback form
-  to critique the proposed workflow, Behavior Card templates, source
-  checks, or comprehension receipt schema.
-- **Benchmark fixtures.** Submit a small TypeScript diff (10-50
-  lines) that you think would be a good test case for entity
-  extraction, card validation, source-check eligibility, probe spec
-  eligibility, or budget-refusal behavior. Use the benchmark fixture
-  issue form.
-- **Implementation proposals.** If you want to propose how a specific
-  Phase 0 component should be built, open an issue using the
-  implementation proposal form.
-- **Documentation improvements.** Pull requests that fix errors,
-  clarify wording, or add evidence citations are welcome. See
-  [CONTRIBUTING.md](CONTRIBUTING.md).
+The first real question is simpler:
 
-No source code contributions are being accepted yet. The project has
-no build system, no test suite, and no CI pipeline.
+> **Can collapsed evidence reduce reading while preserving enough truth for a
+> developer to predict behavior more accurately than with a raw diff or passive
+> summary?**
+
+See [Validation and Evidence](docs/VALIDATION.md) for sources, competing tools,
+experiment design, and kill criteria.
 
 ---
 
-## Documents
+## Project status
 
-| Document | Purpose |
-|----------|---------|
-| [PRD.md](PRD.md) | Product requirements: thesis, target user, workflow, functional requirements, Behavior Card templates and source checks, comprehension receipt schema, metrics, kill criteria |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Target Phase 0 architecture (unimplemented): crate choices, data flow, Tree-sitter integration, git invocation |
-| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Acceptance-criteria-driven implementation plan for Phase 0 components |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute to this documentation-only project |
-| [docs/VALIDATION.md](docs/VALIDATION.md) | Evidence summary, citation details, and limitations |
-| [docs/OPEN_DECISIONS.md](docs/OPEN_DECISIONS.md) | Unresolved pre-release decisions |
-| [docs/artifacts/README.md](docs/artifacts/README.md) | Reference for the proposed comprehension receipt format, Behavior Card templates, source checks, and probe spec |
+```text
+[x] Product and architecture specification
+[x] Output contracts and validation plan
+[x] Contribution, governance, and security boundaries
+[ ] Canonical JSON Schemas and executable fixtures
+[ ] Staged reduced-reading prototype
+[ ] Repository structural scanner
+[ ] Agent-assisted HLD/LLD prototype
+[ ] Professional developer validation
+[ ] Rename and release readiness
+```
+
+No implementation begins by treating the specification as proof that the idea
+works. The project should narrow, pivot, or stop if the reduced view is not
+meaningfully shorter, hides behavior, becomes ritual friction, or produces
+unreliable architecture drafts.
+
+---
+
+## Contribute at the current stage
+
+Useful contributions are evidence and design pressure, not unsolicited product
+code:
+
+- synthetic staged TypeScript fixtures;
+- synthetic TypeScript-first repository layouts;
+- cases that must remain unmapped or `not_checkable`;
+- prompt-injection, privacy, and provider-boundary cases;
+- schema, requirement, or citation corrections; and
+- implementation proposals mapped to acceptance criteria.
+
+Never submit proprietary source, secrets, personal data, private paths, or
+sensitive architecture. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## Document map
+
+```text
+README (you are here)
+  |
+  +-- PRD ----------------------- product behavior and success/kill criteria
+  +-- ARCHITECTURE -------------- Git, scanner, agent, and storage design
+  +-- IMPLEMENTATION_PLAN ------- acceptance criteria and build order
+  +-- docs/artifacts/README ----- exact staged and repository output examples
+  +-- docs/VALIDATION ----------- evidence, competitors, and experiments
+  +-- docs/OPEN_DECISIONS ------- unresolved release and design choices
+  +-- CONTRIBUTING -------------- safe ways to challenge or extend the design
+  +-- SECURITY ------------------ reporting, threat model, and privacy boundary
+```
+
+| Document | Link |
+|---|---|
+| Product requirements | [PRD.md](PRD.md) |
+| Technical design | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Acceptance criteria | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) |
+| Output reference | [docs/artifacts/README.md](docs/artifacts/README.md) |
+| Evidence and experiments | [docs/VALIDATION.md](docs/VALIDATION.md) |
+| Open decisions | [docs/OPEN_DECISIONS.md](docs/OPEN_DECISIONS.md) |
+| Governance | [GOVERNANCE.md](GOVERNANCE.md) |
+| Security | [SECURITY.md](SECURITY.md) |
+| Repository metadata guidance | [.github/REPOSITORY_METADATA.md](.github/REPOSITORY_METADATA.md) |
 
 ---
 
