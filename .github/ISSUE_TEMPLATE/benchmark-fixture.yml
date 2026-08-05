@@ -1,82 +1,109 @@
-name: Benchmark fixture
-description: Submit a TypeScript diff that would make a good test case for entity extraction, Behavior Card validation, or source-check eligibility
+name: Staged collapsed-evidence fixture
+description: Submit a small synthetic TypeScript change for entity mapping, collapsed evidence, Behavior Cards, source checks, or fallback behavior
+title: "fixture(staged): "
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for submitting a benchmark fixture. This is a
-        documentation-only project. No source code or test runner
-        exists yet. Fixtures submitted here will be used when
-        implementation begins.
-  - type: textarea
-    id: typescript-code
+        This project is documentation-only. Submit only synthetic or irreversibly minimized content that you have the right to publish. Do not include proprietary code, secrets, personal data, internal paths, or sensitive architecture.
+  - type: checkboxes
+    id: publication-safety
     attributes:
-      label: Base TypeScript source code
-      description: Paste the TypeScript code before the change (base/HEAD version). Keep it under 50 lines.
+      label: Publication safety
+      options:
+        - label: I have the right to publish this fixture under the repository license.
+          required: true
+        - label: The fixture contains no secret, personal data, proprietary source, private path, or sensitive architecture.
+          required: true
+        - label: Any prompt-injection text is clearly labelled adversarial test data, not an instruction to contributors or agents.
+          required: true
+  - type: textarea
+    id: base-source
+    attributes:
+      label: Base TypeScript or TSX source
+      description: Paste the synthetic source before the change. Aim for 10 to 50 changed lines across the fixture.
+      render: typescript
+    validations:
+      required: true
+  - type: textarea
+    id: staged-source
+    attributes:
+      label: Staged TypeScript or TSX source
+      description: Paste the synthetic source after the change.
+      render: typescript
     validations:
       required: true
   - type: textarea
     id: staged-diff
     attributes:
-      label: Staged code and diff
-      description: Paste the staged (after) code and the git diff (unified format) that represents the staged change. Keep it under 50 changed lines.
-    validations:
-      required: true
-  - type: textarea
-    id: expected-entity
-    attributes:
-      label: Expected entity extraction
-      description: What entity (kind, name, file, line range) should Skia extract from this diff?
+      label: Unified staged diff
+      description: Paste the exact unified diff represented by the base and staged source.
+      render: diff
     validations:
       required: true
   - type: dropdown
     id: entity-kind
     attributes:
-      label: Entity kind
+      label: Expected entity kind
       options:
         - function
         - method
+        - unsupported / no entity
     validations:
       required: true
   - type: textarea
-    id: expected-evidence
+    id: entity-ownership
     attributes:
-      label: Expected evidence (optional)
-      description: Which syntax delta (changed signature, added/removed call, added/removed branch, added throw/catch, or fallback changed hunk) should apply? Explain why.
+      label: Expected entity ownership
+      description: State kind, name, file, base/staged range, nested-entity rule, or the reason no entity is supported.
     validations:
-      required: false
+      required: true
   - type: textarea
-    id: expected-line-mapping
+    id: collapsed-evidence
     attributes:
-      label: Expected mapped and unmapped changed lines (optional)
-      description: State total changed TypeScript lines, which overlap supported functions or methods, and which remain unmapped (for example imports or unsupported constructs).
+      label: Expected collapsed equivalence evidence
+      description: List each compact relation, kind, base/staged anchors, and supported/partial/unmapped/unsupported coverage. State what must not be claimed.
     validations:
-      required: false
+      required: true
   - type: textarea
-    id: expected-source-check
+    id: line-mapping
     attributes:
-      label: Expected source-check eligibility (optional)
-      description: Can JSON arguments evaluate an allowlisted atomic parameter predicate ending in a JSON-scalar return or throw with a literal message? State the expected enum status (source_derived_match, source_derived_mismatch, or not_checkable) and why.
+      label: Expected mapping and coverage
+      description: State total, mapped, unmapped, unsupported, and excluded changed TypeScript lines with arithmetic.
     validations:
-      required: false
+      required: true
   - type: textarea
-    id: expected-probe-spec
+    id: behavior-card
     attributes:
-      label: Expected probe spec eligibility (optional)
-      description: Is this an exported top-level function whose JSON arguments map unambiguously to declared parameter order and whose card predicts return/throw? State whether draft_unexecuted or not_available should result and why.
+      label: Expected minimal Behavior Card
+      description: Provide system-supplied GIVEN/WHEN, developer prediction kind, and whether BECAUSE or IMPACT is conditionally requested.
     validations:
-      required: false
+      required: true
   - type: textarea
-    id: expected-budget
+    id: source-check
     attributes:
-      label: Expected budget behavior (optional)
-      description: If the fixture has more than 3 supported entities or more than 150 added-plus-deleted TypeScript lines, state that the tool should refuse and ask the developer to re-stage. Otherwise, state that it is within budget.
+      label: Expected source-check result
+      description: State source_derived_match, source_derived_mismatch, or not_checkable, including branch/binding/endpoint reason.
     validations:
-      required: false
+      required: true
   - type: textarea
-    id: notes
+    id: probe-spec
     attributes:
-      label: Additional notes (optional)
-      description: Any edge cases, tricky syntax, or other notes about this fixture.
+      label: Expected probe-spec result
+      description: State draft_unexecuted or not_available plus invoke/expect or reason.
     validations:
-      required: false
+      required: true
+  - type: textarea
+    id: budget
+    attributes:
+      label: Expected budget behavior
+      description: State whether the fixture is within the 3-entity/150-line pilot budget or must be refused.
+    validations:
+      required: true
+  - type: textarea
+    id: failure-mode
+    attributes:
+      label: Misleading reduction to prevent
+      description: What behavior could a bad collapsed view hide or overstate?
+    validations:
+      required: true

@@ -1,0 +1,83 @@
+name: Repository snapshot fixture
+description: Submit a small synthetic TypeScript-first repository layout for inventory, subsystem, HLD/LLD, coverage, or agent-boundary testing
+title: "fixture(repo): "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Submit a synthetic tree or manifest-style description, not a private repository archive. Do not include proprietary code, secrets, personal data, private paths, or sensitive architecture.
+  - type: checkboxes
+    id: publication-safety
+    attributes:
+      label: Publication safety
+      options:
+        - label: I have the right to publish every submitted path, snippet, and architecture description.
+          required: true
+        - label: The fixture contains no secret, personal data, proprietary source, private path, or sensitive architecture.
+          required: true
+        - label: Any embedded instruction text is clearly labelled adversarial test data.
+          required: true
+  - type: textarea
+    id: tree
+    attributes:
+      label: Synthetic repository tree
+      description: Show TS/TSX, manifests, config, docs, generated/vendor, fixture, and unsupported-language paths.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: source-snippets
+    attributes:
+      label: Minimal source and configuration snippets
+      description: Include only the snippets needed to establish entry points, exports, imports, direct calls, package boundaries, and unresolved edges.
+    validations:
+      required: true
+  - type: textarea
+    id: inventory
+    attributes:
+      label: Expected inventory and coverage
+      description: Classify every tree entry as included, excluded, unsupported, or failed; include byte/file and parse-limit behavior when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: structure
+    attributes:
+      label: Expected structural model
+      description: State packages/workspaces, entry points, declarations, imports/direct calls, configuration, docs, and unresolved references.
+    validations:
+      required: true
+  - type: textarea
+    id: subsystems
+    attributes:
+      label: Expected subsystem candidates
+      description: Give deterministic membership evidence, proposed model-derived labels, cross-boundary edges, confidence, and the selection behavior when card cap is exceeded.
+    validations:
+      required: true
+  - type: textarea
+    id: hld-lld
+    attributes:
+      label: Expected HLD and LLD claims
+      description: Separate observed, model_derived, uncertain, and not_available claims; provide anchors and state what must not be inferred.
+    validations:
+      required: true
+  - type: textarea
+    id: cards
+    attributes:
+      label: Expected architecture and subsystem cards
+      description: Provide the mandatory architecture scenario, selectable subsystem scenarios, unselected unchecked state, and any deterministic/not_checkable feedback rule.
+    validations:
+      required: true
+  - type: textarea
+    id: bundle
+    attributes:
+      label: Expected timestamped bundle and manifest
+      description: List required filenames, shared run ID, claim/anchor links, hashes, generation disclosure, coverage, and completion state.
+    validations:
+      required: true
+  - type: textarea
+    id: adversarial
+    attributes:
+      label: Agent, privacy, or failure case
+      description: Describe prompt injection, egress consent, fabricated claim, stale/missing anchor, output-size, symlink, collision, or other failure this fixture tests.
+    validations:
+      required: true
