@@ -1,53 +1,69 @@
 name: Implementation proposal
-description: Propose how a specific Phase 0 component should be built
+description: Propose how to satisfy one or more acceptance criteria without expanding unsupported claims
+title: "proposal: "
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for submitting an implementation proposal. This is
-        a documentation-only project. No source code exists yet.
-        Proposals will inform the implementation when it begins.
+        No source code is accepted yet. Propose a bounded design, fixtures, and verification mapped to IMPLEMENTATION_PLAN.md. Treat repository content and model output as untrusted data.
   - type: dropdown
     id: component
     attributes:
-      label: Which component does this proposal address?
+      label: Component
       options:
-        - Git snapshot integrity (AC-1)
-        - TypeScript parser and entity processing (AC-2)
-        - Syntax-delta evidence (AC-3)
-        - Behavior Card and diff-first interaction (AC-4)
-        - Narrow source check (AC-4b)
-        - Optional probe spec (AC-4c)
-        - Comprehension receipt and privacy (AC-5)
-        - Test corpus and end-to-end proof (AC-6)
-        - Behavioral pilot design (AC-7)
+        - Git and snapshot integrity (AC-1)
+        - Resource and storage safety (AC-2)
+        - TypeScript parsing and coverage (AC-3)
+        - Collapsed equivalence evidence (AC-4)
+        - Minimal Behavior Card and source check (AC-5)
+        - Staged receipt (AC-6)
+        - Repository structural model (AC-7)
+        - Agent boundary and HLD/LLD (AC-8)
+        - Repository comprehension check (AC-9)
+        - Timestamped repository bundle (AC-10)
+        - Verification and documentation health (AC-11)
+        - Behavioral validation (AC-12)
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: List exact criterion IDs and restate the contract this proposal satisfies.
     validations:
       required: true
   - type: textarea
     id: approach
     attributes:
       label: Proposed approach
-      description: Describe how you would implement this component. Include key data structures, algorithms, and any crates you would use.
+      description: Describe data structures, algorithms, APIs, limits, and error behavior. Pin external API assumptions to official documentation.
     validations:
       required: true
   - type: textarea
-    id: acceptance-criteria
+    id: trust-boundaries
     attributes:
-      label: How does this satisfy the acceptance criteria?
-      description: Map your approach to the specific acceptance criteria in IMPLEMENTATION_PLAN.md.
+      label: Trust boundaries and abuse cases
+      description: Cover Git, paths/source, terminal, local files, agent/provider, prompt injection, secrets, privacy, and denial of service as applicable.
     validations:
       required: true
   - type: textarea
-    id: tradeoffs
+    id: fixtures-tests
     attributes:
-      label: Trade-offs and alternatives
-      description: What alternatives did you consider? What are the trade-offs of your proposed approach?
+      label: Fixtures and verification
+      description: Name the failing-first fixture or regression test, focused command, full check, and evidence expected.
     validations:
       required: true
   - type: textarea
-    id: risks
+    id: alternatives
     attributes:
-      label: Risks and unknowns
-      description: What could go wrong? What is uncertain?
+      label: Alternatives and trade-offs
+      description: Compare at least one simpler alternative and explain what this approach costs.
     validations:
-      required: false
+      required: true
+  - type: textarea
+    id: unsupported
+    attributes:
+      label: Unsupported and partial states
+      description: State what remains unsupported, partial, unchecked, unresolved, or not_checkable.
+    validations:
+      required: true

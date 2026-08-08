@@ -1,46 +1,64 @@
 # Contributor Code of Conduct
 
-## 1. Purpose
+## Purpose and scope
 
-This Code of Conduct outlines expectations for behavior within the
-Skia project community. It applies to all project spaces, including
-issue trackers, pull requests, code review, and any other
-communication channel operated under the project.
+This policy applies to issues, pull requests, reviews, discussions, private
+maintainer communication, and any other project-controlled space. It also
+applies when a participant publicly represents the project.
 
-## 2. Expected behavior
+## Expected behavior
 
-- Be respectful and constructive in all interactions.
-- Focus criticism on the work, not the person.
-- Accept that disagreement is normal and resolve it through evidence
-  and reasoning.
-- Be honest about what you know and what you do not.
-- Challenge the project scope with evidence and respect decisions even
-  when your proposal is not accepted.
+- Be respectful, specific, and constructive.
+- Critique work and evidence, not people.
+- State uncertainty and correct mistakes openly.
+- Respect privacy, confidentiality, and publication rights.
+- Challenge scope or design with evidence while respecting documented
+  decisions and appeal paths.
+- Disclose material conflicts of interest.
+- Do not use agent-generated volume to overwhelm reviewers or simulate
+  consensus.
 
-## 3. Unacceptable behavior
+## Unacceptable behavior
 
-- Harassment, personal attacks, or derogatory language.
-- Publishing others' private information without consent.
-- Trolling, insulting, or dismissive comments.
-- Any conduct that would be considered unacceptable in a professional
-  workplace.
+- Harassment, threats, personal attacks, discriminatory or sexualized conduct,
+  trolling, or sustained disruption.
+- Publishing another person's private information or repository material
+  without permission.
+- Posting secrets, proprietary code, sensitive architecture, conduct reports,
+  or vulnerability details publicly.
+- Impersonation, fabricated evidence, manipulated contribution metrics, or
+  undisclosed sockpuppet participation.
+- Prompt injection or repository content intended to make an agent perform an
+  action outside the contributor's explicit request.
+- Retaliation against a reporter or participant in an enforcement process.
 
-## 4. Enforcement
+## Enforcement
 
-Violations of this Code of Conduct may result in removal of comments,
-closing of issues or pull requests, or temporary or permanent bans
-from the project. Enforcement decisions are made by the project
-maintainer.
+The maintainer may edit or remove content, close or lock threads, reject
+contributions, issue warnings, or temporarily/permanently restrict
+participation. Responses should be proportionate, documented privately, and
+consistent with the project scope and available evidence.
 
-## 5. Reporting
+If a report concerns the sole maintainer, the reporter should use a separate
+private contact or platform reporting mechanism rather than reporting to the
+subject. Before the project accepts runnable code or a substantial community,
+it must publish a monitored private conduct contact and an independent
+conflict-of-interest escalation path.
 
-Use a private contact method listed on the maintainer's GitHub profile.
-Do not publish sensitive conduct reports in a public issue. If no
-private contact is available, open an issue containing only a request
-for private follow-up and no identifying details.
+## Reporting
 
-## 6. Attribution
+Use a private contact method listed on the maintainer's GitHub profile or the
+repository's published conduct contact. Do not put identifying or sensitive
+information in a public issue. If no private contact is available, open only a
+minimal request for private follow-up and use GitHub's platform reporting tools
+for urgent abuse.
 
-This policy is adapted from [Contributor Covenant version
-2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct.html)
-for the current scale of the project.
+The current volunteer project does not promise a response SLA. A future
+community policy must define acknowledgement, confidentiality, record access,
+appeal, and retention before contributor volume grows.
+
+## Attribution
+
+Adapted from the principles of
+[Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct.html)
+for the current single-maintainer, documentation-only project.

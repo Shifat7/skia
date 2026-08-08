@@ -1,129 +1,185 @@
 # Contributing to Skia
 
-> **This is a documentation-only project.** There is no source code,
-> no build system, no test suite, and no CI pipeline. Contributions
-> are limited to documentation, design feedback, and test fixture
-> proposals.
+> **Documentation-only stage.** There is no source, build, test suite, CLI,
+> package, generated HLD/LLD, or release. Current contributions are design,
+> evidence, synthetic fixtures, schemas, documentation, and documentation
+> automation proposals.
 
 ---
 
-## How to contribute
+## 1. Read before proposing changes
 
-### Documentation improvements
+The product now has two proposed modes:
 
-Pull requests that fix errors, clarify wording, correct
-contradictions, or add evidence citations are welcome.
+- staged collapsed equivalence evidence plus a minimal Behavior Card; and
+- an agent-assisted TypeScript-first repository snapshot with timestamped local
+  HLD/LLD and architecture/selected-subsystem checks.
 
-Before submitting a documentation PR:
+Before opening a contribution, read the documents you affect and their direct
+references. The canonical contracts are:
 
-1. Read the documents you are changing and any documents that
-   reference them. Ensure consistency across all files.
-2. Do not introduce claims that the project has a working CLI,
-   compiled binary, or installable package.
-3. Do not introduce performance targets presented as measured facts.
-4. Do not add badges, release counts, or claims of adoption.
-5. Use clear professional Markdown and working links.
-6. If you cite evidence, include the source, sample, design, and
-   limitations. See docs/VALIDATION.md for the expected standard.
-
-### Design feedback
-
-Open an issue using the design feedback issue form
-(`.github/ISSUE_TEMPLATE/design-feedback.yml`). Describe what you
-think is wrong or missing in the proposed design and what you would
-change.
-
-Focus areas where feedback is most valuable:
-
-- The proposed workflow (PRD.md Section 3).
-- The Behavior Card templates and source checks (PRD.md Section 6).
-- The comprehension receipt schema (PRD.md Section 7).
-- The entity extraction and selection strategy
-  (ARCHITECTURE.md Section 5).
-- The kill criteria (PRD.md Section 9).
-
-### Benchmark fixtures
-
-Submit a small TypeScript diff (10-50 changed lines) that you think
-would be a good test case. Open an issue using the benchmark fixture
-issue form (`.github/ISSUE_TEMPLATE/benchmark-fixture.yml`).
-
-A good fixture:
-
-- Contains one or two named TypeScript functions or methods, or an
-  unsupported construct that should exercise a clear fallback.
-- Includes base and staged code so the diff is unambiguous.
-- Has a clear expected entity extraction result (kind, name, file,
-  line range).
-- States the expected evidence (syntax delta kind and direction).
-- States total, mapped, and unmapped changed TypeScript line counts;
-  unmapped imports or unsupported constructs must stay visible.
-- States source-check eligibility: whether JSON arguments can evaluate
-  an allowlisted atomic parameter predicate ending in a JSON-scalar
-  return or throw with a literal message, and what status (`source_derived_match`,
-  `source_derived_mismatch`, or `not_checkable`) should result.
-- States probe-spec eligibility: whether the entity is an exported
-  top-level function, JSON arguments map unambiguously to declared
-  parameter order, the card predicts return/throw, and whether
-  `draft_unexecuted` or `not_available` should result.
-- If the fixture has more than 3 supported entities or more than 150
-  added-plus-deleted TypeScript lines, states that the tool should refuse and
-  ask the developer to re-stage.
-- Is small enough to read in under a minute.
-- Does not depend on external packages or network access.
-
-### Implementation proposals
-
-If you want to propose how a specific Phase 0 component should be
-built, open an issue using the implementation proposal issue form
-(`.github/ISSUE_TEMPLATE/implementation-proposal.yml`). Describe the
-component, your proposed approach, and how it would satisfy the
-relevant acceptance criteria in IMPLEMENTATION_PLAN.md.
+- [PRD.md](PRD.md) for product behavior and truth boundaries;
+- [ARCHITECTURE.md](ARCHITECTURE.md) for technical design;
+- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for acceptance criteria;
+- [docs/artifacts/README.md](docs/artifacts/README.md) for output examples;
+- [docs/VALIDATION.md](docs/VALIDATION.md) for evidence and prohibited claims;
+  and
+- [docs/OPEN_DECISIONS.md](docs/OPEN_DECISIONS.md) for unresolved choices.
 
 ---
 
-## What not to contribute
+## 2. Safe contribution rules
 
-- **Source code.** No source code is being accepted. The project has
-  no Cargo workspace, no build system, and no way to compile or test
-  code.
-- **Badges, shields, or release artifacts.** The project has no
-  releases, no CI, and no published packages.
-- **Claims of adoption or usage.** The project has no users.
-- **Unapproved feature implementations outside Phase 0.** Open a
-  design or implementation-proposal issue first. Evidence-backed
-  challenges to the current scope are welcome; unsolicited code for a
-  deferred feature will not be merged.
+Never submit:
 
----
+- proprietary or employer-owned code without explicit permission;
+- secrets, credentials, tokens, customer data, personal data, internal paths,
+  private repository names, or sensitive architecture;
+- source or generated artifacts copied from a repository you cannot publish;
+- AI-generated claims presented as verified or deterministic; or
+- executable proof-of-concept exploit details in a public issue.
 
-## PR workflow
+Fixtures should be synthetic or irreversibly minimized. By submitting a
+fixture, you assert that you have the right to publish it under this
+repository's license.
 
-1. Create a feature branch from `main`.
-2. Make your changes. Read every file you touch before editing it.
-3. Ensure your changes do not contradict other documents in the
-   repository.
-4. Use the pull request template (`.github/PULL_REQUEST_TEMPLATE.md`)
-   when opening a PR.
-5. Clearly state what changed and why. If you are correcting an
-   error, name the error and the file it was in.
+Repository content is untrusted data. Do not add instructions in fixtures,
+comments, paths, or Markdown that ask an agent to change tools, destinations,
+permissions, scope, or disclosure. Prompt-injection fixtures are welcome only
+when clearly labelled as adversarial test data inside the fixture contract.
 
 ---
 
-## Style guide
+## 3. Contribution paths
 
-- Use concise, professional Markdown.
-- Prefer standard punctuation; use `---` only for a Markdown thematic
-  break.
-- Fence code blocks with triple backticks and label the language when
-  applicable.
-- Tables use GitHub-flavored Markdown pipe syntax.
-- Do not use HTML tags in Markdown.
-- Sentences are plain text. No marketing language.
+### 3.1 Documentation corrections
+
+Pull requests may fix contradictions, broken links, terminology drift, malformed
+examples, schema mismatch, unsafe claims, and source citations.
+
+A documentation change must not claim:
+
+- a working CLI, package, generated artifact, release, or adoption;
+- semantic/runtime equivalence or complete coverage;
+- a correct, verified, passed, or understood Behavior Card;
+- authoritative HLD/LLD;
+- privacy without disclosing any external-agent boundary; or
+- professional comprehension benefit before a valid experiment.
+
+### 3.2 Staged collapsed-evidence fixtures
+
+Use the benchmark fixture issue form. A useful fixture is synthetic, generally
+10 to 50 changed lines, and provides:
+
+- base and staged TypeScript/TSX source;
+- unified staged diff;
+- expected supported entity ownership, or explicit unsupported outcome;
+- expected compact relations and base/staged source anchors;
+- total, mapped, and unmapped changed-line counts;
+- expected minimal scenario and prediction kind;
+- expected source-check eligibility/status and reason;
+- expected probe eligibility/status and reason;
+- expected budget behavior; and
+- the behavior that a misleading reduction might omit.
+
+Unsupported constructs are first-class fixtures. Select `unsupported / no
+entity` rather than forcing a function or method answer.
+
+### 3.3 Repository-layout fixtures
+
+Use the repository snapshot fixture form. Submit a small synthetic tree or a
+manifest-style description, not a private repository archive.
+
+A useful repository fixture states:
+
+- TS/TSX, manifest, configuration, documentation, generated/vendor, fixture,
+  unsupported-language, and failure classifications;
+- packages/workspaces, entry points, imports, direct calls, and unresolved
+  edges;
+- expected candidate subsystems and deterministic membership evidence;
+- expected HLD/LLD claims plus observed/model-derived/uncertain labels;
+- expected coverage and exclusion arithmetic;
+- expected architecture card and subsystem-selection behavior; and
+- prompt-injection or privacy edge cases when relevant.
+
+### 3.4 Design feedback
+
+Use the design feedback form. High-value topics include:
+
+- whether collapsed evidence actually reduces reading;
+- relation grammar, anchors, and safe fallback;
+- minimal card scenario selection and mismatch flow;
+- atomic staged snapshot strategy;
+- repository coverage and subsystem discovery;
+- agent consent, prompt-injection, and claim provenance;
+- HLD/LLD output size and factual-accuracy bar;
+- timestamped bundle schema and local deletion; and
+- professional validation design.
+
+### 3.5 Implementation proposals
+
+Map proposals to specific acceptance criteria in IMPLEMENTATION_PLAN.md. Include
+alternatives, trade-offs, failure modes, security/privacy impact, resource
+limits, fixtures, and verification commands. Unrequested product source code is
+not accepted during the documentation-only stage.
 
 ---
 
-## License
+## 4. Pull-request workflow
 
-MIT. By contributing, you agree to license your contributions under
-the same license. See LICENSE.
+1. Create a short-lived branch from `main`.
+2. Read every file you will change and any document that declares itself
+   authoritative for the same term/schema.
+3. Keep one logical decision per commit where practical.
+4. Update every duplicated contract or replace duplication with one canonical
+   fixture/reference.
+5. Use the pull-request template.
+6. Record exact verification commands and outputs.
+7. Obtain review before merge. Automated review is evidence, not a substitute
+   for the maintainer's decision.
+8. Do not merge while required review findings or documentation checks are red.
+
+Large repository-wide specification changes may span several files, but the PR
+must explain why they cannot be safely split and should use small commits by
+contract layer.
+
+---
+
+## 5. Documentation verification
+
+Before requesting review, run the repository's documented checks when they
+exist. The required documentation CI target is:
+
+- Markdown style and malformed-tail checks;
+- relative and external link validation;
+- fenced JSON parsing;
+- GitHub issue-form YAML validation;
+- canonical JSON Schema/example validation;
+- terminology, enum, timestamp, filename, and coverage-field drift checks;
+- duplicate canonical-example detection; and
+- `git diff --check`.
+
+Until those scripts are checked in, list the equivalent commands or manual
+checks in the PR. "Looks correct" is not verification.
+
+---
+
+## 6. Style
+
+- Use concise professional Markdown and standard punctuation.
+- Prefer exact contracts and one canonical example over repeated prose.
+- Label proposed commands/output as unimplemented.
+- Separate deterministic observations from model-derived claims.
+- Use `model_derived`, `developer_supplied`, `not_available`,
+  `source_derived_match`, `source_derived_mismatch`, and `not_checkable`
+  consistently.
+- Do not call generated architecture authoritative, verified, or complete.
+- Fence code and data examples with an appropriate language.
+- Avoid marketing language and unsupported performance/adoption claims.
+
+---
+
+## 7. License
+
+MIT. By contributing, you agree to license your contribution under the same
+license. See [LICENSE](LICENSE).

@@ -1,48 +1,65 @@
 name: Design feedback
-description: Provide feedback on the proposed product design, workflow, or schema
+description: Challenge the proposed reduced-reading, repository, artifact, privacy, or validation design
+title: "design: "
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for providing design feedback. This is a
-        documentation-only project. No source code exists. Please
-        focus your feedback on the proposed design as described in
-        the project documents.
+        This is a documentation-only project. Focus on a specific contract, failure mode, or alternative. Do not include private source, secrets, personal data, or sensitive architecture.
   - type: dropdown
     id: area
     attributes:
-      label: Which area does your feedback address?
+      label: Area
       options:
-        - Proposed workflow (PRD.md Section 3)
-        - Behavior Card templates and source checks (PRD.md Section 6)
-        - Comprehension receipt schema (PRD.md Section 7)
-        - Mapped/unmapped line coverage and card-status semantics (PRD.md Section 7)
-        - Entity extraction and bounded review unit (ARCHITECTURE.md Section 5)
-        - Pilot budgets and budget-refusal behavior (PRD.md Section 8)
-        - Kill criteria (PRD.md Section 9)
-        - Non-goals list (README.md)
-        - Open decisions (docs/OPEN_DECISIONS.md)
+        - Reduced-reading product thesis
+        - Collapsed-equivalence grammar and source anchors
+        - Minimal Behavior Card and scenario selection
+        - Source-check truth boundary
+        - Atomic staged Git snapshot
+        - TypeScript-first repository inventory and coverage
+        - Subsystem discovery and selection
+        - Agent consent and prompt-injection boundary
+        - HLD and LLD factual grounding and reading budget
+        - Timestamped local bundle and manifest
+        - Local privacy, retention, and deletion
+        - Professional validation and kill criteria
+        - Contribution, governance, or security process
+        - Open decision
         - Other
     validations:
       required: true
   - type: textarea
     id: problem
     attributes:
-      label: What is the problem?
-      description: Describe what you think is wrong, missing, or unclear in the current design.
-    validations:
-      required: true
-  - type: textarea
-    id: suggestion
-    attributes:
-      label: What would you change?
-      description: Describe your proposed change or alternative.
+      label: Problem or failure case
+      description: State what can go wrong, for whom, and which current contract permits it.
     validations:
       required: true
   - type: textarea
     id: evidence
     attributes:
-      label: Supporting evidence (optional)
-      description: If you have evidence (research, experience, data) that supports your feedback, describe it here. Include source names and limitations.
+      label: Evidence
+      description: Cite source text, a synthetic example, primary research, official documentation, or a reproducible command and output. State limitations.
     validations:
-      required: false
+      required: true
+  - type: textarea
+    id: proposed-change
+    attributes:
+      label: Proposed change
+      description: Describe the smallest change that closes the gap without hiding coverage or increasing reading unnecessarily.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Trade-offs and rejected alternatives
+      description: Explain what becomes worse, more complex, or less supported.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation or falsification
+      description: What fixture, test, prototype, or experiment would show whether this proposal works?
+    validations:
+      required: true
