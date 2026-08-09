@@ -103,17 +103,18 @@ Skia intervention. Adoption and intensity were not randomized.
 ### 2.1 Tree-sitter
 
 **Primary sources:**
-[Tree-sitter Rust bindings](https://docs.rs/tree-sitter/latest/tree_sitter/) and
-[tree-sitter-typescript Rust crate](https://docs.rs/tree-sitter-typescript/latest/tree_sitter_typescript/).
+[Tree-sitter Node.js bindings](https://tree-sitter.github.io/node-tree-sitter/),
+[tree-sitter-typescript](https://github.com/tree-sitter/tree-sitter-typescript),
+and [tree-sitter-python](https://github.com/tree-sitter/tree-sitter-python).
 
 Tree-sitter can provide concrete syntax trees, byte/source ranges, and queries.
-The TypeScript crate exposes separate `LANGUAGE_TYPESCRIPT` and `LANGUAGE_TSX`
-language functions.
+The TypeScript grammar exposes separate TypeScript and TSX grammars, while the
+Python grammar provides Python syntax parsing.
 
-It does not provide TypeScript type inference, complete symbol resolution,
-runtime call graphs, business intent, semantic equivalence, deployment
-architecture, or error-flow proof. Those remain unsupported unless a separately
-tested analyzer is introduced.
+It does not provide TypeScript or Python type inference, complete symbol
+resolution, runtime call graphs, business intent, semantic equivalence,
+deployment architecture, or error-flow proof. Those remain unsupported unless a
+separately tested analyzer is introduced.
 
 ### 2.2 Git
 
@@ -242,9 +243,9 @@ architecture artifacts, or require controls outside the feasible product.
 
 ### 5.1 Moderated staged prototype
 
-Before a full Git/parser implementation, prepare fixed realistic TypeScript
-diffs and manually derived collapsed evidence. Recruit professional
-AI-assisted TypeScript developers.
+Before a full Git/parser implementation, prepare fixed realistic TypeScript and
+Python diffs and manually derived collapsed evidence. Recruit professional
+AI-assisted TypeScript and Python developers.
 
 Compare within matched tasks:
 
@@ -269,7 +270,7 @@ fixtures. Precommit:
 
 ### 5.3 Moderated repository prototype
 
-Use two or more TypeScript-first repositories with known architecture. Generate
+Use two or more TypeScript/Python repositories with known architecture. Generate
 HLD/LLD under the proposed schema, then independently verify claims before the
 user study.
 

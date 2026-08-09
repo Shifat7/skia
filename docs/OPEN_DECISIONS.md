@@ -6,22 +6,25 @@ are experiment starting points, not validated truths.
 
 ---
 
-## OD-1: Project and command name (release blocker)
+## OD-1: Project and command name (release risk)
 
-**Question:** What unique project and command name replaces "Skia"?
+**Question:** How can the retained "Skia" project and `skia` command be
+distributed and documented without creating search or registry confusion?
 
-Google's [Skia graphics project](https://github.com/google/skia),
-[skia.org](https://skia.org/), the existing
-[`skia` Rust crate registry record](https://crates.io/api/v1/crates/skia), and the existing
-[`skia` npm package](https://www.npmjs.com/package/skia) make the current name
-unusable for clear search and registry identity.
+Google’s [Skia graphics project](https://github.com/google/skia),
+[skia.org](https://skia.org/), and the existing
+[`skia` npm package](https://www.npmjs.com/package/skia) create search and
+registry ambiguity for the current name.
 
-**Decision rule:** Verify trademark/search risk plus command and intended
-registry availability. Rename the command, `.skia/` directory, schemas, examples,
-and documentation atomically before release.
+**Current maintainer decision:** Retain the `Skia`/`skia` name for now. Do not
+rename the command, `.skia/` directory, schemas, examples, or documentation as
+part of Phase 1.
+
+**Decision rule:** Before publication, document accepted search, trademark, and
+registry risk, or obtain a deliberate maintainer decision to rename atomically.
 
 **Blocks:** Package publication, release binaries, install docs, public launch,
-and stable artifact paths.
+and stable artifact paths; it does not block Phase 1 implementation.
 
 ---
 
@@ -157,14 +160,15 @@ wrong.
 
 ---
 
-## OD-9: TypeScript-first repository boundaries
+## OD-9: TypeScript/Python repository boundaries
 
 **Question:** Which manifests, configuration, docs, generated/vendor paths,
 fixtures, and import-resolution forms are included?
 
-**Current proposal:** Detailed behavior is TS/TSX only. Manifests,
-configuration, lockfiles, and docs inform structure. Other languages are
-inventory-level unsupported coverage.
+**Current proposal:** Detailed behavior is supported for TypeScript, TSX, and
+Python. Manifests, configuration, lockfiles, and docs inform structure. Other
+languages are inventory-level unsupported coverage. TypeScript-to-Python
+resolution and cross-language behavior remain unresolved.
 
 **Decision rule:** Freeze a versioned inclusion/status matrix and resource
 limits. Add one new resolver or source category only with dedicated fixtures and
@@ -241,8 +245,9 @@ pivot/stop criteria.
   `THEN`; `BECAUSE` and `IMPACT` are conditional.
 - **Feedback order:** Persist prediction before source-check feedback.
 - **Staged budget:** Provisional maximum 3 supported entities and 150
-  added-plus-deleted TypeScript lines; refuse rather than silently sample.
-- **Repository scope:** Agent-assisted, TypeScript-first detailed analysis;
+  added-plus-deleted supported-language lines; refuse rather than silently
+  sample.
+- **Repository scope:** Agent-assisted, TypeScript/Python detailed analysis;
   manifests/config/docs inform structure; other languages remain explicit
   unsupported coverage.
 - **Repository checks:** One architecture card plus developer-selected subsystem

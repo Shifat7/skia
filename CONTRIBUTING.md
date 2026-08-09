@@ -12,7 +12,7 @@
 The product now has two proposed modes:
 
 - staged collapsed equivalence evidence plus a minimal Behavior Card; and
-- an agent-assisted TypeScript-first repository snapshot with timestamped local
+- an agent-assisted TypeScript/Python repository snapshot with timestamped local
   HLD/LLD and architecture/selected-subsystem checks.
 
 Before opening a contribution, read the documents you affect and their direct
@@ -71,7 +71,7 @@ A documentation change must not claim:
 Use the benchmark fixture issue form. A useful fixture is synthetic, generally
 10 to 50 changed lines, and provides:
 
-- base and staged TypeScript/TSX source;
+- base and staged TypeScript/TSX/Python source;
 - unified staged diff;
 - expected supported entity ownership, or explicit unsupported outcome;
 - expected compact relations and base/staged source anchors;
@@ -92,7 +92,7 @@ manifest-style description, not a private repository archive.
 
 A useful repository fixture states:
 
-- TS/TSX, manifest, configuration, documentation, generated/vendor, fixture,
+- TS/TSX/Python, manifest, configuration, documentation, generated/vendor, fixture,
   unsupported-language, and failure classifications;
 - packages/workspaces, entry points, imports, direct calls, and unresolved
   edges;

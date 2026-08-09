@@ -1,6 +1,6 @@
 # Skia Architecture -- Proposed Target
 
-> **Unimplemented design.** The repository contains no Cargo package,
+> **Unimplemented design.** The repository contains no TypeScript package,
 > source code, tests, generated HLD/LLD, or runnable command. Every module,
 > type, command, and data flow below is a proposal.
 
@@ -13,7 +13,7 @@ deterministic evidence with model output:
 
 - `skia review` -- a reduced-reading checkpoint over one staged TypeScript
   snapshot;
-- `skia repo review` -- a TypeScript-first structural snapshot plus
+- `skia repo review` -- a TypeScript/Python structural snapshot plus
   agent-generated HLD/LLD and architecture/subsystem comprehension checks.
 
 Both workflows are local-first, read-only with respect to source and Git, and
@@ -28,16 +28,19 @@ to a deterministic fact.
 
 ## 2. Package structure
 
-One synchronous Rust binary is sufficient for the first implementation:
+One synchronous TypeScript CLI running on a pinned Node.js runtime is
+sufficient for the first implementation:
 
 ```text
 src/
-  main.rs             command parsing and orchestration
-  git.rs              hardened Git process boundary and snapshot capture
-  limits.rs           file, byte, time, output, and terminal-input limits
-  paths.rs            path-byte handling and escaped display
-  typescript.rs       TS/TSX parsing and declarations
-  coverage.rs         included/excluded/unsupported/failed accounting
+  main.ts             command parsing and orchestration
+  git.ts              hardened Git process boundary and snapshot capture
+  limits.ts           file, byte, time, output, and terminal-input limits
+  paths.ts            path-byte handling and escaped display
+  languages/
+    typescript.ts     TS/TSX parsing and declarations
+    python.ts         Python parsing and declarations
+  coverage.ts         included/excluded/unsupported/failed accounting
   staged/
     entities.rs       changed-entity ownership and mapping
     collapse.rs       collapsed equivalence evidence
@@ -53,13 +56,13 @@ src/
     agent.rs          consent, adapter, prompt contract, and output validation
     bundle.rs         HLD/LLD/evidence/cards/coverage/manifest assembly
     prompt.rs         repository terminal interaction
-  schema.rs           JSON Schema versions and validation
-  storage.rs          atomic local run creation, listing, inspection, deletion
+  schema.ts           JSON Schema versions and validation
+  storage.ts          atomic local run creation, listing, inspection, deletion
 ```
 
-A multi-crate workspace, plugin system, async runtime, daemon, watcher, hosted
-service, and source-rewrite engine are excluded until a second consumer or
-measured requirement justifies them.
+A multi-package workspace, plugin system, async runtime, daemon, watcher,
+hosted service, and source-rewrite engine are excluded until a second consumer
+or measured requirement justifies them.
 
 ---
 
@@ -67,19 +70,21 @@ measured requirement justifies them.
 
 | Concern | Proposed dependency or API | Constraint |
 |---------|----------------------------|------------|
-| CLI | `clap` derive | Commands and flags have golden help tests |
-| TypeScript parsing | pinned compatible `tree-sitter` and `tree-sitter-typescript` | Use current `LANGUAGE_TYPESCRIPT` and `LANGUAGE_TSX` APIs; record versions |
-| Git | `std::process::Command` | Structured arguments, hardened environment, no shell |
-| Serialization | `serde`, `serde_json` | Every JSON output validates against a versioned schema |
-| Hashing | `sha2` | SHA-256 for snapshots and artifacts |
-| Time | `time` | UTC path-safe run IDs and RFC 3339 manifest timestamps |
-| Errors | `anyhow` plus typed boundary errors | User output is escaped and actionable |
-| Terminal | `std::io` | No TUI in Phase 0; degrades without color |
-| Agent | narrow adapter trait owned by repository mode | No provider SDK in deterministic modules |
+| CLI | TypeScript CLI parser selected during contract freeze | Commands and flags have golden help tests |
+| Runtime | pinned Node.js runtime | Runtime and package-manager versions are recorded in manifests |
+| Source parsing | pinned TypeScript/TSX/Python parser packages | Select grammar by supported extension and record parser versions |
+| Git | Node.js child-process API | Structured arguments, hardened environment, no shell |
+| Serialization | TypeScript DTOs plus JSON Schema validator | Every JSON output validates against a versioned schema |
+| Hashing | Node.js crypto API | SHA-256 for snapshots and artifacts |
+| Time | Node.js time primitives plus a UTC formatter | Path-safe run IDs and RFC 3339 manifest timestamps |
+| Errors | typed boundary errors | User output is escaped and actionable |
+| Terminal | Node.js standard streams | No TUI in Phase 0; degrades without color |
+| Agent | narrow adapter interface owned by repository mode | No provider SDK in deterministic modules |
 
-Exact crate versions and the minimum supported Rust version are release
-blockers. Architecture documentation must point to the docs for those pinned
-versions rather than `latest` alone.
+The supported Node.js runtime, package manager, TypeScript compiler, parser
+packages, schema validator, and lockfile policy are release blockers.
+Architecture documentation must point to the docs for those pinned versions
+rather than `latest` alone.
 
 ---
 
@@ -122,10 +127,10 @@ Internal Git paths remain byte-preserving platform path values. They are not
 lossily coerced to UTF-8 for identity or Git arguments. Display uses escaped,
 quoted output.
 
-Before parsing a `.ts` or `.tsx` blob, the scanner verifies an allowed regular
-file mode. Symlinks, submodules, type changes, directories, conflicts, and
-unknown modes are rejected or counted as unsupported. File extension alone is
-not evidence that a blob is TypeScript source.
+Before parsing a `.ts`, `.tsx`, or `.py` blob, the scanner verifies an allowed
+regular file mode. Symlinks, submodules, type changes, directories, conflicts,
+and unknown modes are rejected or counted as unsupported. File extension alone
+is not evidence that a blob is supported source.
 
 ### 4.4 Resource limits
 
@@ -206,10 +211,10 @@ phone home.
 ### 5.3 Status matrix
 
 The complete status and mode matrix is a versioned contract. Initial staged
-support is regular-file added or modified TypeScript/TSX only. Deletions,
-renames, copies, conflicts, type changes, submodules, symlinks, binaries, and
-unknown statuses must appear in terminal and coverage output with a stable
-reason code.
+support is regular-file added or modified TypeScript, TSX, and Python only.
+Deletions, renames, copies, conflicts, type changes, submodules, symlinks,
+binaries, and unknown statuses must appear in terminal and coverage output with
+a stable reason code.
 
 ---
 
@@ -219,7 +224,7 @@ reason code.
 immutable staged snapshot
         |
         v
-TS/TSX parse + changed-range mapping
+TypeScript/TSX/Python parse + changed-range mapping
         |
         v
 supported entity ownership + coverage
@@ -313,7 +318,7 @@ captured HEAD commit tree
 inventory + deterministic coverage
         |
         v
-TypeScript structural model
+TypeScript/Python structural model
         |
         +--> packages/workspaces/config/docs
         +--> entry points/exports/imports/direct calls
@@ -344,9 +349,9 @@ local timestamped bundle + manifest
 The scanner reads the captured tree and classifies every entry. Default
 classification considers:
 
-- `.ts` and `.tsx` source;
-- `package.json`, workspace manifests, lockfiles, `tsconfig*`, and build/test
-  configuration;
+- `.ts`, `.tsx`, and `.py` source;
+- `package.json`, workspace manifests, lockfiles, `tsconfig*`, `pyproject.toml`,
+  `requirements*.txt`, Python lockfiles, and build/test configuration;
 - repository Markdown and decision records;
 - common generated and vendor directories;
 - fixtures and tests;
@@ -364,10 +369,10 @@ The versioned model has stable IDs for files, declarations, edges, packages,
 entry points, configuration, documents, candidate subsystems, coverage events,
 and unresolved references.
 
-Tree-sitter provides syntax only. Import resolution is bounded to deterministic
+The parser provides syntax only. Import resolution is bounded to deterministic
 relative and manifest-declared paths supported by fixtures. Dynamic imports,
-path aliases, generated modules, framework conventions, and cross-language
-edges remain unresolved unless a dedicated tested resolver exists.
+path aliases, generated modules, framework conventions, and TypeScript-to-Python
+cross-language edges remain unresolved unless a dedicated tested resolver exists.
 
 ### 7.3 Subsystem discovery
 
@@ -533,7 +538,7 @@ represent it explicitly.
 
 Fixture families cover:
 
-- TS and TSX declarations, nested entities, added/removed constructs, source
+- TypeScript, TSX, and Python declarations, nested entities, added/removed constructs, source
   checks, collapsed evidence, and safe fallback;
 - package/workspace layouts, monorepos, circular imports, aliases, dynamic
   imports, generated/vendor paths, unsupported languages, and subsystem

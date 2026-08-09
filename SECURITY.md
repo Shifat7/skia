@@ -36,8 +36,9 @@ The future CLI must treat these as untrusted:
 
 - Git repository metadata, configuration, status, paths, modes, objects, and
   diagnostics;
-- TypeScript source, comments, strings, documentation, manifests, lockfiles,
-  fixtures, generated/vendor files, and unsupported-language files;
+- TypeScript, TSX, and Python source, comments, strings, documentation,
+  manifests, lockfiles, fixtures, generated/vendor files, and
+  unsupported-language files;
 - terminal input and control characters;
 - agent/provider responses; and
 - existing `.skia/` paths and files.
@@ -89,11 +90,11 @@ Once source exists, pull-request and release checks must include:
 
 - pinned dependency and lockfile review;
 - formatting, lint, tests, schemas, and golden artifacts;
-- Rust dependency advisory and license checks;
+- Node.js/TypeScript dependency advisory and license checks;
 - secret scanning and targeted generated-artifact checks;
 - reproducible release process, checksums, provenance/SBOM where feasible, and
   signed release guidance; and
 - a supported-version and vulnerability-disclosure policy.
 
-Do not publish a binary or package until these controls, the project rename,
-and private reporting channel are in place.
+Do not publish a binary or package until these controls, the retained-name
+distribution decision, and private reporting channel are in place.

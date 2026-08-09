@@ -3,7 +3,7 @@
 > **Read less code. Predict the behavior that matters.**
 
 Skia is a proposed local comprehension checkpoint for developers working with
-AI-generated code. It compresses supported TypeScript behavior into a short,
+AI-generated code. It compresses supported TypeScript and Python behavior into a short,
 source-anchored view, asks one concrete prediction, and reveals feedback only
 after the developer answers.
 
@@ -26,9 +26,9 @@ Source-derived feedback + original code on demand
 > **Current status: documentation-only.** There is no CLI, package, binary, or
 > generated HLD/LLD yet. The commands below define the intended product.
 >
-> **Release blocker:** "Skia" conflicts with Google's established
-> [Skia graphics project](https://github.com/google/skia). The project and
-> command must be renamed before publication. See
+> **Name decision:** The project and command retain the `Skia`/`skia` name for
+> now. Publication and distribution risks from the existing Google Skia
+> project remain an open release decision. See
 > [open decisions](docs/OPEN_DECISIONS.md).
 
 ---
@@ -41,7 +41,7 @@ Source-derived feedback + original code on demand
 | Snapshot | Exact staged Git index | One committed `HEAD` |
 | Default view | Collapsed changed behavior | Compact HLD, LLD, and architecture evidence |
 | Human check | Predict one observable result | One architecture question plus selected subsystems |
-| Source detail | TypeScript and TSX | TypeScript/TSX detail; manifests, config, and docs inform structure |
+| Source detail | TypeScript, TSX, and Python | TypeScript/TSX/Python detail; manifests, config, and docs inform structure |
 | Output | Local comprehension receipt | Timestamped local bundle under `.skia/dist/` |
 | What stays visible | Unmapped changed lines | Unsupported languages and unchecked subsystems |
 
@@ -105,7 +105,7 @@ and one terminal keystroke.
 Skia does not fill the gap with confident prose:
 
 ```text
-WARNING: 7 changed TypeScript lines are unmapped.
+WARNING: 7 changed TypeScript/Python lines are unmapped.
 
 Not represented:
   - import change
@@ -120,24 +120,24 @@ unsupported code into reviewed coverage.
 
 ### Initial boundary
 
-- TypeScript and TSX only
+- TypeScript, TSX, and Python source files
 - Named functions and methods only
 - At most 3 supported changed entities
-- At most 150 added-plus-deleted TypeScript lines
+- At most 150 added-plus-deleted supported-language lines
 - Manual command; no automatic Git hook
 
 These are pilot limits, not risk or safety benchmarks.
 
 ---
 
-## Mode 2 -- understand a TypeScript-first repository
+## Mode 2 -- understand a TypeScript/Python repository
 
 ```text
 $ skia repo review
 
 Snapshot:     HEAD c8d1a18
-Scanned:      84 TypeScript files, 3 config files, 5 docs
-Unsupported:  2 Python files
+Scanned:      84 TypeScript/Python files, 3 config files, 5 docs
+Unsupported:  2 Ruby files
 Subsystems:   api, billing, persistence, notifications, web
 
 Architecture check: included
@@ -291,8 +291,8 @@ unreliable architecture drafts.
 Useful contributions are evidence and design pressure, not unsolicited product
 code:
 
-- synthetic staged TypeScript fixtures;
-- synthetic TypeScript-first repository layouts;
+- synthetic staged TypeScript and Python fixtures;
+- synthetic TypeScript/Python repository layouts;
 - cases that must remain unmapped or `not_checkable`;
 - prompt-injection, privacy, and provider-boundary cases;
 - schema, requirement, or citation corrections; and

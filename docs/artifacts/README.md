@@ -73,7 +73,7 @@ semantic-equivalence proof.
 ### Unmapped output
 
 ```text
-WARNING: 7 changed TypeScript lines are unmapped.
+WARNING: 7 changed TypeScript/Python lines are unmapped.
 Collapsed evidence does not cover imports, a deleted callback, or a compound
 stateful branch.
 
@@ -168,7 +168,7 @@ The normative receipt will be a JSON Schema fixture. At minimum it binds:
 - schema/tool version and completion timestamp;
 - base commit, branch/detached/unborn state, immutable index identity, ordered
   paths/modes/blob OIDs, and canonical diff hash;
-- total, mapped, and unmapped changed TypeScript lines;
+- total, mapped, and unmapped changed supported-language lines;
 - one entity entry per supported prompt;
 - collapsed evidence and source anchors;
 - system scenario, pre-feedback developer prediction, optional later
@@ -213,7 +213,7 @@ the directory, every filename, and the manifest.
 ```text
 Repository architecture draft
 Snapshot: c8d1a1885f52b1664a6266900296f1ce0886b715
-Coverage: TypeScript-first; see repo-coverage-20260805T001500Z.json
+Coverage: TypeScript/Python; see repo-coverage-20260805T001500Z.json
 Generation: model_derived via configured agent
 Authority: review aid, not maintained architecture or runtime proof
 ```
@@ -295,7 +295,7 @@ subset; otherwise they remain ungraded or `not_checkable`.
 `repo-coverage-<run-id>.json` records every captured tree entry as included,
 excluded, unsupported, or failed. It includes:
 
-- scanned TS/TSX files and bytes;
+- scanned TS/TSX/Python files and bytes;
 - manifests, configuration, lockfiles, and docs used for structure;
 - generated/vendor/fixture/ignored classifications;
 - other source-language inventory;

@@ -4,7 +4,7 @@
 LLD exists.
 
 **Version:** PRD v4 -- reduced-reading collapsed evidence plus an
-agent-assisted TypeScript-first repository comprehension mode.
+agent-assisted TypeScript/Python repository comprehension mode.
 
 ---
 
@@ -17,10 +17,10 @@ predict.
 
 Skia proposes two local comprehension checkpoints:
 
-1. **Staged mode** reduces a small staged TypeScript change to collapsed
+1. **Staged mode** reduces a small staged TypeScript or Python change to collapsed
    equivalence evidence and asks one minimal behavior prediction per supported
    changed entity.
-2. **Repository mode** creates a TypeScript-first architecture snapshot,
+2. **Repository mode** creates a TypeScript/Python architecture snapshot,
    generates timestamped HLD and LLD drafts with an explicitly configured
    agent, and checks system plus developer-selected subsystem understanding.
 
@@ -66,18 +66,18 @@ Skia must keep these layers distinct:
 ### 2.1 Primary user
 
 An individual developer who uses AI coding tools and is responsible for
-TypeScript changes they did not write line by line.
+TypeScript or Python changes they did not write line by line.
 
 ### 2.2 Staged-mode job
 
-> When I stage an AI-assisted TypeScript change, show me the shortest truthful
+> When I stage an AI-assisted TypeScript or Python change, show me the shortest truthful
 > view of its supported changed behavior, then make me predict one concrete
 > result before I move on, without hiding anything the reduction could not
 > represent.
 
 ### 2.3 Repository-mode job
 
-> When I inherit or revisit a TypeScript-first repository, give me a local,
+> When I inherit or revisit a TypeScript/Python repository, give me a local,
 > timestamped architecture snapshot and a short comprehension check at the
 > system and selected-subsystem levels, while showing which files, languages,
 > and claims the snapshot did not cover.
@@ -172,9 +172,10 @@ No hook is installed in Phase 0. The developer invokes the command manually.
 5. Read base and staged blobs from the captured snapshot, never from the
    working-tree copy.
 6. Parse `.ts` and `.tsx` with matching Tree-sitter grammars.
-7. Count total, mapped, and unmapped added-plus-deleted TypeScript lines.
+7. Count total, mapped, and unmapped added-plus-deleted supported-language
+   lines.
 8. Refuse the session when the provisional pilot budget exceeds 3 supported
-   entities or 150 changed TypeScript lines.
+   entities or 150 changed supported-language lines.
 9. Process every supported entity in deterministic path and source order.
 10. Show collapsed evidence first. Original changed source and detailed anchors
     are available on demand.
@@ -308,22 +309,22 @@ The mode reviews one committed `HEAD`. A dirty working tree and index are not
 included. The command discloses that fact so developers do not mistake the
 snapshot for current uncommitted work.
 
-### 5.2 TypeScript-first discovery
+### 5.2 TypeScript/Python discovery
 
 The deterministic scanner inventories the captured tree and classifies:
 
-- TypeScript and TSX source;
+- TypeScript, TSX, and Python source;
 - package/workspace manifests and lockfiles;
-- build, lint, test, and TypeScript configuration;
+- build, lint, test, TypeScript, and Python configuration;
 - repository documentation and decision records;
 - generated, vendor, fixture, and ignored paths;
 - other source languages; and
 - unsupported or unreadable entries.
 
 Detailed declarations, imports, exports, directly observed calls, and behavior
-evidence are produced only for TypeScript and TSX in Phase 0. Other languages
-may contribute filenames and manifest-declared boundaries but are listed as
-unsupported for detailed behavior.
+evidence are produced only for TypeScript, TSX, and Python in Phase 0. Other
+languages may contribute filenames and manifest-declared boundaries but are
+listed as unsupported for detailed behavior.
 
 The scan has explicit per-file, total-byte, file-count, parse-time, and
 agent-context limits. Exceeding a limit produces partial coverage and requires
@@ -506,7 +507,8 @@ Before behavioral claims, tests must prove:
 - spaces, non-UTF-8 paths, control characters, symlinks, submodules, binaries,
   conflicts, type changes, partial clones, and missing objects;
 - `GIT_NO_LAZY_FETCH=1` and `GIT_OPTIONAL_LOCKS=0` behavior;
-- TS versus TSX grammar selection and current pinned crate APIs;
+- TypeScript versus TSX versus Python grammar selection and current pinned
+  parser APIs;
 - deterministic entity and subsystem ordering;
 - complete coverage arithmetic and explicit unsupported regions;
 - collapsed-evidence source anchoring and safe fallback;
@@ -521,8 +523,8 @@ Before behavioral claims, tests must prove:
 
 ### 7.2 Behavioral feasibility
 
-First run moderated prototypes with professional AI-assisted TypeScript
-developers. Compare:
+First run moderated prototypes with professional AI-assisted TypeScript and
+Python developers. Compare:
 
 - raw staged diff;
 - collapsed evidence only; and
@@ -569,7 +571,7 @@ Stop, narrow, or pivot when:
 5. repository artifacts are too large to reduce reading;
 6. model-derived HLD/LLD cannot maintain source-grounded factual accuracy;
 7. agent egress or local artifacts create unacceptable privacy risk;
-8. TypeScript-first coverage leaves critical repository behavior unsupported;
+8. Supported-language coverage leaves critical repository behavior unsupported;
 9. existing comprehension tools provide equal behavior change with less setup;
    or
 10. the project name remains unresolved at release time.
@@ -587,7 +589,7 @@ Stop, narrow, or pivot when:
 | Repository prompt injection controls agent | High | High | Treat repository text as data and constrain agent tools/prompts |
 | Local artifacts leak architecture | Medium | High | Gitignore, consent, owner-only atomic writes, list/delete lifecycle |
 | Whole-repo output increases reading | High | High | Short HLD, bounded LLD, subsystem selection, and output-size metrics |
-| Unsupported languages create false completeness | Medium | High | Explicit TypeScript-first coverage and unsupported-language inventory |
+| Unsupported languages create false completeness | Medium | High | Explicit TypeScript/Python coverage and unsupported-language inventory |
 | Agent/provider friction blocks adoption | Medium | Medium | Deterministic scan fallback and adapter boundary |
 | Name collision prevents discovery | High | High | Rename before package or command publication |
 
@@ -597,13 +599,13 @@ Stop, narrow, or pivot when:
 
 ### Phase 0A -- staged reduced-reading prototype
 
-Implement immutable staged capture, TypeScript entity extraction, collapsed
+Implement immutable staged capture, TypeScript/Python entity extraction, collapsed
 evidence, minimal Behavior Card, narrow source checks, local receipts, and
 fixtures. Validate reduced reading before any Git hook.
 
 ### Phase 0B -- repository structural prototype
 
-Implement committed-tree scanning, TypeScript-first structural model, coverage,
+Implement committed-tree scanning, TypeScript/Python structural model, coverage,
 subsystem discovery, and timestamped local bundle schemas without agent
 generation.
 

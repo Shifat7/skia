@@ -1,8 +1,8 @@
 # Skia -- Proposed Implementation Plan
 
-> **Planning only.** No source, Cargo package, tests, generated artifact,
+> **Planning only.** No source, package, tests, generated artifact,
 > or runnable command exists. This plan defines gates for implementing the
-> reduced-reading staged mode and the TypeScript-first repository mode.
+> reduced-reading staged mode and the TypeScript/Python repository mode.
 
 ---
 
@@ -12,8 +12,8 @@ The first validated product is not a broad code-review platform. It is two
 small comprehension workflows with explicit truth boundaries:
 
 1. `skia review` displays collapsed equivalence evidence for a bounded staged
-   TypeScript change and asks one minimal path prediction before feedback.
-2. `skia repo review` scans one committed TypeScript-first repository snapshot,
+   TypeScript or Python change and asks one minimal path prediction before feedback.
+2. `skia repo review` scans one committed TypeScript/Python repository snapshot,
    optionally uses a configured agent to generate timestamped local HLD/LLD,
    and asks one architecture plus developer-selected subsystem predictions.
 
@@ -24,10 +24,10 @@ tests reach a documented proceed, narrow, pivot, or stop decision.
 
 ## 2. Deliverables
 
-1. One synchronous Rust binary with `review`, `repo review`, `runs list`,
+1. One synchronous TypeScript CLI with `review`, `repo review`, `runs list`,
    `runs inspect`, and `runs delete` command contracts.
 2. Hardened read-only Git boundary and immutable logical snapshot capture.
-3. TypeScript/TSX parser pinned to compatible current crate versions.
+3. TypeScript/TSX/Python parsers pinned to compatible package versions.
 4. Versioned coverage model shared by both modes.
 5. Staged entity ownership and collapsed-evidence reducer.
 6. Minimal Behavior Card state machine, narrow source checker, and optional
@@ -57,7 +57,7 @@ export, hosted service, team dashboard, or full polyglot behavior is included.
 | 1.2 | Staged mode captures one immutable logical index snapshot; concurrent `git add` cannot mix displayed/parsed blobs with another diff hash. |
 | 1.3 | Repository mode captures one commit OID and reads its tree by OID; dirty index/working-tree content is disclosed and excluded. |
 | 1.4 | The complete staged NUL-delimited status set is read before partitioning supported entries. |
-| 1.5 | Added/modified regular `.ts` and `.tsx` files are supported; delete, rename, copy, conflict, type change, symlink, submodule, binary, non-regular mode, and unknown states have stable explicit reasons. |
+| 1.5 | Added/modified regular `.ts`, `.tsx`, and `.py` files are supported; delete, rename, copy, conflict, type change, symlink, submodule, binary, non-regular mode, and unknown states have stable explicit reasons. |
 | 1.6 | Detached and unborn HEAD are represented explicitly; repository mode requires a commit, while staged mode can use an empty base on the first commit. |
 | 1.7 | Path bytes are preserved internally; spaces, non-ASCII, non-UTF-8 where supported, and control characters are escaped safely for display. |
 | 1.8 | `GIT_OPTIONAL_LOCKS=0`, `GIT_NO_LAZY_FETCH=1`, no pager, no terminal prompt, no external diff/textconv, controlled environment, timeout, and output limits are tested. |
@@ -76,16 +76,16 @@ export, hosted service, team dashboard, or full polyglot behavior is included.
 | 2.6 | Interrupted runs remain explicitly incomplete or are safely removed. |
 | 2.7 | `runs list`, `runs inspect`, and `runs delete` expose a local lifecycle without upload. |
 
-### AC-3: TypeScript parsing and coverage
+### AC-3: TypeScript/Python parsing and coverage
 
 | ID | Criterion |
 |----|-----------|
-| 3.1 | Pinned `tree-sitter` and `tree-sitter-typescript` versions use current `LANGUAGE_TYPESCRIPT` and `LANGUAGE_TSX` APIs. |
+| 3.1 | Pinned TypeScript/TSX/Python parser packages select the correct grammar for each supported source file and expose parser versions in the manifest. |
 | 3.2 | Syntax errors, invalid encoding, oversized blobs, unsupported modes, generated/vendor paths, unsupported languages, and unresolved imports are explicit coverage events. |
 | 3.3 | Coverage arithmetic is internally consistent and schema-validated. |
 | 3.4 | Every mapped staged line belongs to at most one supported entity under a fixture-tested nested-entity ownership rule. |
 | 3.5 | Repository inventory classifies every captured tree entry as included, excluded, unsupported, or failed. |
-| 3.6 | Detailed behavior evidence is limited to TS/TSX; manifests, configuration, and docs may inform structure; other source languages remain unsupported coverage. |
+| 3.6 | Detailed behavior evidence is limited to TypeScript, TSX, and Python; manifests, configuration, and docs may inform structure; other source languages remain unsupported coverage. |
 
 ### AC-4: Collapsed equivalence evidence
 
@@ -123,7 +123,7 @@ export, hosted service, team dashboard, or full polyglot behavior is included.
 
 | ID | Criterion |
 |----|-----------|
-| 7.1 | Repository mode inventories TS/TSX, manifests, lockfiles, build/test/TypeScript config, docs, generated/vendor paths, fixtures, unsupported languages, and failures from one commit tree. |
+| 7.1 | Repository mode inventories TS/TSX/Python, manifests, lockfiles, build/test/TypeScript/Python config, docs, generated/vendor paths, fixtures, unsupported languages, and failures from one commit tree. |
 | 7.2 | Structural model IDs are stable for files, declarations, packages, entry points, import/direct-call edges, configuration, documents, subsystems, coverage, and unresolved references. |
 | 7.3 | Import resolution is bounded to fixture-supported deterministic forms; dynamic, aliased, generated, framework, and cross-language edges remain unresolved without a tested resolver. |
 | 7.4 | Candidate subsystem membership cites deterministic package/directory/entry/import evidence; model-derived names/rationales are separate. |
@@ -178,7 +178,7 @@ export, hosted service, team dashboard, or full polyglot behavior is included.
 
 | ID | Criterion |
 |----|-----------|
-| 12.1 | Moderated feasibility tests compare raw source, collapsed evidence, and collapsed evidence plus minimal card with professional AI-assisted TypeScript developers. |
+| 12.1 | Moderated feasibility tests compare raw source, collapsed evidence, and collapsed evidence plus minimal card with professional AI-assisted TypeScript and Python developers. |
 | 12.2 | Repository-mode feasibility separately tests whether HLD/LLD plus selected cards reduce time-to-accurate architecture understanding without hiding coverage. |
 | 12.3 | Activity, completion, skip, return, selection, friction, and self-report remain secondary feasibility measures. |
 | 12.4 | Any efficacy claim uses one objective primary comprehension outcome, an attention-matched control, preregistration, blinded scoring, baseline adjustment, ITT analysis, delayed novel transfer, missing-data/contamination rules, and a minimum worthwhile effect. |
@@ -190,8 +190,10 @@ export, hosted service, team dashboard, or full polyglot behavior is included.
 
 ### Step 0: Resolve release and contract blockers
 
-- Rename the project and command before package publication.
-- Freeze pinned Rust/crate versions and MSRV.
+- Retain the `Skia`/`skia` name for now; keep publication/distribution risk as
+  a release decision rather than a Phase 1 implementation blocker.
+- Freeze the supported Node.js runtime, package manager, TypeScript compiler,
+  parser packages, schema validator, and lockfile policy.
 - Approve status/mode matrices, entity ownership, collapsed-evidence grammar,
   schema locations, limits, agent consent contract, default card cap, retention,
   and evaluation design.
@@ -204,9 +206,9 @@ index mutation, filtered statuses, unborn HEAD, symlink modes, partial-clone
 lazy fetch, collisions, and link-following. Nothing else is trustworthy until
 snapshot and output identity are correct.
 
-### Step 2: Shared TypeScript and coverage core
+### Step 2: Shared TypeScript/Python and coverage core
 
-Implement AC-3 with pinned APIs, pure fixtures, resource limits, and coverage
+Implement AC-3 with pinned parser APIs, pure TypeScript/Python fixtures, resource limits, and coverage
 schemas. Keep staged/repository consumers thin over the same scanner facts.
 
 ### Step 3: Staged reduced-reading vertical slice
@@ -263,7 +265,7 @@ Phase 0 is done only when:
   grounding review;
 - privacy and prompt-injection tests pass;
 - the professional validation decision is documented; and
-- the project is renamed for release.
+- the retained name and publication/distribution risk are documented for release.
 
 A green test suite does not prove comprehension. A completed card does not
 prove coverage. A generated HLD/LLD does not become maintained architecture by

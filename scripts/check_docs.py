@@ -308,7 +308,7 @@ def check_contract_invariants() -> None:
         ],
         "PRD.md": [
             "Minimal Behavior Card",
-            "TypeScript-first discovery",
+            "TypeScript/Python discovery",
             "repo_card_cap",
             "repo-manifest-20260805T001500Z.json",
         ],
