@@ -2,10 +2,11 @@
 
 ## Contract and environment gate
 
-- [ ] Task 0: Freeze Node.js/TypeScript package, parser, schema, ID, OD-4,
+- [x] Task 0: Freeze Node.js/TypeScript package, parser, schema, ID, OD-4,
       OD-10, and OD-11 decisions.
   - Verify: `node --version`, `npm --version`, `npx tsc --version`, docs check,
     and `git diff --check`.
+  - Commit: `b27886f`; task review: spec PASS, quality APPROVED.
 
 ## Foundation slices
 
@@ -40,4 +41,3 @@
 - [ ] Checkpoint B: Shared schema/path/storage/Git foundations verified.
 - [ ] Checkpoint C: TypeScript/TSX/Python parser foundation and Phase 1 exit
       criteria verified.
-
