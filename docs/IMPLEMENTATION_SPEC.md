@@ -78,16 +78,18 @@ behind an explicit provider boundary.
 Every run operates on one immutable logical snapshot.
 
 - Staged mode binds to one captured base commit, or an explicit empty base on
-  an unborn branch, plus one selected immutable index strategy.
+  an unborn branch, plus the frozen copied-index strategy from OD-4.
 - Repository mode binds to one captured `HEAD` commit and reads its tree by
   object ID; working-tree and index changes are excluded and disclosed.
 - The snapshot identity includes the base/commit ID, index identity where
   applicable, ordered path/mode/blob records, and canonical diff bytes.
-- OD-4 is still open. The implementation must not treat copied-index,
-  checksum/manifest, or another strategy as normative until OD-4 records the
-  choice, retry policy, identity definition, and race-test evidence. A copied
-  index beneath `.skia/` with `GIT_INDEX_FILE` and bounded revalidation is the
-  current candidate, not a settled contract.
+- OD-4 now freezes one staged-snapshot contract: copy the live index into a
+  create-new protected file beneath `.skia/tmp/`, address all staged Git reads
+  through `GIT_INDEX_FILE`, compute identity from the base OID, copied-index
+  SHA-256, ordered raw path/mode/base-blob/staged-blob manifest, and canonical
+  patch SHA-256, then revalidate the live index with at most two retries before
+  returning `index_changed`. No other staged snapshot strategy is in scope for
+  Phase 1.
 - The implementation must not write Git trees, refs, objects, the live index,
   hooks, or project files to obtain immutability.
 - Git subprocesses use structured arguments and an allowlisted environment:
@@ -196,11 +198,12 @@ gitignored. `runs delete` is the explicit deletion path.
 
 ### Staged receipt and lifecycle
 
-The staged receipt uses the current proposed path shape
+The staged receipt path shape is
 `.skia/receipts/<run-id>-<session-id>-session.json`, where the run ID follows
-the same UTC basic-ISO and collision-suffix proposal as repository bundles and
-the session ID is a short collision-resistant local identifier. OD-10 and OD-11
-must freeze the exact format, retention, redaction, and deletion guarantees.
+the frozen UTC and collision-allocation contract from OD-10 and the session ID
+is a short collision-resistant local identifier. OD-11 freezes the retention,
+redaction, incomplete-run, and exact-ID deletion guarantees for both receipts
+and repository bundles.
 
 The receipt binds schema/tool version, completion state, base/branch/detached/
 unborn state, immutable index identity, ordered paths/modes/blob IDs, canonical
@@ -311,27 +314,92 @@ npm run test:security
 ```
 
 The supported Node.js runtime, package manager, TypeScript compiler, parser
-packages, schema validator, and lockfile policy must be pinned before the first
-implementation commit. `python3 scripts/check_docs.py --external` remains an
-optional network-dependent documentation check, not a default CI requirement.
+packages, schema validator, and lockfile policy are frozen below before the
+first implementation commit. `python3 scripts/check_docs.py --external`
+remains an optional network-dependent documentation check, not a default CI
+requirement.
 
 ## Tech stack
 
-- TypeScript CLI running on a pinned Node.js runtime.
-- Pinned TypeScript/TSX/Python parser packages selected during contract freeze.
-- TypeScript DTOs plus a strict JSON Schema validator for JSON artifacts.
+- TypeScript CLI running on Node.js 24.x.
+- Pinned Tree-sitter packages for TypeScript, TSX, and Python syntax parsing.
+- TypeScript DTOs plus Ajv validation of JSON Schema Draft 2020-12 artifacts.
 - Node.js `crypto` for snapshot and artifact hashes.
 - Node.js time primitives plus a UTC formatter for run IDs.
 - Typed boundary errors for internal propagation and stable user error codes.
 - Node.js child-process and terminal APIs with injected interfaces for tests.
-- A pinned JSON Schema validator selected before schema implementation.
+- Ajv's 2020 entry point for strict JSON Schema Draft 2020-12 validation.
 - A narrow repository-only agent adapter. No provider SDK belongs in
   deterministic modules.
 
-The exact Node.js version, package manager, module format, parser package
-versions, schema-validator package, and external transport library are open
-contract decisions. No implementation may use an unpinned `latest` dependency
-or silently add a provider fallback.
+No implementation may use an unpinned `latest` dependency or silently add a
+provider fallback. The external transport library remains deferred until the
+repository-agent implementation slice.
+
+### Frozen package contract
+
+Task 0 freezes these exact values for the first package:
+
+| Contract | Frozen value |
+|---|---|
+| Supported runtime | Node.js 24.x; `engines.node` is `>=24.0.0 <25` |
+| Package manager | `npm@11.18.0`; `packageManager` records that exact value |
+| Package shape | one private package using ESM with `"type": "module"` |
+| TypeScript module settings | `"module": "NodeNext"` and `"moduleResolution": "NodeNext"` |
+| TypeScript compiler | `typescript@7.0.2` |
+| Tree-sitter binding | `tree-sitter@0.21.1` |
+| TypeScript/TSX grammar | `tree-sitter-typescript@0.23.2` |
+| Python grammar | `tree-sitter-python@0.21.0` |
+| Schema validator | `ajv@8.20.0`, using Ajv's 2020 entry point in strict mode |
+| JSON Schema dialect | JSON Schema Draft 2020-12 with `$schema` set to `https://json-schema.org/draft/2020-12/schema` |
+| Lockfile | npm `package-lock.json`, `lockfileVersion: 3`, committed and never hand-edited |
+
+All direct dependency versions in `package.json` use exact versions without
+range prefixes. `npm ci` is the reproducible install command for clean and CI
+environments; it must fail when `package.json` and `package-lock.json` differ.
+Dependency updates regenerate the lockfile with the frozen npm version and move
+the Tree-sitter binding and grammar packages only as one peer-compatible set.
+Task 1 creates the package files; Task 0 creates none.
+
+The installed documentation-check environment is not the package contract.
+Task 0 records its observed `node`, `npm`, and `tsc` versions for traceability,
+but Task 1 must run under the frozen versions before implementation checks can
+be treated as package evidence.
+
+### Frozen source-language contract
+
+The only supported source-language discriminants are:
+
+```text
+typescript | tsx | python
+```
+
+The initial registry is exact and case-sensitive:
+
+| Extension | Source language | Decoder | Parser selection | Syntax-error result |
+|---|---|---|---|---|
+| `.ts` | `typescript` | strict UTF-8 | `tree-sitter-typescript.typescript` | `partial` parse coverage plus ordered `syntax_error` byte ranges |
+| `.tsx` | `tsx` | strict UTF-8 | `tree-sitter-typescript.tsx` | `partial` parse coverage plus ordered `syntax_error` byte ranges |
+| `.py` | `python` | strict UTF-8 | `tree-sitter-python` | `partial` parse coverage plus ordered `syntax_error` byte ranges |
+
+Strict UTF-8 accepts an optional leading UTF-8 BOM and removes it before
+parsing; malformed UTF-8 and a NUL byte produce a `failed` coverage event with
+reason `invalid_source_encoding` or `binary_source` respectively, and no
+parser is invoked. A successful parse with Tree-sitter `ERROR` or missing
+nodes preserves the tree and records every coalesced, source-ordered error
+range; no range overlapping an error may be upgraded to supported semantic
+evidence.
+
+Only Git regular-file modes `100644` and `100755` reach decoding. Symlink mode
+`120000`, gitlink mode `160000`, unknown/non-regular modes, conflicts, type
+changes, deletions, renames, and copies produce explicit `unsupported` coverage
+and are not decoded or parsed. Unsupported extensions remain inventory-level
+`unsupported` coverage. Parser availability or initialization failure is
+`failed`, never `unsupported` and never silently retried with another grammar.
+
+Tree-sitter support is syntax support only. Python-specific semantic reduction
+and TypeScript-to-Python import, call, or behavior resolution remain deferred;
+cross-language edges are recorded as unresolved coverage.
 
 ## Project structure
 
@@ -356,20 +424,20 @@ src/
     python.ts              Python parsing and declarations
   coverage.ts              included/excluded/unsupported/failed accounting
   staged/
-    entities.rs            changed-entity ownership and mapping
-    collapse.rs            collapsed equivalence evidence
-    card.rs                minimal prediction card and validation
-    source_check.rs        narrow path comparison
-    probe.rs               structured unexecuted probe specification
-    receipt.rs             staged receipt schema and writer
-    prompt.rs              staged terminal interaction
+    entities.ts            changed-entity ownership and mapping
+    collapse.ts            collapsed equivalence evidence
+    card.ts                minimal prediction card and validation
+    source_check.ts        narrow path comparison
+    probe.ts               structured unexecuted probe specification
+    receipt.ts             staged receipt schema and writer
+    prompt.ts              staged terminal interaction
   repository/
-    inventory.rs           committed-tree file classification
-    structure.rs           packages, entry points, exports, imports, direct calls
-    subsystems.rs          evidence-backed subsystem candidates and selection
-    agent.rs               consent, adapter, prompt contract, and output validation
-    bundle.rs              HLD/LLD/evidence/cards/coverage/manifest assembly
-    prompt.rs              repository terminal interaction
+    inventory.ts           committed-tree file classification
+    structure.ts           packages, entry points, exports, imports, direct calls
+    subsystems.ts          evidence-backed subsystem candidates and selection
+    agent.ts               consent, adapter, prompt contract, and output validation
+    bundle.ts              HLD/LLD/evidence/cards/coverage/manifest assembly
+    prompt.ts              repository terminal interaction
   schema.ts                JSON Schema versions and validation
   storage.ts               atomic local run creation, listing, inspection, deletion
 schemas/                    normative JSON Schemas
@@ -503,16 +571,18 @@ satisfy this gate.
 
 ### Phase 0: Contract freeze
 
-Resolve the open questions in this document and [docs/OPEN_DECISIONS.md](OPEN_DECISIONS.md):
-snapshot capture, relation grammar, scenario generation, schema locations,
-artifact states, default limits, card cap, agent policy, retention, and
-validation thresholds. Reconcile stale naming and documentation-CI language.
+Task 0 freezes snapshot capture, runtime/package/source-language contracts,
+validator choice, run identity, and retention in this document and
+[docs/OPEN_DECISIONS.md](OPEN_DECISIONS.md). Remaining Phase 0 questions are
+relation grammar, scenario generation, schema layout/versioning details,
+artifact states, default limits, card cap, agent policy, and validation
+thresholds. Reconcile stale naming and documentation-CI language.
 
 ### Phase 1: Foundations
 
 This is the only normative implementation phase covered by the current review.
-After OD-4 selects the snapshot strategy, implement the hardened Git process
-boundary, the selected staged/committed snapshot capture, local storage
+With Task 0's snapshot, storage, and toolchain contracts frozen, implement the
+hardened Git process boundary, staged/committed snapshot capture, local storage
 transaction, run lifecycle, shared IDs, hashes, paths, anchors, coverage
 events, and schema-validation foundation. Do not implement staged cards,
 repository inventory, external transport, or behavioral validation in this
@@ -520,7 +590,7 @@ phase.
 
 Phase 1 exits only when:
 
-- OD-4 records one snapshot strategy, identity definition, retry policy, and
+- the frozen OD-4 strategy has executable identity, retry, cleanup, and
   concurrent-mutation evidence;
 - fixed Git environment and cleared-variable behavior is tested, including
   unborn staged and no-`HEAD` repository states;
@@ -632,8 +702,8 @@ The next implementation slice is complete only when all of the following are
 true:
 
 1. The human approves this spec and the blocking open decisions are recorded.
-2. OD-4 is closed and the selected snapshot strategy has an executable
-   identity, retry, and race-test contract.
+2. The OD-4 staged snapshot contract has executable identity, retry, and
+   race-test coverage.
 3. The implementation has a pinned Node.js/TypeScript toolchain, dependencies,
    shared DTOs,
    schemas, and foundation fixtures.
@@ -664,15 +734,17 @@ The later phases are complete only when all of the following are true:
 
 ## Open questions and approval gates
 
-These items must be resolved before the corresponding implementation phase:
+These items govern the remaining implementation phases. Items marked decided
+are frozen here for traceability; unresolved items still need approval before
+their corresponding phase:
 
 1. **Name/distribution (decided):** retain `Skia`/`skia`. The remaining action
    is to reconcile older rename-blocker wording and document accepted registry,
    search, and trademark risk before publication; renaming is not a Phase 1
    gate.
-2. **Snapshot capture:** choose copied-index, checksum/manifest, or another
-   tested strategy; then approve identity, retry count, canonical patch
-   encoding, Git configuration isolation, and revalidation failure code.
+2. **Snapshot capture (decided):** use the copied-index `GIT_INDEX_FILE`
+   strategy from OD-4, with copied-index/canonical-patch SHA-256 identity,
+   bounded live-index revalidation, and `index_changed` on a third mismatch.
 3. **Evidence grammar:** define the exact relation syntax, ordering, supported
    operators, and fallback rules for OD-2.
 4. **Scenario generation:** approve literal-only scenario generation and
@@ -681,8 +753,9 @@ These items must be resolved before the corresponding implementation phase:
    the architecture card, or choose another value.
 6. **Artifact states:** approve schema-valid `not_available` HLD/LLD placeholder
    files when consent is declined, or choose conditional artifact presence.
-7. **Schema and IDs:** select the JSON Schema validator, schema version policy,
-   stable-ID scope, and canonical `schemas/`/`fixtures/` layout.
+7. **Schema and IDs (partly decided):** `ajv@8.20.0` with JSON Schema Draft
+   2020-12 is frozen. Schema version policy, stable-ID scope, and canonical
+   `schemas/`/`fixtures/` layout still need approval.
 8. **Limits:** approve initial per-file, total-byte, file-count, parse-time,
    run-time, terminal-input, subprocess-output, artifact-output, and agent
    token budgets.
@@ -695,14 +768,15 @@ These items must be resolved before the corresponding implementation phase:
     unresolved/cross-boundary edges, and model-label rules before Phase 4.
 12. **HLD/LLD accuracy:** close OD-8 with a blinded grounding/audit rubric and
     a factual-error stop threshold before Phase 5 output is user-facing.
-13. **Supported-language boundary:** close OD-9 with a versioned
-    TypeScript/TSX/Python inclusion/status matrix and resolver limits before
-    repository scanning.
-14. **Run identity:** close OD-10 with the exact timestamp, collision, and
-    concurrent-allocation contract before storage schema version 1.
-15. **Retention/deletion:** close OD-11 with retention defaults, incomplete-run
-    policy, inspect redaction, and platform deletion guarantees before lifecycle
-    commands are treated as complete.
+13. **Supported-language boundary:** Task 0 freezes the
+    TypeScript/TSX/Python source-language matrix. OD-9 still needs the broader
+    repository inclusion matrix and resolver limits before repository scanning.
+14. **Run identity (decided):** OD-10 freezes UTC `YYYYMMDDTHHMMSSZ` run IDs
+    with atomic `-01` through `-99` collision allocation and
+    `run_id_exhausted` on exhaustion.
+15. **Retention/deletion (decided):** OD-11 freezes no auto-retention,
+    safe-cleanup-or-explicit-`incomplete`, metadata-only inspect, and exact-ID
+    delete guarantees; implementation still needs lifecycle fixtures.
 
 ## Review gate
 

@@ -42,20 +42,20 @@ src/
     python.ts         Python parsing and declarations
   coverage.ts         included/excluded/unsupported/failed accounting
   staged/
-    entities.rs       changed-entity ownership and mapping
-    collapse.rs       collapsed equivalence evidence
-    card.rs           minimal prediction card and validation
-    source_check.rs   narrow path comparison
-    probe.rs          structured unexecuted probe specification
-    receipt.rs        staged receipt schema and writer
-    prompt.rs         staged terminal interaction
+    entities.ts       changed-entity ownership and mapping
+    collapse.ts       collapsed equivalence evidence
+    card.ts           minimal prediction card and validation
+    source_check.ts   narrow path comparison
+    probe.ts          structured unexecuted probe specification
+    receipt.ts        staged receipt schema and writer
+    prompt.ts         staged terminal interaction
   repository/
-    inventory.rs      committed-tree file classification
-    structure.rs      packages, entry points, exports, imports, direct calls
-    subsystems.rs     evidence-backed subsystem candidates and selection
-    agent.rs          consent, adapter, prompt contract, and output validation
-    bundle.rs         HLD/LLD/evidence/cards/coverage/manifest assembly
-    prompt.rs         repository terminal interaction
+    inventory.ts      committed-tree file classification
+    structure.ts      packages, entry points, exports, imports, direct calls
+    subsystems.ts     evidence-backed subsystem candidates and selection
+    agent.ts          consent, adapter, prompt contract, and output validation
+    bundle.ts         HLD/LLD/evidence/cards/coverage/manifest assembly
+    prompt.ts         repository terminal interaction
   schema.ts           JSON Schema versions and validation
   storage.ts          atomic local run creation, listing, inspection, deletion
 ```
@@ -70,21 +70,20 @@ or measured requirement justifies them.
 
 | Concern | Proposed dependency or API | Constraint |
 |---------|----------------------------|------------|
-| CLI | TypeScript CLI parser selected during contract freeze | Commands and flags have golden help tests |
-| Runtime | pinned Node.js runtime | Runtime and package-manager versions are recorded in manifests |
-| Source parsing | pinned TypeScript/TSX/Python parser packages | Select grammar by supported extension and record parser versions |
+| CLI | TypeScript CLI parser selected during implementation | Commands and flags have golden help tests |
+| Runtime | Node.js 24.x with `npm@11.18.0`, ESM, and `typescript@7.0.2` | Runtime and package-manager versions are recorded in manifests |
+| Source parsing | `tree-sitter@0.21.1`, `tree-sitter-typescript@0.23.2`, and `tree-sitter-python@0.21.0` | Select grammar by supported extension and record parser versions |
 | Git | Node.js child-process API | Structured arguments, hardened environment, no shell |
-| Serialization | TypeScript DTOs plus JSON Schema validator | Every JSON output validates against a versioned schema |
+| Serialization | TypeScript DTOs plus `ajv@8.20.0` and JSON Schema Draft 2020-12 | Every JSON output validates against a versioned schema |
 | Hashing | Node.js crypto API | SHA-256 for snapshots and artifacts |
 | Time | Node.js time primitives plus a UTC formatter | Path-safe run IDs and RFC 3339 manifest timestamps |
 | Errors | typed boundary errors | User output is escaped and actionable |
 | Terminal | Node.js standard streams | No TUI in Phase 0; degrades without color |
 | Agent | narrow adapter interface owned by repository mode | No provider SDK in deterministic modules |
 
-The supported Node.js runtime, package manager, TypeScript compiler, parser
-packages, schema validator, and lockfile policy are release blockers.
-Architecture documentation must point to the docs for those pinned versions
-rather than `latest` alone.
+The exact package, lockfile, module, and source-language matrix is normative in
+the [implementation specification](docs/IMPLEMENTATION_SPEC.md#frozen-package-contract).
+Package creation remains Task 1; this architecture records contracts only.
 
 ---
 
@@ -127,10 +126,12 @@ Internal Git paths remain byte-preserving platform path values. They are not
 lossily coerced to UTF-8 for identity or Git arguments. Display uses escaped,
 quoted output.
 
-Before parsing a `.ts`, `.tsx`, or `.py` blob, the scanner verifies an allowed
-regular file mode. Symlinks, submodules, type changes, directories, conflicts,
-and unknown modes are rejected or counted as unsupported. File extension alone
-is not evidence that a blob is supported source.
+Before parsing a `.ts`, `.tsx`, or `.py` blob, the scanner verifies Git regular
+file mode `100644` or `100755`, then applies the strict UTF-8 and parser rules in
+the [frozen source-language contract](docs/IMPLEMENTATION_SPEC.md#frozen-source-language-contract).
+Symlinks, submodules, type changes, directories, conflicts, and unknown modes
+are explicit unsupported coverage. File extension alone is not evidence that
+a blob is supported source.
 
 ### 4.4 Resource limits
 
@@ -159,8 +160,14 @@ coverage.
 - use owner-only permissions where supported;
 - write temporary data only inside the protected run directory;
 - fsync or document durability limits before marking a run complete;
-- mark interrupted runs incomplete; and
-- provide list, inspect, and delete operations.
+- remove incomplete runs at command exit when safe, otherwise retain them as
+  explicitly `incomplete`; and
+- provide metadata-only list/inspect and exact-ID delete operations under the
+  [OD-11 contract](docs/OPEN_DECISIONS.md#od-11-local-artifact-retention-and-deletion-decided).
+
+There is no age-based automatic retention. Complete runs remain local until
+explicit deletion. Successful deletion promises path absence at return, not
+secure media erasure or deletion from backups and snapshots.
 
 ---
 
@@ -172,24 +179,26 @@ Separate live-index reads are not a snapshot. The staged capture algorithm
 must create one immutable logical view before it hashes, parses, or displays
 content.
 
-Proposed sequence:
+Frozen OD-4 sequence:
 
 1. Discover repository root without changing state.
 2. Resolve `HEAD`; represent an unborn branch explicitly.
 3. Resolve branch or detached state.
-4. Read the index under a consistency strategy that cannot mix generations.
-5. Enumerate the complete staged status set before filtering.
-6. Capture supported staged blob OIDs, modes, paths, base blob OIDs, and hunk
+4. Open the live index once and copy its bytes into a create-new owner-only
+   temporary index beneath `.skia/tmp/`.
+5. Address every staged Git command through that copy with `GIT_INDEX_FILE`.
+6. Enumerate the complete staged status set before filtering.
+7. Capture supported staged blob OIDs, modes, paths, base blob OIDs, and hunk
    metadata.
-7. Compute snapshot identity from the base OID, index identity, ordered path and
-   mode list, blob OIDs, and canonical staged patch bytes.
-8. Revalidate the live index identity before interaction; abort when it changed.
-9. Use only captured OIDs and bytes after the snapshot is accepted.
+8. Compute snapshot identity from the base OID, copied-index SHA-256, ordered
+   raw path/mode/base-blob/staged-blob manifest, and canonical patch SHA-256.
+9. Reopen and hash the live index before interaction. On mismatch, discard and
+   retry the whole capture twice; a third mismatch returns `index_changed`.
+10. Use only captured OIDs and bytes after the snapshot is accepted.
 
-An implementation may use a temporary copied index with `GIT_INDEX_FILE`, a
-captured index checksum plus blob-OID manifest and final revalidation, or
-another tested design. It must not write a tree object merely to obtain
-immutability, because Phase 0 promises read-only Git object state.
+The implementation must not write a tree object merely to obtain immutability.
+The full identity, canonical patch, retry, cleanup, and race-test contract is
+the decided [OD-4](docs/OPEN_DECISIONS.md#od-4-atomic-staged-snapshot-strategy-decided).
 
 ### 5.2 Repository snapshot
 
@@ -477,10 +486,12 @@ One UTC run ID is created before artifact writing:
   repo-manifest-20260805T001500Z.json
 ```
 
-Run IDs follow `basic-utc-timestamp [ "-" two-digit-sequence ]`. The writer
-uses atomic create-new retries: `20260805T001500Z`, then
-`20260805T001500Z-01`, `-02`, and so on. It never checks and opens in separate
-steps. The directory and every filename use the resolved run ID.
+Run IDs match `^[0-9]{8}T[0-9]{6}Z(?:-[0-9]{2})?$`. The writer atomically tries
+the unsuffixed UTC ID, then `-01` through `-99`; exhaustion returns
+`run_id_exhausted`. It never checks and opens in separate steps, waits for the
+clock, overwrites, or reuses an ID. The directory and every filename use the
+resolved run ID under the decided
+[OD-10 contract](docs/OPEN_DECISIONS.md#od-10-timestamp-and-collision-format-decided).
 
 ### 8.2 Write sequence
 
@@ -491,8 +502,8 @@ steps. The directory and every filename use the resolved run ID.
 5. Write coverage and cards.
 6. Replace the manifest state with `complete` only after all required artifacts
    validate and are durable under the documented platform contract.
-7. On interruption, retain or clean an explicitly `incomplete` run; never
-   present it as complete.
+7. On interruption, remove the incomplete run when safe; cleanup failure leaves
+   it explicitly `incomplete` and visible to lifecycle commands, never complete.
 
 ### 8.3 Manifest relationships
 
