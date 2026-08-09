@@ -11,13 +11,14 @@ request for private follow-up and no sensitive detail. Before runnable code or
 an external-agent adapter is released, the maintainer must enable GitHub private
 vulnerability reporting and publish a monitored private security contact.
 
-This volunteer documentation-only project does not yet promise a response SLA.
+This volunteer pre-release project does not yet promise a response SLA.
 A release policy must define acknowledgement, triage, remediation, disclosure,
 and supported-version timelines before users are asked to install code.
 
 ## Current scope
 
-There is no runnable software. Reports are still welcome for:
+There is a bootstrap package shell and test harness, but no implemented
+review/repository workflow. Reports are still welcome for:
 
 - misleading security, privacy, equivalence, coverage, or agent claims;
 - credentials, personal data, proprietary code, or sensitive architecture

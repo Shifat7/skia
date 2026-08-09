@@ -23,8 +23,11 @@ Developer predicts one outcome
 Source-derived feedback + original code on demand
 ```
 
-> **Current status: documentation-only.** There is no CLI, package, binary, or
-> generated HLD/LLD yet. The commands below define the intended product.
+> **Current status: bootstrap shell only.** The repository now contains a
+> private TypeScript package shell, build scripts, and bootstrap `node:test`
+> harnesses. There is still no implemented `skia review` / `skia repo review`
+> workflow or generated HLD/LLD. The commands below remain the intended
+> product.
 >
 > **Name decision:** The project and command retain the `Skia`/`skia` name for
 > now. Publication and distribution risks from the existing Google Skia

@@ -1,9 +1,11 @@
 # Contributing to Skia
 
-> **Documentation-only stage.** There is no source, build, test suite, CLI,
-> package, generated HLD/LLD, or release. Current contributions are design,
-> evidence, synthetic fixtures, schemas, documentation, and documentation
-> automation proposals.
+> **Bootstrap shell stage.** The repository now contains a private package
+> shell, build scripts, and bootstrap tests. It still has no implemented
+> review/repository workflows, generated HLD/LLD, or release. Current
+> contributions remain design, evidence, synthetic fixtures, schemas,
+> documentation, implementation slices, and documentation automation
+> proposals.
 
 ---
 
@@ -121,7 +123,7 @@ Use the design feedback form. High-value topics include:
 Map proposals to specific acceptance criteria in IMPLEMENTATION_PLAN.md. Include
 alternatives, trade-offs, failure modes, security/privacy impact, resource
 limits, fixtures, and verification commands. Unrequested product source code is
-not accepted during the documentation-only stage.
+not accepted outside the current maintainer-approved implementation slice.
 
 ---
 

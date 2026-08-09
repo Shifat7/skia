@@ -1,0 +1,245 @@
+# Task 1 Report
+
+Date: 2026-08-09
+
+Status: DONE_WITH_CONCERNS
+
+Commit hash: `PENDING`
+
+Commit message: `PENDING`
+
+Changed files:
+
+- `.superpowers/sdd/plan/task-1-report.md`
+- `AGENTS.md`
+- `CODE_OF_CONDUCT.md`
+- `CONTRIBUTING.md`
+- `GOVERNANCE.md`
+- `README.md`
+- `SECURITY.md`
+- `package-lock.json`
+- `package.json`
+- `src/main.ts`
+- `tests/bootstrap.test.ts`
+- `tests/golden/bootstrap.test.ts`
+- `tests/security/bootstrap.test.ts`
+- `tsconfig.json`
+- `types/node-shim.d.ts`
+
+Scope summary:
+
+- Added the first private package shell with the frozen package contract fields:
+  ESM, exact pinned dependencies, `packageManager: npm@11.18.0`,
+  `engines.node: >=24.0.0 <25`, and npm lockfile v3.
+- Added a strict NodeNext TypeScript configuration that emits package code and
+  test harness output into `dist/`.
+- Added a side-effect-free CLI bootstrap entry point in `src/main.ts` without
+  implementing parser, Git, storage, schema, or later task behavior.
+- Added built-in `node:test` bootstrap coverage for unit, golden, and security
+  harness scripts, with assertions limited to the package shell contract.
+- Updated repository status documentation that would otherwise have become false
+  after introducing the package shell and tests.
+
+Focused diff self-review:
+
+- Correctness: verified the package shell exposes only frozen command-surface
+  metadata and an explicit `unimplemented_shell` result; no staged/repository
+  behavior was implemented.
+- Scope: confirmed the diff stays inside Task 1 scaffolding plus necessary
+  truth-maintenance documentation updates. No parser, Git, storage, schema, or
+  later feature modules were added.
+- Testability: verified `npm run typecheck`, `npm run build`, and `npm test`
+  pass against the generated lockfile, and that the placeholder
+  `test:golden` / `test:security` scripts also execute cleanly.
+- Concern retained: local verification is still not package-contract evidence
+  because the machine is on Node 23.7.0 / npm 10.9.2 / `tsc` 5.5.4 rather than
+  the frozen Node 24.x / npm 11.18.0 / TypeScript 7.0.2 contract.
+
+Exact commands and output:
+
+1. `node --version`
+
+   Output:
+
+   ```text
+   v23.7.0
+   ```
+
+2. `npm --version`
+
+   Output:
+
+   ```text
+   10.9.2
+   ```
+
+3. `npx tsc --version`
+
+   Output:
+
+   ```text
+   Version 5.5.4
+   ```
+
+4. `npx tsc --noEmit -p /Users/shifatr/Documents/Dev/Repos/skia/skia/tsconfig.json`
+
+   Output:
+
+   ```text
+   error TS2318: Cannot find global type 'Array'.
+   error TS2318: Cannot find global type 'Boolean'.
+   error TS2318: Cannot find global type 'CallableFunction'.
+   error TS2318: Cannot find global type 'Function'.
+   error TS2318: Cannot find global type 'IArguments'.
+   error TS2318: Cannot find global type 'NewableFunction'.
+   error TS2318: Cannot find global type 'Number'.
+   error TS2318: Cannot find global type 'Object'.
+   error TS2318: Cannot find global type 'RegExp'.
+   error TS2318: Cannot find global type 'String'.
+   tsconfig.json(3,15): error TS6046: Argument for '--target' option must be: 'es5', 'es6', 'es2015', 'es2016', 'es2017', 'es2018', 'es2019', 'es2020', 'es2021', 'es2022', 'es2023', 'esnext'.
+   tsconfig.json(19,7): error TS6046: Argument for '--lib' option must be: 'es5', 'es6', 'es2015', 'es7', 'es2016', 'es2017', 'es2018', 'es2019', 'es2020', 'es2021', 'es2022', 'es2023', 'esnext', 'dom', 'dom.iterable', 'dom.asynciterable', 'webworker', 'webworker.importscripts', 'webworker.iterable', 'webworker.asynciterable', 'scripthost', 'es2015.core', 'es2015.collection', 'es2015.generator', 'es2015.iterable', 'es2015.promise', 'es2015.proxy', 'es2015.reflect', 'es2015.symbol', 'es2015.symbol.wellknown', 'es2016.array.include', 'es2016.intl', 'es2017.date', 'es2017.object', 'es2017.sharedmemory', 'es2017.string', 'es2017.intl', 'es2017.typedarrays', 'es2018.asyncgenerator', 'es2018.asynciterable', 'es2018.intl', 'es2018.promise', 'es2018.regexp', 'es2019.array', 'es2019.object', 'es2019.string', 'es2019.symbol', 'es2019.intl', 'es2020.bigint', 'es2020.date', 'es2020.promise', 'es2020.sharedmemory', 'es2020.string', 'es2020.symbol.wellknown', 'es2020.intl', 'es2020.number', 'es2021.promise', 'es2021.string', 'es2021.weakref', 'es2021.intl', 'es2022.array', 'es2022.error', 'es2022.intl', 'es2022.object', 'es2022.sharedmemory', 'es2022.string', 'es2022.regexp', 'es2023.array', 'es2023.collection', 'es2023.intl', 'esnext.array', 'esnext.collection', 'esnext.symbol', 'esnext.asynciterable', 'esnext.intl', 'esnext.disposable', 'esnext.bigint', 'esnext.string', 'esnext.promise', 'esnext.weakref', 'esnext.decorators', 'esnext.object', 'esnext.regexp', 'decorators', 'decorators.legacy'.
+   ```
+
+5. `npm install --package-lock-only`
+
+   Output:
+
+   ```text
+   npm warn EBADENGINE Unsupported engine {
+   npm warn EBADENGINE   package: 'skia@0.0.0',
+   npm warn EBADENGINE   required: { node: '>=24.0.0 <25' },
+   npm warn EBADENGINE   current: { node: 'v23.7.0', npm: '10.9.2' }
+   npm warn EBADENGINE }
+
+   up to date, audited 34 packages in 5s
+
+   2 packages are looking for funding
+     run `npm fund` for details
+
+   found 0 vulnerabilities
+   ```
+
+6. `npm ci`
+
+   Output:
+
+   ```text
+   npm warn EBADENGINE Unsupported engine {
+   npm warn EBADENGINE   package: 'skia@0.0.0',
+   npm warn EBADENGINE   required: { node: '>=24.0.0 <25' },
+   npm warn EBADENGINE   current: { node: 'v23.7.0', npm: '10.9.2' }
+   npm warn EBADENGINE }
+
+   added 14 packages, and audited 15 packages in 8s
+
+   2 packages are looking for funding
+     run `npm fund` for details
+
+   found 0 vulnerabilities
+   ```
+
+7. `npm run typecheck`
+
+   Output:
+
+   ```text
+   > skia@0.0.0 typecheck
+   > tsc --noEmit -p tsconfig.json
+   ```
+
+8. `npm run build`
+
+   Output:
+
+   ```text
+   > skia@0.0.0 build
+   > tsc -p tsconfig.json
+   ```
+
+9. `npm test`
+
+   Output:
+
+   ```text
+   > skia@0.0.0 test
+   > node --test dist/tests/bootstrap.test.js
+
+   ✔ bootstrap shell exposes the frozen command surfaces without side effects (1.536375ms)
+   ✔ runCli returns an unimplemented shell result and copies argv (0.272833ms)
+   ℹ tests 2
+   ℹ suites 0
+   ℹ pass 2
+   ℹ fail 0
+   ℹ cancelled 0
+   ℹ skipped 0
+   ℹ todo 0
+   ℹ duration_ms 74.719209
+   ```
+
+10. `python3 scripts/check_docs.py`
+
+    Output:
+
+    ```text
+    Checked 17 Markdown files, 5 issue-form YAML files, 7 JSON fences, and 24 external URLs.
+    Documentation checks passed.
+    ```
+
+11. `git diff --check`
+
+    Output:
+
+    ```text
+    <no output>
+    ```
+
+12. `npm run test:golden`
+
+    Output:
+
+    ```text
+    > skia@0.0.0 test:golden
+    > node --test dist/tests/golden/bootstrap.test.js
+
+    ✔ golden harness boots against the package shell only (0.542292ms)
+    ℹ tests 1
+    ℹ suites 0
+    ℹ pass 1
+    ℹ fail 0
+    ℹ cancelled 0
+    ℹ skipped 0
+    ℹ todo 0
+    ℹ duration_ms 62.869625
+    ```
+
+13. `npm run test:security`
+
+    Output:
+
+    ```text
+    > skia@0.0.0 test:security
+    > node --test dist/tests/security/bootstrap.test.js
+
+    ✔ security harness boots without executing repository behavior (0.931709ms)
+    ℹ tests 1
+    ℹ suites 0
+    ℹ pass 1
+    ℹ fail 0
+    ℹ cancelled 0
+    ℹ skipped 0
+    ℹ todo 0
+    ℹ duration_ms 62.712917
+    ```
+
+Concerns:
+
+- The local environment still does not match the frozen package contract:
+  observed `node v23.7.0`, `npm 10.9.2`, and prior ambient `tsc 5.5.4` versus
+  the Task 0 contract of Node 24.x, `npm@11.18.0`, and `typescript@7.0.2`.
+- The initial red check failed specifically because the ambient `tsc 5.5.4`
+  cannot understand the frozen `ES2024` target/lib. The final green checks use
+  the installed pinned TypeScript from the generated lockfile, but they still
+  run under the mismatched local Node/npm runtime.
+- `npm test`, `npm run test:golden`, and `npm run test:security` intentionally
+  target compiled output under `dist/`, so the verification order matters:
+  build must run before those harness scripts.

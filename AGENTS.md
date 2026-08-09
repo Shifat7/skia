@@ -2,8 +2,10 @@
 
 ## Current status
 
-- This repository is documentation-only. There is no CLI, package, binary,
-  TypeScript source, schema implementation, generated artifact, or test suite.
+- This repository has a private TypeScript package shell, a side-effect-free
+  CLI bootstrap entry point, and `node:test` bootstrap harnesses.
+- There is still no implemented review/repository workflow, schema
+  implementation, or generated artifact.
 - The proposed product has two workflows: `skia review` for staged TypeScript
   or Python changes and `skia repo review` for committed repositories whose
   supported source languages are TypeScript and Python.
@@ -48,8 +50,26 @@ Optional network-dependent documentation check:
 python3 scripts/check_docs.py --external
 ```
 
-There are no build, test, lint, or development-server commands yet. Do not
-invent runnable commands or describe proposed commands as implemented.
+Current package-shell verification commands:
+
+```sh
+npm ci
+npm run typecheck
+npm run build
+npm test
+python3 scripts/check_docs.py
+git diff --check
+```
+
+Additional placeholder harness commands:
+
+```sh
+npm run test:golden
+npm run test:security
+```
+
+Do not describe the proposed `skia review` / `skia repo review` behavior as
+implemented.
 
 ## Documentation conventions
 
