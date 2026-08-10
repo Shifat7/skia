@@ -80,7 +80,7 @@ export interface RunListEntry {
 export interface InspectedRepositoryRun {
   readonly kind: "repo_review";
   readonly run_id: RunId;
-  readonly metadata: IncompleteRepositoryRunMetadata;
+  readonly metadata: IncompleteRepositoryRunMetadata | null;
   readonly manifest_path: RunArtifactPath;
   readonly manifest: RepositoryManifest | null;
 }
@@ -137,6 +137,18 @@ function ensureDirectory(directoryPath: string, label: string): void {
   }
 }
 
+function assertExistingDirectory(directoryPath: string, label: string): void {
+  const stats = fs.lstatSync(directoryPath);
+
+  if (stats.isSymbolicLink()) {
+    throw createStorageError(`${label} must not be a symlink`);
+  }
+
+  if (!stats.isDirectory()) {
+    throw createStorageError(`${label} must be a directory`);
+  }
+}
+
 function ensureStorageRoots(repositoryRoot: string, leafDirectoryName: string): {
   readonly skiaRootPath: string;
   readonly leafRootPath: string;
@@ -147,6 +159,33 @@ function ensureStorageRoots(repositoryRoot: string, leafDirectoryName: string): 
 
   ensureDirectory(skiaRootPath, ".skia root");
   ensureDirectory(leafRootPath, `.skia/${leafDirectoryName} root`);
+
+  return {
+    skiaRootPath,
+    leafRootPath,
+  };
+}
+
+function readStorageRoots(
+  repositoryRoot: string,
+  leafDirectoryName: string,
+): { readonly skiaRootPath: string; readonly leafRootPath: string } | null {
+  const absoluteRepositoryRoot = path.resolve(repositoryRoot);
+  const skiaRootPath = path.join(absoluteRepositoryRoot, SKIA_DIRECTORY_NAME);
+
+  if (!fs.existsSync(skiaRootPath)) {
+    return null;
+  }
+
+  assertExistingDirectory(skiaRootPath, ".skia root");
+
+  const leafRootPath = path.join(skiaRootPath, leafDirectoryName);
+
+  if (!fs.existsSync(leafRootPath)) {
+    return null;
+  }
+
+  assertExistingDirectory(leafRootPath, `.skia/${leafDirectoryName} root`);
 
   return {
     skiaRootPath,
@@ -270,9 +309,19 @@ function totalArtifactBytes(runDirectoryPath: string): number {
 }
 
 function parseRepositoryMetadata(runDirectoryPath: string): IncompleteRepositoryRunMetadata {
-  return parseJson<IncompleteRepositoryRunMetadata>(
-    path.join(runDirectoryPath, RUN_METADATA_FILENAME),
-  );
+  return parseJson<IncompleteRepositoryRunMetadata>(path.join(runDirectoryPath, RUN_METADATA_FILENAME));
+}
+
+function parseRepositoryMetadataOrNull(
+  runDirectoryPath: string,
+): IncompleteRepositoryRunMetadata | null {
+  const metadataPath = path.join(runDirectoryPath, RUN_METADATA_FILENAME);
+
+  if (!fs.existsSync(metadataPath)) {
+    return null;
+  }
+
+  return parseRepositoryMetadata(runDirectoryPath);
 }
 
 function validateRepositoryManifestFile(filePath: string): RepositoryManifest {
@@ -388,7 +437,7 @@ function deleteTree(
 }
 
 function repositoryRunDirectoryPath(repositoryRoot: string, runId: RunId): string {
-  const { skiaRootPath } = ensureStorageRoots(repositoryRoot, DIST_DIRECTORY_NAME);
+  const skiaRootPath = path.join(path.resolve(repositoryRoot), SKIA_DIRECTORY_NAME);
   return validateContainedPath(skiaRootPath, deriveRepositoryRunDirectory(runId));
 }
 
@@ -411,6 +460,57 @@ function validateCoverageArtifact(runDirectoryPath: string, artifactPath: RunArt
         .join("; ")}`,
     );
   }
+}
+
+function validateCompleteArtifactPath(
+  allocation: RepositoryRunAllocation,
+  artifactPath: RunArtifactPath,
+): string {
+  const absolutePath = artifactAbsolutePath(allocation.runDirectoryPath, artifactPath);
+
+  assertNoSymlinkInPath(allocation.runDirectoryPath, absolutePath);
+
+  if (!fs.existsSync(absolutePath)) {
+    throw createStorageError(`artifact ${artifactPath} is missing`);
+  }
+
+  const stats = fs.lstatSync(absolutePath);
+
+  if (stats.isSymbolicLink()) {
+    throw createStorageError(`artifact ${artifactPath} must not be a symlink`);
+  }
+
+  if (!stats.isFile()) {
+    throw createStorageError(`artifact ${artifactPath} must be a regular file`);
+  }
+
+  return absolutePath;
+}
+
+function incompleteRunListEntryFromDirectory(runId: RunId, runDirectoryPath: string): RunListEntry {
+  const metadata = parseRepositoryMetadataOrNull(runDirectoryPath);
+
+  if (metadata !== null) {
+    return {
+      run_id: metadata.run_id,
+      mode: metadata.mode,
+      status: metadata.status,
+      created_at: metadata.created_at,
+      completed_at: metadata.completed_at,
+      snapshot_identifier: metadata.snapshot_identifier,
+      artifact_bytes: totalArtifactBytes(runDirectoryPath),
+    };
+  }
+
+  return {
+    run_id: runId,
+    mode: "repo_review",
+    status: "incomplete",
+    created_at: createdAtFromRunId(runId),
+    completed_at: null,
+    snapshot_identifier: "not_available",
+    artifact_bytes: totalArtifactBytes(runDirectoryPath),
+  };
 }
 
 export function allocateRepositoryRun(
@@ -492,17 +592,14 @@ export function completeRepositoryRun(
     );
   }
 
-  for (const artifact of manifest.artifacts) {
-    const absolutePath = artifactAbsolutePath(allocation.runDirectoryPath, artifact.path);
+  const completeArtifacts = manifest.artifacts
+    .filter((artifact) => artifact.state === "complete")
+    .map((artifact) => ({
+      artifact,
+      absolutePath: validateCompleteArtifactPath(allocation, artifact.path),
+    }));
 
-    if (artifact.state !== "complete") {
-      continue;
-    }
-
-    if (!fs.existsSync(absolutePath)) {
-      throw createStorageError(`artifact ${artifact.path} is missing`);
-    }
-
+  for (const { artifact, absolutePath } of completeArtifacts) {
     const artifactBytes = fs.readFileSync(absolutePath);
     const actualSha256 = sha256Hex(artifactBytes);
 
@@ -549,74 +646,66 @@ export function writeStagedReceipt(
 
 export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
   const runs: RunListEntry[] = [];
-  const repositoryDistRoot = ensureStorageRoots(repositoryRoot, DIST_DIRECTORY_NAME).leafRootPath;
-  const repositoryReceiptsRoot = ensureStorageRoots(
-    repositoryRoot,
-    RECEIPTS_DIRECTORY_NAME,
-  ).leafRootPath;
+  const repositoryDistRoots = readStorageRoots(repositoryRoot, DIST_DIRECTORY_NAME);
+  const repositoryReceiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
 
-  for (const entryName of [...fs.readdirSync(repositoryDistRoot)].sort()) {
-    let runId: RunId;
+  if (repositoryDistRoots !== null) {
+    for (const entryName of [...fs.readdirSync(repositoryDistRoots.leafRootPath)].sort()) {
+      let runId: RunId;
 
-    try {
-      runId = validateRunId(entryName);
-    } catch {
-      continue;
+      try {
+        runId = validateRunId(entryName);
+      } catch {
+        continue;
+      }
+
+      const runDirectoryPath = path.join(repositoryDistRoots.leafRootPath, entryName);
+      const stats = fs.lstatSync(runDirectoryPath);
+
+      if (!stats.isDirectory() || stats.isSymbolicLink()) {
+        continue;
+      }
+
+      const manifestPath = path.join(runDirectoryPath, deriveRepositoryManifestPath(runId));
+
+      if (fs.existsSync(manifestPath)) {
+        const manifest = validateRepositoryManifestFile(manifestPath);
+        runs.push({
+          run_id: manifest.run_id,
+          mode: "repo_review",
+          status: manifest.status,
+          created_at: createdAtFromRunId(manifest.run_id),
+          completed_at: manifest.completed_at,
+          snapshot_identifier: manifest.snapshot.commit_oid,
+          artifact_bytes: totalArtifactBytes(runDirectoryPath),
+        });
+        continue;
+      }
+
+      runs.push(incompleteRunListEntryFromDirectory(runId, runDirectoryPath));
     }
-
-    const runDirectoryPath = path.join(repositoryDistRoot, entryName);
-    const stats = fs.lstatSync(runDirectoryPath);
-
-    if (!stats.isDirectory() || stats.isSymbolicLink()) {
-      continue;
-    }
-
-    const manifestPath = path.join(runDirectoryPath, deriveRepositoryManifestPath(runId));
-
-    if (fs.existsSync(manifestPath)) {
-      const manifest = validateRepositoryManifestFile(manifestPath);
-      runs.push({
-        run_id: manifest.run_id,
-        mode: "repo_review",
-        status: manifest.status,
-        created_at: createdAtFromRunId(manifest.run_id),
-        completed_at: manifest.completed_at,
-        snapshot_identifier: manifest.snapshot.commit_oid,
-        artifact_bytes: totalArtifactBytes(runDirectoryPath),
-      });
-      continue;
-    }
-
-    const metadata = parseRepositoryMetadata(runDirectoryPath);
-    runs.push({
-      run_id: metadata.run_id,
-      mode: metadata.mode,
-      status: metadata.status,
-      created_at: metadata.created_at,
-      completed_at: metadata.completed_at,
-      snapshot_identifier: metadata.snapshot_identifier,
-      artifact_bytes: totalArtifactBytes(runDirectoryPath),
-    });
   }
 
-  for (const entryName of [...fs.readdirSync(repositoryReceiptsRoot)].sort()) {
-    const receiptPath = path.join(repositoryReceiptsRoot, entryName);
-    const stats = fs.lstatSync(receiptPath);
+  if (repositoryReceiptsRoots !== null) {
+    for (const entryName of [...fs.readdirSync(repositoryReceiptsRoots.leafRootPath)].sort()) {
+      const receiptPath = path.join(repositoryReceiptsRoots.leafRootPath, entryName);
+      const stats = fs.lstatSync(receiptPath);
 
-    if (!stats.isFile() || stats.isSymbolicLink()) {
-      continue;
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        continue;
+      }
+
+      const receipt = validateStagedReceiptFile(receiptPath);
+      runs.push({
+        run_id: receipt.run_id,
+        mode: "review",
+        status: receipt.status,
+        created_at: createdAtFromRunId(receipt.run_id),
+        completed_at: receipt.completed_at,
+        snapshot_identifier: receipt.snapshot.diff_sha256,
+        artifact_bytes: stats.size,
+      });
     }
-
-    const receipt = validateStagedReceiptFile(receiptPath);
-    runs.push({
-      run_id: receipt.run_id,
-      mode: "review",
-      status: receipt.status,
-      created_at: createdAtFromRunId(receipt.run_id),
-      completed_at: receipt.completed_at,
-      snapshot_identifier: receipt.snapshot.diff_sha256,
-      artifact_bytes: stats.size,
-    });
   }
 
   return runs.sort((left, right) => left.run_id.localeCompare(right.run_id));
@@ -626,12 +715,9 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
   const runId = validateRunId(runIdInput);
   const runDirectoryPath = repositoryRunDirectoryPath(repositoryRoot, runId);
   const repositoryRunExists = fs.existsSync(runDirectoryPath);
-  const receiptsRoot = ensureStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME).leafRootPath;
-  const matchingReceiptNames = fs.readdirSync(receiptsRoot)
-    .filter((entryName) => entryName.startsWith(`${runId}-`) && entryName.endsWith("-session.json"));
 
   if (repositoryRunExists) {
-    const metadata = parseRepositoryMetadata(runDirectoryPath);
+    const metadata = parseRepositoryMetadataOrNull(runDirectoryPath);
     const manifestPath = path.join(runDirectoryPath, deriveRepositoryManifestPath(runId));
 
     return {
@@ -643,21 +729,28 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
     };
   }
 
-  if (matchingReceiptNames.length === 1) {
-    const receiptName = matchingReceiptNames[0];
+  const receiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
 
-    if (receiptName === undefined) {
-      throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
+  if (receiptsRoots !== null) {
+    const matchingReceiptNames = fs.readdirSync(receiptsRoots.leafRootPath)
+      .filter((entryName) => entryName.startsWith(`${runId}-`) && entryName.endsWith("-session.json"));
+
+    if (matchingReceiptNames.length === 1) {
+      const receiptName = matchingReceiptNames[0];
+
+      if (receiptName === undefined) {
+        throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
+      }
+
+      const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, receiptName);
+
+      return {
+        kind: "review",
+        run_id: runId,
+        receipt_path: validateRunArtifactPath(`receipts/${receiptName}`),
+        receipt: validateStagedReceiptFile(absoluteReceiptPath),
+      };
     }
-
-    const absoluteReceiptPath = path.join(receiptsRoot, receiptName);
-
-    return {
-      kind: "review",
-      run_id: runId,
-      receipt_path: validateRunArtifactPath(`receipts/${receiptName}`),
-      receipt: validateStagedReceiptFile(absoluteReceiptPath),
-    };
   }
 
   throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);

@@ -28,6 +28,7 @@ import {
 import {
   deriveRepositoryArtifactPath,
   deriveRepositoryManifestPath,
+  deriveRepositoryRunDirectory,
   validateRelativePath,
   validateSessionId,
 } from "../src/paths.js";
@@ -45,6 +46,14 @@ function createTempRepository(): string {
   const repositoryRoot = fs.mkdtempSync(TEMP_PREFIX);
   fs.mkdirSync(path.join(repositoryRoot, ".git"));
   return repositoryRoot;
+}
+
+function absoluteSkiaPath(repositoryRoot: string, relativePath: string): string {
+  return path.join(repositoryRoot, ".skia", relativePath);
+}
+
+function permissionsMask(statsMode: number): number {
+  return statsMode & 0o777;
 }
 
 function brand<T>(value: string): T {
@@ -170,6 +179,51 @@ test("repository run allocation writes incomplete metadata before artifacts and 
   );
 
   assert.strictEqual(secondRun.runId, "20260810T010203Z-01");
+});
+
+test("listRuns and inspectRun stay read-only on a fresh repository", () => {
+  const repositoryRoot = createTempRepository();
+
+  assert.deepStrictEqual(listRuns(repositoryRoot), []);
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
+
+  assert.throws(
+    () => inspectRun(repositoryRoot, "20260810T010203Z"),
+    /does not exist beneath \.skia/i,
+  );
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
+});
+
+test("listRuns tolerates a partially allocated run directory without metadata and surfaces it as incomplete", () => {
+  const repositoryRoot = createTempRepository();
+  const partialRunDirectory = path.join(
+    repositoryRoot,
+    ".skia",
+    deriveRepositoryRunDirectory(brand<RunId>("20260810T010203Z")),
+  );
+
+  fs.mkdirSync(path.join(repositoryRoot, ".skia"));
+  fs.mkdirSync(path.join(repositoryRoot, ".skia", "dist"));
+  fs.mkdirSync(partialRunDirectory);
+
+  assert.deepStrictEqual(listRuns(repositoryRoot), [
+    {
+      run_id: "20260810T010203Z",
+      mode: "repo_review",
+      status: "incomplete",
+      created_at: "2026-08-10T01:02:03Z",
+      completed_at: null,
+      snapshot_identifier: "not_available",
+      artifact_bytes: 0,
+    },
+  ]);
+
+  const inspectedRun = inspectRun(repositoryRoot, "20260810T010203Z");
+  if (inspectedRun.kind !== "repo_review") {
+    throw new Error("expected partial repository run inspection");
+  }
+  assert.strictEqual(inspectedRun.metadata, null);
+  assert.strictEqual(inspectedRun.manifest, null);
 });
 
 test("repository run allocation rejects symlinked output roots", () => {
@@ -302,6 +356,47 @@ test("repository completion validates hashes and coverage schema before writing 
       ),
     /coverage artifact validation failed/i,
   );
+
+  const symlinkRepositoryRoot = createTempRepository();
+  const symlinkRun = allocateRepositoryRun(
+    symlinkRepositoryRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T01:02:03Z"),
+  );
+  const symlinkCoveragePath = deriveRepositoryArtifactPath(symlinkRun.runId, "coverage");
+  const symlinkCardsPath = deriveRepositoryArtifactPath(symlinkRun.runId, "behavior_cards");
+
+  writeArtifactFile(
+    symlinkRun,
+    symlinkCoveragePath,
+    JSON.stringify(readFixture<CoverageEnvelope>("valid-coverage.json")),
+  );
+  writeArtifactFile(symlinkRun, symlinkCardsPath, "{\"cards\":[]}");
+
+  fs.rmSync(path.join(symlinkRun.runDirectoryPath, symlinkCardsPath), { force: true });
+  fs.symlinkSync(
+    fs.mkdtempSync(TEMP_PREFIX),
+    path.join(symlinkRun.runDirectoryPath, symlinkCardsPath),
+  );
+
+  assert.throws(
+    () =>
+      completeRepositoryRun(
+        symlinkRun,
+        createRepositoryManifest(
+          symlinkRun.runId,
+          symlinkCoveragePath,
+          brand<Sha256Hex>("0".repeat(64)),
+          symlinkCardsPath,
+          brand<Sha256Hex>("1".repeat(64)),
+        ),
+      ),
+    /symlink/i,
+  );
+  assert.strictEqual(
+    fs.existsSync(path.join(symlinkRun.runDirectoryPath, deriveRepositoryManifestPath(symlinkRun.runId))),
+    false,
+  );
 });
 
 test("repository completion writes a manifest only after validated artifacts, and list/inspect cover repository and receipt runs without reading artifact content", () => {
@@ -394,4 +489,53 @@ test("run deletion removes exactly one run and reports partial deletion failures
   assert.strictEqual(blockedDelete.deleted, false);
   assert.ok(blockedDelete.remaining_paths.length > 0);
   assert.match(blockedDelete.remaining_paths[0] ?? "", /dist\/20260810T010205Z/);
+});
+
+test("storage roots, run directories, metadata, and artifacts request owner-only permissions where supported", () => {
+  const repositoryRoot = createTempRepository();
+  const run = allocateRepositoryRun(
+    repositoryRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T01:02:03Z"),
+  );
+  const coveragePath = deriveRepositoryArtifactPath(run.runId, "coverage");
+
+  writeArtifactFile(
+    run,
+    coveragePath,
+    JSON.stringify(readFixture<CoverageEnvelope>("valid-coverage.json")),
+  );
+  writeStagedReceipt(
+    repositoryRoot,
+    createStagedReceipt(brand<RunId>("20260810T020304Z")),
+  );
+
+  assert.strictEqual(
+    permissionsMask(fs.statSync(absoluteSkiaPath(repositoryRoot, "")).mode),
+    0o700,
+  );
+  assert.strictEqual(
+    permissionsMask(fs.statSync(absoluteSkiaPath(repositoryRoot, "dist")).mode),
+    0o700,
+  );
+  assert.strictEqual(
+    permissionsMask(fs.statSync(absoluteSkiaPath(repositoryRoot, "receipts")).mode),
+    0o700,
+  );
+  assert.strictEqual(permissionsMask(fs.statSync(run.runDirectoryPath).mode), 0o700);
+  assert.strictEqual(permissionsMask(fs.statSync(run.metadataPath).mode), 0o600);
+  assert.strictEqual(
+    permissionsMask(
+      fs.statSync(path.join(run.runDirectoryPath, coveragePath)).mode,
+    ),
+    0o600,
+  );
+  assert.strictEqual(
+    permissionsMask(
+      fs.statSync(
+        absoluteSkiaPath(repositoryRoot, "receipts/20260810T020304Z-8f5d1a2c-session.json"),
+      ).mode,
+    ),
+    0o600,
+  );
 });
