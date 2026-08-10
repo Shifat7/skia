@@ -10,9 +10,11 @@
 
 ## Foundation slices
 
-- [ ] Task 1: Bootstrap the TypeScript package and `node:test` harness.
+- [x] Task 1: Bootstrap the TypeScript package and `node:test` harness.
   - Depends on: Task 0.
   - Verify: `npm ci`, typecheck, build, tests.
+  - Commits: `e21aec4`, `3c9ec1a`, `5078d9c`; task review: spec PASS after
+    fix rounds, scoped re-review CLEAN.
 
 - [ ] Task 2: Define language-neutral schema and domain envelopes.
   - Depends on: Task 1.
