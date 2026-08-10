@@ -713,20 +713,23 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
 
 export function inspectRun(repositoryRoot: string, runIdInput: string): InspectedRun {
   const runId = validateRunId(runIdInput);
-  const runDirectoryPath = repositoryRunDirectoryPath(repositoryRoot, runId);
-  const repositoryRunExists = fs.existsSync(runDirectoryPath);
+  const repositoryDistRoots = readStorageRoots(repositoryRoot, DIST_DIRECTORY_NAME);
 
-  if (repositoryRunExists) {
-    const metadata = parseRepositoryMetadataOrNull(runDirectoryPath);
-    const manifestPath = path.join(runDirectoryPath, deriveRepositoryManifestPath(runId));
+  if (repositoryDistRoots !== null) {
+    const runDirectoryPath = path.join(repositoryDistRoots.leafRootPath, runId);
 
-    return {
-      kind: "repo_review",
-      run_id: runId,
-      metadata,
-      manifest_path: deriveRepositoryManifestPath(runId),
-      manifest: fs.existsSync(manifestPath) ? validateRepositoryManifestFile(manifestPath) : null,
-    };
+    if (fs.existsSync(runDirectoryPath)) {
+      const metadata = parseRepositoryMetadataOrNull(runDirectoryPath);
+      const manifestPath = path.join(runDirectoryPath, deriveRepositoryManifestPath(runId));
+
+      return {
+        kind: "repo_review",
+        run_id: runId,
+        metadata,
+        manifest_path: deriveRepositoryManifestPath(runId),
+        manifest: fs.existsSync(manifestPath) ? validateRepositoryManifestFile(manifestPath) : null,
+      };
+    }
   }
 
   const receiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);

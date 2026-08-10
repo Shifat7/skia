@@ -194,6 +194,30 @@ test("listRuns and inspectRun stay read-only on a fresh repository", () => {
   assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
 });
 
+test("inspectRun rejects a symlinked .skia root before reading external repository-run metadata", () => {
+  const repositoryRoot = createTempRepository();
+  const externalStorageRoot = fs.mkdtempSync(TEMP_PREFIX);
+  const externalRunDirectory = path.join(
+    externalStorageRoot,
+    "dist",
+    "20260810T010203Z",
+  );
+
+  fs.mkdirSync(path.join(externalStorageRoot, "dist"));
+  fs.mkdirSync(externalRunDirectory);
+  fs.writeFileSync(
+    path.join(externalRunDirectory, RUN_METADATA_FILENAME),
+    "{not-json",
+    "utf8",
+  );
+  fs.symlinkSync(externalStorageRoot, path.join(repositoryRoot, ".skia"));
+
+  assert.throws(
+    () => inspectRun(repositoryRoot, "20260810T010203Z"),
+    /symlink/i,
+  );
+});
+
 test("listRuns tolerates a partially allocated run directory without metadata and surfaces it as incomplete", () => {
   const repositoryRoot = createTempRepository();
   const partialRunDirectory = path.join(
