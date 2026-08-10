@@ -4,11 +4,11 @@ Date: 2026-08-10
 
 Status: DONE_WITH_CONCERNS
 
-Commit hash: `cdaa0f1` (initial Task 2 implementation commit before this
-report backfill; the final amended task commit hash is returned in the
-assistant response)
+Commit hash: `067e95e` (final reviewed Task 2 commit after the fix-round
+amendments; initial Task 2 implementation commit before this report backfill
+was `cdaa0f1`)
 
-Commit message: `feat: add shared domain and schema envelopes`
+Commit message: `test: cover missing task 2 schema invariants`
 
 Changed files:
 
@@ -300,8 +300,9 @@ Date: 2026-08-10
 
 Status: FIXED
 
-Commit hash: `435b557` (initial fix-round commit before this report backfill;
-the final amended fix-round commit hash is returned in the assistant response)
+Commit hash: `067e95e` (final reviewed fix-round commit after the report
+backfill amendments; the initial fix-round commit before this report backfill
+was `435b557`)
 
 Commit message: `test: cover missing task 2 schema invariants`
 
