@@ -172,3 +172,60 @@ Fix-round verification:
 Remaining concerns:
 
 - None for this fix round.
+
+## Fix round 2
+
+Date: 2026-08-10
+
+Reviewer implementation commit hash: `f5d1083`
+
+Reviewer implementation commit message:
+`fix: reject symlinked .skia roots in inspectRun`
+
+Fix-round changed files:
+
+- `src/storage.ts`
+- `tests/storage-lifecycle.test.ts`
+
+Finding addressed:
+
+1. `inspectRun()` no longer bypasses `.skia` root validation for explicit
+   repository-run lookups. Repository-run inspection now discovers an existing
+   validated `.skia/dist` root via the same non-creating read path used by
+   `listRuns()`, so a symlinked `.skia` root is rejected before any external
+   run metadata or manifest content can be read.
+
+Fix-round verification:
+
+1. `npm run build`
+
+   Summary:
+
+   - exit 0
+   - `tsc -p tsconfig.json` completed without diagnostics
+
+2. `node --test dist/tests/path-safety.test.js dist/tests/storage-lifecycle.test.js`
+
+   Summary:
+
+   - exit 0
+   - 13 focused path/storage tests passed, 0 failed
+   - includes the new symlinked `.skia` root regression case for `inspectRun()`
+
+3. `npm run typecheck`
+
+   Summary:
+
+   - exit 0
+   - `tsc --noEmit -p tsconfig.json` completed without diagnostics
+
+4. `git diff --check`
+
+   Summary:
+
+   - exit 0
+   - no whitespace or patch-format errors reported
+
+Remaining concerns:
+
+- None for this fix round.
