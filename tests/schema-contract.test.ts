@@ -83,6 +83,13 @@ test("schema staged receipt rejects repository snapshots in the staged envelope"
   expectInvalid(validation, "staged");
 });
 
+test("schema staged receipt rejects artifact hashes whose paths do not include the receipt run id", () => {
+  const fixture = readFixture<unknown>("invalid-staged-receipt-artifact-hash-path.json");
+  const validation = validateStagedReceipt(fixture);
+
+  expectInvalid(validation, "artifact hash paths must include the receipt run_id");
+});
+
 test("schema repository manifest accepts the valid fixture envelope", () => {
   const fixture = readFixture<unknown>("valid-repository-manifest.json");
   const validation = validateRepositoryManifest(fixture);
@@ -94,5 +101,18 @@ test("schema repository manifest rejects coverage and card references that do no
   const fixture = readFixture<unknown>("invalid-repository-manifest-artifacts.json");
   const validation = validateRepositoryManifest(fixture);
 
-  expectInvalid(validation, "coverage_file");
+  expectInvalid(
+    validation,
+    "coverage_file must resolve to a complete coverage artifact in the manifest",
+  );
+});
+
+test("schema repository manifest rejects cards_file references that do not resolve", () => {
+  const fixture = readFixture<unknown>("invalid-repository-manifest-cards-file.json");
+  const validation = validateRepositoryManifest(fixture);
+
+  expectInvalid(
+    validation,
+    "cards_file must resolve to a complete behavior_cards artifact in the manifest",
+  );
 });
