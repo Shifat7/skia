@@ -16,9 +16,11 @@
   - Commits: `e21aec4`, `3c9ec1a`, `5078d9c`; task review: spec PASS after
     fix rounds, scoped re-review CLEAN.
 
-- [ ] Task 2: Define language-neutral schema and domain envelopes.
+- [x] Task 2: Define language-neutral schema and domain envelopes.
   - Depends on: Task 1.
   - Verify: schema/domain tests and typecheck.
+  - Commits: `9f00ddc`, `067e95e`, `5dc0591`; task review: spec PASS after
+    fix rounds, scoped re-review CLEAN.
 
 - [ ] Task 3: Implement path, run-ID, and atomic storage safety.
   - Depends on: Tasks 1–2 and OD-10/OD-11.
