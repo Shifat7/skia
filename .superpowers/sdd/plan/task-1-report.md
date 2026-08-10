@@ -4,9 +4,9 @@ Date: 2026-08-09
 
 Status: DONE_WITH_CONCERNS
 
-Commit hash: `PENDING`
+Commit hash: `e21aec4`
 
-Commit message: `PENDING`
+Commit message: `chore: bootstrap task 1 package shell`
 
 Changed files:
 
@@ -243,3 +243,193 @@ Concerns:
 - `npm test`, `npm run test:golden`, and `npm run test:security` intentionally
   target compiled output under `dist/`, so the verification order matters:
   build must run before those harness scripts.
+
+## Fix round 1
+
+Date: 2026-08-10
+
+Status: fixed reviewer finding; frozen-toolchain verification appended below.
+
+Summary:
+
+- Re-ran the full Task 1 verification under the bundled Node `v24.14.0`
+  executable at
+  `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`.
+- Provisioned `npm@11.18.0` only in `/private/tmp` and used that exact npm CLI
+  for every package verification command.
+- Verified the pinned project TypeScript under that runtime as
+  `Version 7.0.2`.
+- Preserved Task 1 scope: no parser, Git, storage, schema, or Task 2+ work was
+  added.
+
+Exact commands and output:
+
+1. `'/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node' --version`
+
+   Output:
+
+   ```text
+   v24.14.0
+   ```
+
+2. `mktemp -d /private/tmp/skia-task1-frozen-toolchain-XXXXXX`
+
+   Output:
+
+   ```text
+   /private/tmp/skia-task1-frozen-toolchain-wvkkiS
+   ```
+
+3. `npm install --prefix /private/tmp/skia-task1-frozen-toolchain-wvkkiS npm@11.18.0 --cache /private/tmp/skia-task1-frozen-toolchain-wvkkiS/npm-cache --no-save --ignore-scripts`
+
+   Output:
+
+   ```text
+   added 1 package in 5s
+
+   15 packages are looking for funding
+     run `npm fund` for details
+   npm notice
+   npm notice New major version of npm available! 10.9.2 -> 12.0.2
+   npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+   npm notice To update run: npm install -g npm@12.0.2
+   npm notice
+   ```
+
+4. `'/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node' /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js --version`
+
+   Output:
+
+   ```text
+   11.18.0
+   ```
+
+5. `'/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node' ./node_modules/typescript/bin/tsc --version`
+
+   Output:
+
+   ```text
+   Version 7.0.2
+   ```
+
+6. `'/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node' /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js --cache /private/tmp/skia-task1-frozen-toolchain-wvkkiS/npm-cache --userconfig /dev/null ci`
+
+   Output:
+
+   ```text
+   added 14 packages, and audited 15 packages in 8s
+
+   2 packages are looking for funding
+     run `npm fund` for details
+
+   found 0 vulnerabilities
+   npm warn allow-scripts 4 packages have install scripts not yet covered by allowScripts:
+   npm warn allow-scripts   tree-sitter@0.21.1 (install: node-gyp-build)
+   npm warn allow-scripts   tree-sitter-javascript@0.23.1 (install: node-gyp-build)
+   npm warn allow-scripts   tree-sitter-python@0.21.0 (install: node-gyp-build)
+   npm warn allow-scripts   tree-sitter-typescript@0.23.2 (install: node-gyp-build)
+   npm warn allow-scripts
+   npm warn allow-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+   ```
+
+7. `'/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node' /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js --cache /private/tmp/skia-task1-frozen-toolchain-wvkkiS/npm-cache --userconfig /dev/null run typecheck`
+
+   Output:
+
+   ```text
+   > skia@0.0.0 typecheck
+   > tsc --noEmit -p tsconfig.json
+   ```
+
+8. `'/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node' /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js --cache /private/tmp/skia-task1-frozen-toolchain-wvkkiS/npm-cache --userconfig /dev/null run build`
+
+   Output:
+
+   ```text
+   > skia@0.0.0 build
+   > tsc -p tsconfig.json
+   ```
+
+9. `'/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node' /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js --cache /private/tmp/skia-task1-frozen-toolchain-wvkkiS/npm-cache --userconfig /dev/null test`
+
+   Output:
+
+   ```text
+   > skia@0.0.0 test
+   > node --test dist/tests/bootstrap.test.js
+
+   ✔ bootstrap shell exposes the frozen command surfaces without side effects (2.816542ms)
+   ✔ runCli returns an unimplemented shell result and copies argv (0.283125ms)
+   ℹ tests 2
+   ℹ suites 0
+   ℹ pass 2
+   ℹ fail 0
+   ℹ cancelled 0
+   ℹ skipped 0
+   ℹ todo 0
+   ℹ duration_ms 115.583709
+   ```
+
+10. `'/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node' /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js --cache /private/tmp/skia-task1-frozen-toolchain-wvkkiS/npm-cache --userconfig /dev/null run test:golden`
+
+    Output:
+
+    ```text
+    > skia@0.0.0 test:golden
+    > node --test dist/tests/golden/bootstrap.test.js
+
+    ✔ golden harness boots against the package shell only (0.65325ms)
+    ℹ tests 1
+    ℹ suites 0
+    ℹ pass 1
+    ℹ fail 0
+    ℹ cancelled 0
+    ℹ skipped 0
+    ℹ todo 0
+    ℹ duration_ms 115.635167
+    ```
+
+11. `'/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node' /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js --cache /private/tmp/skia-task1-frozen-toolchain-wvkkiS/npm-cache --userconfig /dev/null run test:security`
+
+    Output:
+
+    ```text
+    > skia@0.0.0 test:security
+    > node --test dist/tests/security/bootstrap.test.js
+
+    ✔ security harness boots without executing repository behavior (2.82475ms)
+    ℹ tests 1
+    ℹ suites 0
+    ℹ pass 1
+    ℹ fail 0
+    ℹ cancelled 0
+    ℹ skipped 0
+    ℹ todo 0
+    ℹ duration_ms 115.665875
+    ```
+
+12. `python3 scripts/check_docs.py`
+
+    Output:
+
+    ```text
+    Checked 18 Markdown files, 5 issue-form YAML files, 7 JSON fences, and 24 external URLs.
+    Documentation checks passed.
+    ```
+
+13. `git diff --check`
+
+    Output:
+
+    ```text
+    <no output>
+    ```
+
+Fix-round concerns:
+
+- The reviewer’s frozen-toolchain evidence finding is resolved by the commands
+  above: package verification ran under Node `v24.14.0`, npm `11.18.0`, and
+  local TypeScript `7.0.2`.
+- `npm ci` emitted `allow-scripts` warnings for Tree-sitter packages but still
+  exited successfully; no target-repository code was executed as part of this
+  fix round.
