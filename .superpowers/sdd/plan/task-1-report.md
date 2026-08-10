@@ -51,9 +51,10 @@ Focused diff self-review:
 - Testability: verified `npm run typecheck`, `npm run build`, and `npm test`
   pass against the generated lockfile, and that the placeholder
   `test:golden` / `test:security` scripts also execute cleanly.
-- Concern retained: local verification is still not package-contract evidence
-  because the machine is on Node 23.7.0 / npm 10.9.2 / `tsc` 5.5.4 rather than
-  the frozen Node 24.x / npm 11.18.0 / TypeScript 7.0.2 contract.
+- Concern retained at report close: after Fix round 1 resolved the original
+  frozen-toolchain/runtime-mismatch evidence gap, the only remaining concern is
+  the `npm ci` `allow-scripts` warning for Tree-sitter packages under the
+  frozen-toolchain verification run.
 
 Exact commands and output:
 
@@ -233,13 +234,14 @@ Exact commands and output:
 
 Concerns:
 
-- The local environment still does not match the frozen package contract:
-  observed `node v23.7.0`, `npm 10.9.2`, and prior ambient `tsc 5.5.4` versus
-  the Task 0 contract of Node 24.x, `npm@11.18.0`, and `typescript@7.0.2`.
-- The initial red check failed specifically because the ambient `tsc 5.5.4`
-  cannot understand the frozen `ES2024` target/lib. The final green checks use
-  the installed pinned TypeScript from the generated lockfile, but they still
-  run under the mismatched local Node/npm runtime.
+- Historical only, resolved in Fix round 1: the original local environment was
+  `node v23.7.0`, `npm 10.9.2`, and ambient `tsc 5.5.4`, which is why the
+  initial red check could not validate the frozen Node 24.x / `npm@11.18.0` /
+  `typescript@7.0.2` contract. That baseline evidence is preserved above, but
+  it is no longer a current concern after the frozen-toolchain rerun below.
+- Current concern: the frozen-toolchain `npm ci` rerun emitted `allow-scripts`
+  warnings for Tree-sitter packages even though the command exited
+  successfully.
 - `npm test`, `npm run test:golden`, and `npm run test:security` intentionally
   target compiled output under `dist/`, so the verification order matters:
   build must run before those harness scripts.
@@ -433,3 +435,12 @@ Fix-round concerns:
 - `npm ci` emitted `allow-scripts` warnings for Tree-sitter packages but still
   exited successfully; no target-repository code was executed as part of this
   fix round.
+
+## Final report state
+
+- Final status: `DONE_WITH_CONCERNS`.
+- Sole current concern: the frozen-toolchain `npm ci` run emitted
+  `allow-scripts` warnings for Tree-sitter packages.
+- Historical note only: the original Node 23 / npm 10 / ambient `tsc` 5.5.4
+  mismatch is preserved above as the pre-fix baseline and was resolved by Fix
+  round 1.
