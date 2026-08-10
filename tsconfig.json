@@ -20,6 +20,7 @@
     ]
   },
   "include": [
+    "schemas/**/*.ts",
     "src/**/*.ts",
     "tests/**/*.ts",
     "types/**/*.d.ts"

@@ -1,0 +1,68 @@
+{
+  "summary": {
+    "total_units": 10,
+    "supported_units": 5,
+    "partial_units": 2,
+    "unmapped_units": 1,
+    "unsupported_units": 1,
+    "excluded_units": 1,
+    "failed_units": 1,
+    "unchecked_units": 0
+  },
+  "events": [
+    {
+      "id": "coverage-1",
+      "coverage": "supported",
+      "units": 4,
+      "reason": null,
+      "path": "src/example.ts",
+      "language": "typescript",
+      "anchors": []
+    },
+    {
+      "id": "coverage-2",
+      "coverage": "partial",
+      "units": 2,
+      "reason": "syntax_error",
+      "path": "src/example.tsx",
+      "language": "tsx",
+      "anchors": []
+    },
+    {
+      "id": "coverage-3",
+      "coverage": "unmapped",
+      "units": 1,
+      "reason": "unmapped_region",
+      "path": "src/example.py",
+      "language": "python",
+      "anchors": []
+    },
+    {
+      "id": "coverage-4",
+      "coverage": "unsupported",
+      "units": 1,
+      "reason": "unsupported_file_mode",
+      "path": "vendor/example.rb",
+      "language": null,
+      "anchors": []
+    },
+    {
+      "id": "coverage-5",
+      "coverage": "excluded",
+      "units": 1,
+      "reason": "generated_path",
+      "path": "dist/generated.ts",
+      "language": "typescript",
+      "anchors": []
+    },
+    {
+      "id": "coverage-6",
+      "coverage": "failed",
+      "units": 1,
+      "reason": "invalid_source_encoding",
+      "path": "src/bad.ts",
+      "language": "typescript",
+      "anchors": []
+    }
+  ]
+}

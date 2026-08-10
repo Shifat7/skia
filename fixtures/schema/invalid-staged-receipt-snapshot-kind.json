@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "run_id": "20260810T010203Z",
+  "session_id": "8f5d1a2c",
+  "status": "complete",
+  "completed_at": "2026-08-10T01:02:03Z",
+  "snapshot": {
+    "kind": "repository",
+    "commit_oid": "1111111111111111111111111111111111111111",
+    "tree_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "working_changes_included": false,
+    "entries": []
+  },
+  "coverage": {
+    "summary": {
+      "total_units": 1,
+      "supported_units": 1,
+      "partial_units": 0,
+      "unmapped_units": 0,
+      "unsupported_units": 0,
+      "excluded_units": 0,
+      "failed_units": 0,
+      "unchecked_units": 0
+    },
+    "events": [
+      {
+        "id": "coverage-1",
+        "coverage": "supported",
+        "units": 1,
+        "reason": null,
+        "path": "src/example.ts",
+        "language": "typescript",
+        "anchors": []
+      }
+    ]
+  },
+  "artifact_hashes": [],
+  "errors": [],
+  "privacy_caveat": "Local receipt may contain sensitive code-derived claims; inspect and delete when no longer needed."
+}

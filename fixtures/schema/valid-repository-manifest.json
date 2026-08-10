@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "run_id": "20260810T010203Z",
+  "status": "complete",
+  "completed_at": "2026-08-10T01:02:03Z",
+  "snapshot": {
+    "kind": "repository",
+    "commit_oid": "1111111111111111111111111111111111111111",
+    "tree_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "working_changes_included": false,
+    "entries": [
+      {
+        "path": "src/example.ts",
+        "mode": "100644",
+        "language": "typescript",
+        "base_blob_oid": null,
+        "snapshot_blob_oid": "3333333333333333333333333333333333333333"
+      }
+    ]
+  },
+  "coverage": {
+    "summary": {
+      "total_units": 2,
+      "supported_units": 1,
+      "partial_units": 0,
+      "unmapped_units": 0,
+      "unsupported_units": 1,
+      "excluded_units": 0,
+      "failed_units": 0,
+      "unchecked_units": 0
+    },
+    "events": [
+      {
+        "id": "coverage-1",
+        "coverage": "supported",
+        "units": 1,
+        "reason": null,
+        "path": "src/example.ts",
+        "language": "typescript",
+        "anchors": []
+      },
+      {
+        "id": "coverage-2",
+        "coverage": "unsupported",
+        "units": 1,
+        "reason": "unsupported_language",
+        "path": "src/example.rb",
+        "language": null,
+        "anchors": []
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "kind": "hld",
+      "path": "repo-hld-20260810T010203Z.md",
+      "state": "not_available",
+      "not_available_reason": "agent_consent_declined"
+    },
+    {
+      "kind": "lld",
+      "path": "repo-lld-20260810T010203Z.md",
+      "state": "not_available",
+      "not_available_reason": "agent_consent_declined"
+    },
+    {
+      "kind": "collapsed_evidence",
+      "path": "repo-collapsed-evidence-20260810T010203Z.md",
+      "state": "complete",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "kind": "behavior_cards",
+      "path": "repo-behavior-cards-20260810T010203Z.json",
+      "state": "complete",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "kind": "coverage",
+      "path": "repo-coverage-20260810T010203Z.json",
+      "state": "complete",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "coverage_file": "repo-coverage-20260810T010203Z.json",
+  "cards_file": "repo-behavior-cards-20260810T010203Z.json",
+  "errors": [],
+  "privacy_caveat": "Local bundle may contain sensitive architecture and code-derived claims; inspect and delete when no longer needed."
+}
