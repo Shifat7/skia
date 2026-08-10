@@ -104,3 +104,71 @@ Concerns:
 - None blocking for Task 3. The new incomplete-run metadata file is an
   internal storage detail for the Phase 1 lifecycle layer and is not yet wired
   to the future CLI surfaces, which remains in-scope for later tasks only.
+
+## Fix round 1
+
+Date: 2026-08-10
+
+Reviewer implementation commit hash: `d9ab1bc`
+
+Reviewer implementation commit message:
+`fix: address task 3 storage review findings`
+
+Fix-round changed files:
+
+- `src/storage.ts`
+- `tests/storage-lifecycle.test.ts`
+
+Findings addressed:
+
+1. `listRuns()` and `inspectRun()` no longer create `.skia/`, `.skia/dist/`,
+   or `.skia/receipts/` on fresh repositories. They now discover existing
+   roots read-only, return an empty list when no local storage exists, and
+   keep fresh repositories unchanged.
+2. `completeRepositoryRun()` now preflights every complete artifact path before
+   any content read or manifest write. It rejects symlinked artifact targets,
+   missing files, non-regular files, and parent-path symlink traversal before
+   hashing or coverage validation.
+3. Partial allocation is now surfaced safely. Readers tolerate a run directory
+   that exists without `run-metadata.json`, report it as an incomplete
+   repository run in `listRuns()`, and return metadata `null` in
+   `inspectRun()` instead of throwing.
+4. Permission tests now assert owner-only modes where supported for `.skia`,
+   `.skia/dist`, `.skia/receipts`, the run directory, run metadata, a
+   repository artifact, and a staged receipt file.
+
+Fix-round verification:
+
+1. `npm run build`
+
+   Summary:
+
+   - exit 0
+   - `tsc -p tsconfig.json` completed without diagnostics
+
+2. `npm test -- --test-name-pattern='path|storage|run'`
+
+   Summary:
+
+   - exit 0
+   - 27 tests passed, 0 failed
+   - includes the new read-only lifecycle, partial-allocation, symlink
+     completion, and owner-permissions assertions
+
+3. `npm run typecheck`
+
+   Summary:
+
+   - exit 0
+   - `tsc --noEmit -p tsconfig.json` completed without diagnostics
+
+4. `git diff --check`
+
+   Summary:
+
+   - exit 0
+   - no whitespace or patch-format errors reported
+
+Remaining concerns:
+
+- None for this fix round.
