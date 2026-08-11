@@ -315,6 +315,178 @@ Git snapshot -> shared identity/schema -> language analysis -> coverage -> local
 
 ---
 
+## Contributor navigation examples: implemented foundation
+
+These are contributor navigation examples for the current TypeScript
+foundation, not a supported public package API. The imports below point at the
+real internal modules that the future CLI will build on:
+[src/schema.ts](src/schema.ts), [src/git.ts](src/git.ts),
+[src/storage.ts](src/storage.ts), [src/paths.ts](src/paths.ts), and
+[src/languages/registry.ts](src/languages/registry.ts).
+
+Implemented foundation — schema validation keeps the truth contract explicit:
+
+```ts
+import { validateCoverageEnvelope } from "./src/schema.js";
+
+const validation = validateCoverageEnvelope({
+  summary: {
+    total_units: 4,
+    supported_units: 1,
+    partial_units: 1,
+    unmapped_units: 0,
+    unsupported_units: 1,
+    excluded_units: 0,
+    failed_units: 1,
+    unchecked_units: 0,
+  },
+  events: [
+    { id: "evt_ts", coverage: "supported", units: 1, reason: null, path: "src/app.ts", language: "typescript", anchors: [] },
+    { id: "evt_tsx", coverage: "partial", units: 1, reason: null, path: "src/view.tsx", language: "tsx", anchors: [] },
+    { id: "evt_md", coverage: "unsupported", units: 1, reason: "unsupported_language", path: "docs/notes.md", language: null, anchors: [] },
+    { id: "evt_py", coverage: "failed", units: 1, reason: "invalid_source_encoding", path: "scripts/job.py", language: "python", anchors: [] },
+  ],
+});
+
+if (!validation.valid) {
+  console.error(validation.errors);
+}
+```
+
+Implemented foundation — snapshot capture uses current exports, then preserves
+an exact staged or committed identity for later analysis:
+
+```ts
+import { captureRepositorySnapshot, captureStagedSnapshot } from "./src/git.js";
+
+const staged = captureStagedSnapshot(repositoryRoot);
+staged.identity.kind; // "staged"
+staged.identity.copied_index_sha256; // copied-index read, not the live index itself
+
+const repository = captureRepositorySnapshot(repositoryRoot);
+repository.identity.kind; // "repository"
+repository.identity.working_changes_included; // false
+```
+
+Implemented foundation — repository runs are local, path-safe, and tied to one
+atomic run ID from allocation through manifest completion:
+
+```ts
+import {
+  allocateRepositoryRun,
+  completeRepositoryRun,
+  deleteRun,
+  inspectRun,
+  listRuns,
+  writeArtifactFile,
+} from "./src/storage.js";
+import {
+  deriveRepositoryArtifactPath,
+  deriveRepositoryManifestPath,
+  formatRunIdAtUtc,
+  validateRelativePath,
+} from "./src/paths.js";
+
+const claimedRunId = formatRunIdAtUtc(new Date("2026-08-11T00:15:00Z"));
+const allocation = allocateRepositoryRun(repositoryRoot, repository.identity);
+
+validateRelativePath(`dist/${allocation.runId}`); // confined beneath .skia/
+validateRelativePath("../outside.txt"); // throws: traversal rejected
+
+const coveragePath = deriveRepositoryArtifactPath(allocation.runId, "coverage");
+writeArtifactFile(allocation, coveragePath, coverageJsonBytes);
+completeRepositoryRun(allocation, manifest);
+
+inspectRun(repositoryRoot, allocation.runId);
+listRuns(repositoryRoot);
+deleteRun(repositoryRoot, allocation.runId); // exact-ID delete; failed deletion returns remaining_paths for retry
+
+deriveRepositoryManifestPath(claimedRunId);
+```
+
+Implemented foundation — language analysis currently supports exactly three
+source-language registrations:
+
+```text
+.ts  -> typescript
+.tsx -> tsx
+.py  -> python
+```
+
+Implemented foundation — `analyzeSourceFile(options)` exposes supported,
+unsupported, failed, and partial outcomes without inventing a success bucket:
+
+```ts
+import { analyzeSourceFile } from "./src/languages/registry.js";
+
+const analyzed = analyzeSourceFile({
+  bytes: new TextEncoder().encode("export const answer = 42;\n"),
+  coverage_event_id: "evt_supported",
+  max_bytes: 4096,
+  mode: "100644",
+  path: "src/example.ts",
+  snapshot_kind: "staged",
+  status: "M",
+});
+
+analyzed.registration?.extension; // ".ts"
+analyzed.coverage_event.coverage; // "supported"
+analyzed.parse_result?.kind; // "parsed"
+```
+
+Implemented foundation — the current boundaries stay visible instead of being
+collapsed into “close enough”:
+
+```ts
+analyzeSourceFile({ ...options, path: "docs/guide.md" }).coverage_event.coverage;
+// "unsupported" with reason "unsupported_language"
+
+analyzeSourceFile({ ...options, mode: "120000" }).coverage_event.reason;
+// "unsupported_file_mode"
+
+analyzeSourceFile({ ...options, status: "D" }).coverage_event.reason;
+// "unsupported_status"
+
+analyzeSourceFile({ ...options, bytes: new Uint8Array([0xef, 0xbb, 0xbf, 0x66]) }).decoded_source?.had_utf8_bom;
+// true
+
+analyzeSourceFile({ ...options, bytes: new Uint8Array([0xc3, 0x28]) }).parse_result?.kind;
+// "failed" with reason "invalid_source_encoding"
+
+analyzeSourceFile({ ...options, bytes: new Uint8Array([0x61, 0x00, 0x62]) }).parse_result?.kind;
+// "failed" with reason "binary_source"
+
+analyzeSourceFile({ ...options, max_bytes: 1 }).coverage_event.reason;
+// "staged_budget_exceeded" or "repository_limit_exceeded"
+
+analyzeSourceFile({
+  ...options,
+  bytes: new TextEncoder().encode("export const broken = (\n"),
+}).parse_result?.kind;
+// "partial" with non-empty syntax_error_ranges
+```
+
+Implemented foundation — storage and Git safety fail closed around local state:
+
+```text
+.skia/dist/<runId>/... only; no writes outside .skia/
+run ID claim file is created before the repo-review directory is populated
+../escape.json and symlinked artifact paths are rejected
+deleteRun(repositoryRoot, runId) retries by exact run ID when remaining_paths stay visible
+captureStagedSnapshot(...) reads through a copied index and deletes the temp copy afterward
+captureRepositorySnapshot(...) reads committed HEAD with working_changes_included: false
+```
+
+Implemented foundation — repository-mode coverage can still remain visibly
+incomplete:
+
+```text
+selected subsystems -> reviewed now
+unchecked remainder -> still recorded as unchecked
+```
+
+---
+
 ## What Skia is not
 
 ```text
@@ -324,9 +496,9 @@ not an AI PR reviewer     not a source-rewrite engine
 not employee scoring      not authoritative architecture docs
 ```
 
-The project must not claim that it improves comprehension, proves equivalence,
-covers an entire change/repository, or produces verified HLD/LLD until its own
-evidence supports those claims.
+The project must not claim improved comprehension, semantic equivalence,
+complete repository coverage, or verified HLD/LLD until its own evidence
+supports those claims.
 
 ---
 
