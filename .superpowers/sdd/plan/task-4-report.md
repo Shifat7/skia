@@ -317,3 +317,77 @@ Remaining concerns:
 
 - None for this fix round. Linked-worktree branch ref validation now follows
   Git's authoritative ref view instead of per-worktree filesystem heuristics.
+
+## Final Task 4 Git fix round after broad review
+
+Date: 2026-08-11
+
+Reviewer implementation commit hash: `1c14f78`
+
+Reviewer implementation commit message:
+`fix: harden git snapshot head validation`
+
+Fix-round changed files:
+
+- `src/git.ts`
+- `tests/git-snapshot.test.ts`
+
+Findings addressed:
+
+1. Staged snapshot capture now binds one accepted base state/OID to one
+   copied-index generation. `captureStagedAttempt()` resolves the staged base
+   before copying the live index, runs all base-side reads from that captured
+   OID, and re-parses the staged base at final acceptance alongside the live
+   index hash. If either the live index bytes or the base state/OID changed,
+   the candidate is discarded and the full capture is retried, so a branch move
+   after copied-index creation can no longer accept a mixed snapshot.
+2. Repository snapshot capture now distinguishes a truly missing branch tip
+   from a corrupt or dangling current branch ref. `parseRepositoryHeadState()`
+   mirrors staged-mode handling by checking whether the symbolic current-branch
+   ref still exists when `HEAD^{commit}` fails; absent refs keep the stable
+   `no_head_commit` result, while existing invalid refs now fail closed with
+   `git_process_failed`.
+3. Added deterministic regressions for both paths. The staged suite now moves
+   `refs/heads/main` immediately after copied-index creation and proves capture
+   retries to the stable new base instead of accepting a mixed candidate, while
+   repository mode now has a focused corrupt-branch-ref regression that keeps
+   true no-HEAD behavior intact.
+
+Fix-round verification:
+
+1. `npm run build`
+
+   Summary:
+
+   - exit 0
+   - `tsc -p tsconfig.json` completed without diagnostics
+
+2. `node --test dist/tests/git-snapshot.test.js dist/tests/security/git-security.test.js`
+
+   Summary:
+
+   - exit 0
+   - 22 focused Git snapshot/security tests passed, 0 failed
+   - includes the new copied-index/base-ref retry regression and the new
+     repository corrupt-ref classification regression
+
+3. `npm run typecheck`
+
+   Summary:
+
+   - exit 0
+   - `tsc --noEmit -p tsconfig.json` completed without diagnostics
+
+4. `git diff --check`
+
+   Summary:
+
+   - exit 0
+   - no whitespace or patch-format errors reported before the report-only
+     update commit
+
+Remaining concerns:
+
+- None for this fix round. Accepted staged snapshots now revalidate both the
+  copied index and the captured base state/OID, and repository snapshots no
+  longer downgrade corrupt branch refs into the stable no-HEAD path.
