@@ -22,9 +22,11 @@
   - Commits: `9f00ddc`, `067e95e`, `5dc0591`; task review: spec PASS after
     fix rounds, scoped re-review CLEAN.
 
-- [ ] Task 3: Implement path, run-ID, and atomic storage safety.
+- [x] Task 3: Implement path, run-ID, and atomic storage safety.
   - Depends on: Tasks 1–2 and OD-10/OD-11.
   - Verify: path, storage, and lifecycle tests.
+  - Commits: `61479a2`, `384fc45`, `d9ab1bc`, `a068da5`, `f5d1083`,
+    `e1089e0`; task review: spec PASS after fix rounds, scoped re-review CLEAN.
 
 - [ ] Task 4: Implement the OD-4-selected hardened Git snapshot seam.
   - Depends on: Tasks 2–3 and OD-4.
