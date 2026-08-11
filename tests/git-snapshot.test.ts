@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -446,4 +448,48 @@ test("staged snapshot retains unsupported gitlinks in raw discovery but does not
   assert.strictEqual(snapshot.raw_records[0]?.staged_blob_oid, submoduleCommit);
   assert.deepStrictEqual(snapshot.identity.entries, []);
   assert.deepStrictEqual(snapshot.captured_blobs, []);
+});
+
+test("staged snapshot rejects a corrupt existing branch ref instead of classifying it as unborn", () => {
+  const repositoryRoot = createTempGitRepository();
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+
+  const branchName = runGit(
+    repositoryRoot,
+    ["symbolic-ref", "--quiet", "--short", "HEAD"],
+  ).stdout.trim();
+  const branchRefPath = path.join(
+    repositoryRoot,
+    ".git",
+    "refs",
+    "heads",
+    branchName,
+  );
+
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    `${readGitFixture("sample.ts")}\nexport const corrupt = true;\n`,
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+  fs.writeFileSync(branchRefPath, `${"1".repeat(40)}\n`, "utf8");
+
+  try {
+    captureStagedSnapshot(repositoryRoot);
+  } catch (error) {
+    if (error instanceof GitSnapshotError) {
+      assert.notStrictEqual(error.reason, "unborn_head");
+      assert.notStrictEqual(error.reason, "index_changed");
+      assert.notStrictEqual(error.reason, "no_head_commit");
+      assert.strictEqual(error.reason, "git_process_failed");
+      return;
+    }
+
+    throw error;
+  }
+
+  throw new Error("expected corrupt branch ref snapshot capture to fail closed");
 });

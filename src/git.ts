@@ -64,6 +64,7 @@ interface GitCommandResult {
 }
 
 interface ParsedHeadState {
+  readonly branchRefName: string | null;
   readonly checkout: SnapshotCheckout;
   readonly baseCommit: GitObjectId | null;
   readonly baseState: "present" | "unborn";
@@ -355,8 +356,71 @@ function parseBranchState(commandOptions: GitCommandOptions): SnapshotCheckout {
   }
 }
 
+function currentBranchRefName(
+  commandOptions: GitCommandOptions,
+): string | null {
+  try {
+    const branchRefName = bytesToUtf8(
+      runGit(["symbolic-ref", "--quiet", "HEAD"], commandOptions).stdout,
+    ).trim();
+
+    return branchRefName.length === 0 ? null : branchRefName;
+  } catch (error) {
+    if (error instanceof GitSnapshotError && error.reason === "git_process_failed") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+function gitDirectoryPath(commandOptions: GitCommandOptions): string {
+  const gitDirectory = bytesToUtf8(
+    runGit(["rev-parse", "--git-dir"], commandOptions).stdout,
+  ).trim();
+
+  return path.resolve(commandOptions.repositoryRoot, gitDirectory);
+}
+
+function branchRefExists(
+  commandOptions: GitCommandOptions,
+  branchRefName: string,
+): boolean {
+  const gitDirectory = gitDirectoryPath(commandOptions);
+  const looseRefPath = path.resolve(gitDirectory, branchRefName);
+
+  if (fs.existsSync(looseRefPath)) {
+    return true;
+  }
+
+  const packedRefsPath = path.join(gitDirectory, "packed-refs");
+
+  if (!fs.existsSync(packedRefsPath)) {
+    return false;
+  }
+
+  const packedRefsText = fs.readFileSync(packedRefsPath, "utf8");
+
+  for (const line of packedRefsText.split("\n")) {
+    const trimmed = line.trim();
+
+    if (trimmed.length === 0 || trimmed.startsWith("#") || trimmed.startsWith("^")) {
+      continue;
+    }
+
+    const fields = trimmed.split(" ");
+
+    if (fields[1] === branchRefName) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function parseStagedHeadState(commandOptions: GitCommandOptions): ParsedHeadState {
   const checkout = parseBranchState(commandOptions);
+  const branchRefName = currentBranchRefName(commandOptions);
 
   try {
     const headCommit = bytesToUtf8(
@@ -364,6 +428,7 @@ function parseStagedHeadState(commandOptions: GitCommandOptions): ParsedHeadStat
     ).trim() as GitObjectId;
 
     return {
+      branchRefName,
       checkout,
       baseCommit: headCommit,
       baseState: "present",
@@ -372,9 +437,18 @@ function parseStagedHeadState(commandOptions: GitCommandOptions): ParsedHeadStat
     if (
       error instanceof GitSnapshotError &&
       error.reason === "git_process_failed" &&
-      checkout.state === "branch"
+      checkout.state === "branch" &&
+      branchRefName !== null
     ) {
+      if (branchRefExists(commandOptions, branchRefName)) {
+        throw new GitSnapshotError(
+          "git_process_failed",
+          `current branch ref ${branchRefName} does not resolve to a valid commit`,
+        );
+      }
+
       return {
+        branchRefName,
         checkout,
         baseCommit: null,
         baseState: "unborn",
