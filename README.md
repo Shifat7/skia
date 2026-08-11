@@ -387,10 +387,11 @@ import {
   validateRelativePath,
 } from "./src/paths.js";
 
-const claimedRunId = formatRunIdAtUtc(new Date("2026-08-11T00:15:00Z"));
+const formattedRunId = formatRunIdAtUtc(new Date("2026-08-11T00:15:00Z"));
 const allocation = allocateRepositoryRun(repositoryRoot, repository.identity);
+allocation.runId; // claimed atomically inside allocateRepositoryRun(...)
+formattedRunId; // deterministic formatting helper only
 
-validateRelativePath(`dist/${allocation.runId}`); // confined beneath .skia/
 validateRelativePath("../outside.txt"); // throws: traversal rejected
 
 const coveragePath = deriveRepositoryArtifactPath(allocation.runId, "coverage");
@@ -401,7 +402,16 @@ inspectRun(repositoryRoot, allocation.runId);
 listRuns(repositoryRoot);
 deleteRun(repositoryRoot, allocation.runId); // exact-ID delete; failed deletion returns remaining_paths for retry
 
-deriveRepositoryManifestPath(claimedRunId);
+deriveRepositoryManifestPath(allocation.runId);
+```
+
+Implemented foundation — traversal validation and storage confinement are
+separate checks:
+
+```text
+validateRelativePath(...) rejects ../traversal, absolute paths, backslashes, and non-normalized segments
+writeArtifactFile(...) resolves the validated artifact path beneath the allocated .skia/ run directory
+storage writes reject symlinked paths that would escape or redirect artifact resolution
 ```
 
 Implemented foundation — language analysis currently supports exactly three
@@ -538,6 +548,32 @@ No implementation begins by treating the specification as proof that the idea
 works. The project should narrow, pivot, or stop if the reduced view is not
 meaningfully shorter, hides behavior, becomes ritual friction, or produces
 unreliable architecture drafts.
+
+---
+
+## Deferred surfaces and development commands
+
+Still deferred nearby the implemented foundation:
+
+- staged semantic reduction;
+- repository structural scanning;
+- agent transport and consented provider handoff;
+- HLD/LLD generation; and
+- behavioral validation of the product itself.
+
+Development commands for the current repository foundation:
+
+```text
+npm run typecheck
+npm run build
+npm test
+npm run test:golden
+npm run test:security
+python3 scripts/check_docs.py
+```
+
+The intended `skia review` and `skia repo review` transcripts above remain
+product examples, not current executable CLI behavior.
 
 ---
 
