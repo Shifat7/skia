@@ -173,6 +173,84 @@ Remaining concerns:
 
 - None for this fix round.
 
+## Final broad-review storage fix round 2
+
+Date: 2026-08-11
+
+Reviewer implementation commit hash: `pending final commit`
+
+Reviewer implementation commit message:
+`fix: finalize storage broad-review round 2`
+
+Fix-round changed files:
+
+- `.superpowers/sdd/plan/task-3-report.md`
+- `src/limits.ts`
+- `src/storage.ts`
+- `tests/storage-lifecycle.test.ts`
+
+Findings addressed:
+
+1. `writeStagedReceipt()` no longer relies on a check-then-create uniqueness
+   probe. Repository runs and staged receipts now claim one shared exact
+   `run_id` namespace through an atomic create-new marker beneath
+   `.skia/run-ids/`, so an interleaved second writer fails before it can leave
+   multiple valid receipts for one `run_id`.
+2. `allocateRepositoryRun()` now uses the same shared `run_id` claim space.
+   Existing receipts occupy the unsuffixed ID and deterministically force the
+   next legal OD-10 suffix, while staged receipts reject a `run_id` that is
+   already reserved by a repository run or another receipt.
+3. `inspectRun()` and `deleteRun()` now fail closed when older storage already
+   contains both a repository bundle and a staged receipt for the same exact
+   `run_id`. They no longer prefer `.skia/dist/` and silently leave a receipt
+   behind in that ambiguous legacy state.
+4. Storage lifecycle regressions now cover both broad-review findings: an
+   injected interleaving hook proves receipt uniqueness stays atomic under
+   re-entrant writers, and cross-mode collisions are rejected under the shared
+   namespace while legacy repo+receipt collisions remain exact-ID ambiguous and
+   therefore fail closed.
+
+Fix-round verification:
+
+Frozen toolchain used:
+
+- Node: `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`
+- npm CLI: `/private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js`
+
+1. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --test dist/tests/storage-lifecycle.test.js`
+
+   Summary:
+
+   - exit 0
+   - 14 storage lifecycle tests passed, 0 failed
+   - includes the new interleaved staged-receipt claim regression and the
+     shared-namespace legacy-collision regression coverage
+
+2. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js run typecheck`
+
+   Summary:
+
+   - exit 0
+   - `tsc --noEmit -p tsconfig.json` completed without diagnostics
+
+3. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js run build`
+
+   Summary:
+
+   - exit 0
+   - `tsc -p tsconfig.json` completed without diagnostics
+
+4. `git diff --check`
+
+   Summary:
+
+   - exit 0
+   - no whitespace or patch-format errors reported
+
+Remaining concerns:
+
+- None for this fix round.
+
 ## Fix round 3
 
 Date: 2026-08-11

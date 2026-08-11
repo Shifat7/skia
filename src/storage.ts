@@ -12,6 +12,7 @@ import {
   OWNER_FILE_MODE,
   OWNER_PERMISSION_CAVEAT,
   RECEIPTS_DIRECTORY_NAME,
+  RUN_ID_CLAIMS_DIRECTORY_NAME,
   RUN_METADATA_FILENAME,
   SKIA_DIRECTORY_NAME,
 } from "./limits.js";
@@ -104,6 +105,27 @@ export interface ArtifactWriteResult {
   readonly bytes: number;
   readonly sha256: Sha256Hex;
 }
+
+export interface StorageTestHooks {
+  readonly afterRunIdClaim?: (claim: {
+    readonly mode: RunMode;
+    readonly runId: RunId;
+  }) => void;
+}
+
+interface RunIdClaimRecord {
+  readonly schema_version: 1;
+  readonly run_id: RunId;
+  readonly mode: RunMode;
+  readonly storage_path: RunArtifactPath;
+}
+
+interface ExistingRunTargets {
+  readonly repositoryRunDirectoryPath: string | null;
+  readonly receiptName: string | null;
+}
+
+let storageTestHooks: StorageTestHooks | null = null;
 
 function createStorageError(message: string): Error {
   return new Error(message);
@@ -436,9 +458,9 @@ function deleteTree(
   };
 }
 
-function repositoryRunDirectoryPath(repositoryRoot: string, runId: RunId): string {
-  const skiaRootPath = path.join(path.resolve(repositoryRoot), SKIA_DIRECTORY_NAME);
-  return validateContainedPath(skiaRootPath, deriveRepositoryRunDirectory(runId));
+function runIdClaimFilePath(repositoryRoot: string, runId: RunId): string {
+  const { skiaRootPath } = ensureStorageRoots(repositoryRoot, RUN_ID_CLAIMS_DIRECTORY_NAME);
+  return validateContainedPath(skiaRootPath, `${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`);
 }
 
 function receiptFilePath(repositoryRoot: string, receipt: StagedReceipt): string {
@@ -475,6 +497,109 @@ function resolveSingleReceiptName(
   }
 
   return receiptName;
+}
+
+function releaseRunIdClaim(claimPath: string): void {
+  if (!fs.existsSync(claimPath)) {
+    return;
+  }
+
+  fs.unlinkSync(claimPath);
+}
+
+function removeRunIdClaim(
+  repositoryRoot: string,
+  runId: RunId,
+): DeleteRunResult {
+  const claimRoots = readStorageRoots(repositoryRoot, RUN_ID_CLAIMS_DIRECTORY_NAME);
+
+  if (claimRoots === null) {
+    return {
+      deleted: true,
+      remaining_paths: [],
+    };
+  }
+
+  const absoluteClaimPath = path.join(claimRoots.leafRootPath, `${runId}.json`);
+
+  if (!fs.existsSync(absoluteClaimPath)) {
+    return {
+      deleted: true,
+      remaining_paths: [],
+    };
+  }
+
+  try {
+    fs.unlinkSync(absoluteClaimPath);
+  } catch {
+    return {
+      deleted: false,
+      remaining_paths: collectRemainingPaths(claimRoots.skiaRootPath, absoluteClaimPath),
+    };
+  }
+
+  return {
+    deleted: true,
+    remaining_paths: [],
+  };
+}
+
+function claimStoragePathForMode(runId: RunId, mode: RunMode, sessionId?: string): RunArtifactPath {
+  if (mode === "repo_review") {
+    return validateRunArtifactPath(`dist/${runId}`);
+  }
+
+  if (sessionId === undefined) {
+    throw createStorageError("staged receipt claims require a session ID");
+  }
+
+  return deriveStagedReceiptPath(runId, sessionId as StagedReceipt["session_id"]);
+}
+
+function writeRunIdClaim(
+  repositoryRoot: string,
+  runId: RunId,
+  mode: RunMode,
+  sessionId?: string,
+): string {
+  const claimPath = runIdClaimFilePath(repositoryRoot, runId);
+  const claimRecord: RunIdClaimRecord = {
+    schema_version: 1,
+    run_id: runId,
+    mode,
+    storage_path: claimStoragePathForMode(runId, mode, sessionId),
+  };
+
+  writeNewFile(claimPath, `${JSON.stringify(claimRecord, null, 2)}\n`);
+  storageTestHooks?.afterRunIdClaim?.({ mode, runId });
+  return claimPath;
+}
+
+function existingRunTargets(repositoryRoot: string, runIdInput: string, runId: RunId): ExistingRunTargets {
+  const repositoryDistRoots = readStorageRoots(repositoryRoot, DIST_DIRECTORY_NAME);
+  const repositoryRunDirectoryPath = repositoryDistRoots !== null
+    && fs.existsSync(path.join(repositoryDistRoots.leafRootPath, runId))
+    ? path.join(repositoryDistRoots.leafRootPath, runId)
+    : null;
+  const receiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
+  const receiptName = receiptsRoots !== null
+    ? resolveSingleReceiptName(
+      runIdInput,
+      runId,
+      matchingReceiptNames(receiptsRoots.leafRootPath, runId),
+    )
+    : null;
+
+  if (repositoryRunDirectoryPath !== null && receiptName !== null) {
+    throw createStorageError(
+      `run ${runIdInput} matches both a repository run and staged receipt beneath .skia`,
+    );
+  }
+
+  return {
+    repositoryRunDirectoryPath,
+    receiptName,
+  };
 }
 
 function validateCoverageArtifact(runDirectoryPath: string, artifactPath: RunArtifactPath): void {
@@ -553,9 +678,10 @@ export function allocateRepositoryRun(
   for (let suffix = 0; suffix <= MAX_RUN_ID_COLLISION_SUFFIX; suffix += 1) {
     const runId = suffix === 0 ? baseRunId : formatRunIdAtUtc(createdAt, suffix);
     const runDirectoryPath = path.join(leafRootPath, runId);
+    let claimPath: string;
 
     try {
-      fs.mkdirSync(runDirectoryPath, { mode: OWNER_DIRECTORY_MODE });
+      claimPath = writeRunIdClaim(repositoryRoot, runId, "repo_review");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
@@ -566,16 +692,49 @@ export function allocateRepositoryRun(
       throw error;
     }
 
-    const metadataPath = path.join(runDirectoryPath, RUN_METADATA_FILENAME);
-    const metadata = createIncompleteMetadata(runId, createdAtIso, snapshot);
-    writeNewFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
+    const existingReceiptRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
+    if (
+      existingReceiptRoots !== null &&
+      matchingReceiptNames(existingReceiptRoots.leafRootPath, runId).length > 0
+    ) {
+      releaseRunIdClaim(claimPath);
+      continue;
+    }
 
-    return {
-      runId,
-      runDirectoryPath,
-      metadataPath,
-      manifestPath: path.join(runDirectoryPath, deriveRepositoryManifestPath(runId)),
-    };
+    try {
+      fs.mkdirSync(runDirectoryPath, { mode: OWNER_DIRECTORY_MODE });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (/exist/i.test(message)) {
+        releaseRunIdClaim(claimPath);
+        continue;
+      }
+
+      releaseRunIdClaim(claimPath);
+      throw error;
+    }
+
+    try {
+      const metadataPath = path.join(runDirectoryPath, RUN_METADATA_FILENAME);
+      const metadata = createIncompleteMetadata(runId, createdAtIso, snapshot);
+      writeNewFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
+
+      return {
+        runId,
+        runDirectoryPath,
+        metadataPath,
+        manifestPath: path.join(runDirectoryPath, deriveRepositoryManifestPath(runId)),
+      };
+    } catch (error) {
+      try {
+        fs.rmdirSync(runDirectoryPath);
+      } catch {
+        // Keep the failed partial allocation visible if cleanup cannot be completed.
+      }
+      releaseRunIdClaim(claimPath);
+      throw error;
+    }
   }
 
   throw createStorageError("run_id_exhausted");
@@ -662,28 +821,57 @@ export function writeStagedReceipt(
     );
   }
 
-  const existingReceiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
-  if (existingReceiptsRoots !== null) {
-    const duplicateReceiptNames = matchingReceiptNames(
-      existingReceiptsRoots.leafRootPath,
+  let claimPath: string;
+  try {
+    claimPath = writeRunIdClaim(
+      repositoryRoot,
+      validation.value.run_id,
+      "review",
+      validation.value.session_id,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (/exist/i.test(message)) {
+      throw createStorageError(
+        `run ${validation.value.run_id} already reserves run_id space beneath .skia`,
+      );
+    }
+
+    throw error;
+  }
+
+  try {
+    const targets = existingRunTargets(
+      repositoryRoot,
+      validation.value.run_id,
       validation.value.run_id,
     );
 
-    if (duplicateReceiptNames.length > 0) {
+    if (targets.repositoryRunDirectoryPath !== null) {
+      throw createStorageError(
+        `run ${validation.value.run_id} already reserves run_id space beneath .skia`,
+      );
+    }
+
+    if (targets.receiptName !== null) {
       throw createStorageError(
         `run ${validation.value.run_id} already has a staged receipt beneath .skia`,
       );
     }
+
+    const absolutePath = receiptFilePath(repositoryRoot, validation.value);
+    const serializedReceipt = `${JSON.stringify(validation.value, null, 2)}\n`;
+    writeNewFile(absolutePath, serializedReceipt);
+
+    return {
+      path: absolutePath,
+      bytes: asBytes(serializedReceipt).byteLength,
+    };
+  } catch (error) {
+    releaseRunIdClaim(claimPath);
+    throw error;
   }
-
-  const absolutePath = receiptFilePath(repositoryRoot, validation.value);
-  const serializedReceipt = `${JSON.stringify(validation.value, null, 2)}\n`;
-  writeNewFile(absolutePath, serializedReceipt);
-
-  return {
-    path: absolutePath,
-    bytes: asBytes(serializedReceipt).byteLength,
-  };
 }
 
 export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
@@ -755,44 +943,39 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
 
 export function inspectRun(repositoryRoot: string, runIdInput: string): InspectedRun {
   const runId = validateRunId(runIdInput);
-  const repositoryDistRoots = readStorageRoots(repositoryRoot, DIST_DIRECTORY_NAME);
+  const targets = existingRunTargets(repositoryRoot, runIdInput, runId);
 
-  if (repositoryDistRoots !== null) {
-    const runDirectoryPath = path.join(repositoryDistRoots.leafRootPath, runId);
-
-    if (fs.existsSync(runDirectoryPath)) {
-      const metadata = parseRepositoryMetadataOrNull(runDirectoryPath);
-      const manifestPath = path.join(runDirectoryPath, deriveRepositoryManifestPath(runId));
-
-      return {
-        kind: "repo_review",
-        run_id: runId,
-        metadata,
-        manifest_path: deriveRepositoryManifestPath(runId),
-        manifest: fs.existsSync(manifestPath) ? validateRepositoryManifestFile(manifestPath) : null,
-      };
-    }
-  }
-
-  const receiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
-
-  if (receiptsRoots !== null) {
-    const receiptName = resolveSingleReceiptName(
-      runIdInput,
-      runId,
-      matchingReceiptNames(receiptsRoots.leafRootPath, runId),
+  if (targets.repositoryRunDirectoryPath !== null) {
+    const metadata = parseRepositoryMetadataOrNull(targets.repositoryRunDirectoryPath);
+    const manifestPath = path.join(
+      targets.repositoryRunDirectoryPath,
+      deriveRepositoryManifestPath(runId),
     );
 
-    if (receiptName !== null) {
-      const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, receiptName);
+    return {
+      kind: "repo_review",
+      run_id: runId,
+      metadata,
+      manifest_path: deriveRepositoryManifestPath(runId),
+      manifest: fs.existsSync(manifestPath) ? validateRepositoryManifestFile(manifestPath) : null,
+    };
+  }
 
-      return {
-        kind: "review",
-        run_id: runId,
-        receipt_path: validateRunArtifactPath(`receipts/${receiptName}`),
-        receipt: validateStagedReceiptFile(absoluteReceiptPath),
-      };
+  if (targets.receiptName !== null) {
+    const receiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
+
+    if (receiptsRoots === null) {
+      throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
     }
+
+    const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, targets.receiptName);
+
+    return {
+      kind: "review",
+      run_id: runId,
+      receipt_path: validateRunArtifactPath(`receipts/${targets.receiptName}`),
+      receipt: validateStagedReceiptFile(absoluteReceiptPath),
+    };
   }
 
   throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
@@ -800,42 +983,51 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
 
 export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRunResult {
   const runId = validateRunId(runIdInput);
-  const repositoryDistRoots = readStorageRoots(repositoryRoot, DIST_DIRECTORY_NAME);
-  const receiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
+  const targets = existingRunTargets(repositoryRoot, runIdInput, runId);
 
-  if (repositoryDistRoots !== null) {
-    const runDirectoryPath = path.join(repositoryDistRoots.leafRootPath, runId);
+  if (targets.repositoryRunDirectoryPath !== null) {
+    const repositoryDistRoots = readStorageRoots(repositoryRoot, DIST_DIRECTORY_NAME);
 
-    if (fs.existsSync(runDirectoryPath)) {
-      return deleteTree(repositoryDistRoots.skiaRootPath, runDirectoryPath);
+    if (repositoryDistRoots === null) {
+      throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
     }
-  }
 
-  if (receiptsRoots !== null) {
-    const receiptName = resolveSingleReceiptName(
-      runIdInput,
-      runId,
-      matchingReceiptNames(receiptsRoots.leafRootPath, runId),
+    const deleteResult = deleteTree(
+      repositoryDistRoots.skiaRootPath,
+      targets.repositoryRunDirectoryPath,
     );
 
-    if (receiptName !== null) {
-      const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, receiptName);
+    if (!deleteResult.deleted) {
+      return deleteResult;
+    }
 
-      try {
-        fs.unlinkSync(absoluteReceiptPath);
-      } catch {
-        return {
-          deleted: false,
-          remaining_paths: collectRemainingPaths(receiptsRoots.skiaRootPath, absoluteReceiptPath),
-        };
-      }
+    return removeRunIdClaim(repositoryRoot, runId);
+  }
 
+  if (targets.receiptName !== null) {
+    const receiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
+
+    if (receiptsRoots === null) {
+      throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
+    }
+
+    const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, targets.receiptName);
+
+    try {
+      fs.unlinkSync(absoluteReceiptPath);
+    } catch {
       return {
-        deleted: true,
-        remaining_paths: [],
+        deleted: false,
+        remaining_paths: collectRemainingPaths(receiptsRoots.skiaRootPath, absoluteReceiptPath),
       };
     }
+
+    return removeRunIdClaim(repositoryRoot, runId);
   }
 
   throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
+}
+
+export function setStorageTestHooks(hooks: StorageTestHooks | null): void {
+  storageTestHooks = hooks;
 }

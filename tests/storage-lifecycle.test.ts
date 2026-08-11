@@ -17,6 +17,7 @@ import type {
 } from "../src/types.js";
 import {
   RUN_METADATA_FILENAME,
+  setStorageTestHooks,
   allocateRepositoryRun,
   completeRepositoryRun,
   deleteRun,
@@ -506,6 +507,51 @@ test("repository completion writes a manifest only after validated artifacts, an
   assert.strictEqual(inspectedReceiptRun.receipt.run_id, "20260810T020304Z");
 });
 
+test("staged receipt run-id claims stay unique under interleaved writers", () => {
+  const repositoryRoot = createTempRepository();
+  const runId = brand<RunId>("20260810T020304Z");
+  let nestedWriteError: unknown = null;
+  let nestedWriteTriggered = false;
+
+  setStorageTestHooks({
+    afterRunIdClaim: ({ mode, runId: claimedRunId }) => {
+      if (mode !== "review" || claimedRunId !== runId || nestedWriteTriggered) {
+        return;
+      }
+
+      nestedWriteTriggered = true;
+
+      try {
+        writeStagedReceipt(repositoryRoot, createStagedReceipt(runId, "9f6e2b3d"));
+      } catch (error) {
+        nestedWriteError = error as Error;
+      }
+    },
+  });
+
+  try {
+    writeStagedReceipt(repositoryRoot, createStagedReceipt(runId, "8f5d1a2c"));
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  assert.ok(nestedWriteError instanceof Error);
+  if (!(nestedWriteError instanceof Error)) {
+    throw new Error("expected the nested staged receipt write to fail");
+  }
+  assert.match(nestedWriteError.message, /already reserves run_id|already has a staged receipt/i);
+  assert.deepStrictEqual(
+    [...fs.readdirSync(absoluteSkiaPath(repositoryRoot, "receipts"))].sort(),
+    ["20260810T020304Z-8f5d1a2c-session.json"],
+  );
+
+  const inspectedReceiptRun = inspectRun(repositoryRoot, runId);
+  if (inspectedReceiptRun.kind !== "review") {
+    throw new Error("expected staged receipt inspection");
+  }
+  assert.strictEqual(inspectedReceiptRun.receipt.session_id, "8f5d1a2c");
+});
+
 test("staged receipts reject a duplicate run ID before the run becomes ambiguous to inspect or delete", () => {
   const repositoryRoot = createTempRepository();
   const runId = brand<RunId>("20260810T020304Z");
@@ -514,7 +560,7 @@ test("staged receipts reject a duplicate run ID before the run becomes ambiguous
 
   assert.throws(
     () => writeStagedReceipt(repositoryRoot, createStagedReceipt(runId, "9f6e2b3d")),
-    /run .* already has a staged receipt/i,
+    /already reserves run_id|already has a staged receipt/i,
   );
   assert.deepStrictEqual(
     [...fs.readdirSync(absoluteSkiaPath(repositoryRoot, "receipts"))].sort(),
@@ -530,6 +576,63 @@ test("staged receipts reject a duplicate run ID before the run becomes ambiguous
     deleted: true,
     remaining_paths: [],
   });
+});
+
+test("repository runs and staged receipts share one exact run-id namespace and legacy cross-mode collisions fail closed", () => {
+  const receiptFirstRepositoryRoot = createTempRepository();
+  const sharedRunId = brand<RunId>("20260810T020304Z");
+
+  writeStagedReceipt(
+    receiptFirstRepositoryRoot,
+    createStagedReceipt(sharedRunId, "8f5d1a2c"),
+  );
+
+  const suffixedRepositoryRun = allocateRepositoryRun(
+    receiptFirstRepositoryRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T02:03:04Z"),
+  );
+  assert.strictEqual(suffixedRepositoryRun.runId, "20260810T020304Z-01");
+
+  const repositoryFirstRoot = createTempRepository();
+  const repositoryRun = allocateRepositoryRun(
+    repositoryFirstRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T02:03:04Z"),
+  );
+
+  assert.throws(
+    () => writeStagedReceipt(repositoryFirstRoot, createStagedReceipt(repositoryRun.runId)),
+    /already reserves run_id|already has a staged receipt/i,
+  );
+
+  const legacyCollisionRepositoryRoot = createTempRepository();
+  const legacyRun = allocateRepositoryRun(
+    legacyCollisionRepositoryRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T02:03:04Z"),
+  );
+  const legacyReceiptPath = absoluteSkiaPath(
+    legacyCollisionRepositoryRoot,
+    "receipts/20260810T020304Z-8f5d1a2c-session.json",
+  );
+  fs.mkdirSync(path.dirname(legacyReceiptPath), { recursive: true });
+  fs.writeFileSync(
+    legacyReceiptPath,
+    `${JSON.stringify(createStagedReceipt(legacyRun.runId), null, 2)}\n`,
+    "utf8",
+  );
+
+  assert.throws(
+    () => inspectRun(legacyCollisionRepositoryRoot, legacyRun.runId),
+    /matches both a repository run and staged receipt/i,
+  );
+  assert.throws(
+    () => deleteRun(legacyCollisionRepositoryRoot, legacyRun.runId),
+    /matches both a repository run and staged receipt/i,
+  );
+  assert.strictEqual(fs.existsSync(legacyRun.runDirectoryPath), true);
+  assert.strictEqual(fs.existsSync(legacyReceiptPath), true);
 });
 
 test("run deletion removes exactly one run and reports partial deletion failures beneath .skia", () => {
@@ -649,12 +752,22 @@ test("storage roots, run directories, metadata, and artifacts request owner-only
     permissionsMask(fs.statSync(absoluteSkiaPath(repositoryRoot, "receipts")).mode),
     0o700,
   );
+  assert.strictEqual(
+    permissionsMask(fs.statSync(absoluteSkiaPath(repositoryRoot, "run-ids")).mode),
+    0o700,
+  );
   assert.strictEqual(permissionsMask(fs.statSync(run.runDirectoryPath).mode), 0o700);
   assert.strictEqual(permissionsMask(fs.statSync(run.metadataPath).mode), 0o600);
   assert.strictEqual(
     permissionsMask(
-      fs.statSync(path.join(run.runDirectoryPath, coveragePath)).mode,
+      fs.statSync(absoluteSkiaPath(repositoryRoot, "run-ids/20260810T010203Z.json")).mode,
     ),
+    0o600,
+  );
+  assert.strictEqual(
+    permissionsMask(
+      fs.statSync(path.join(run.runDirectoryPath, coveragePath)).mode,
+      ),
     0o600,
   );
   assert.strictEqual(

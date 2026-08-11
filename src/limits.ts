@@ -1,6 +1,7 @@
 export const SKIA_DIRECTORY_NAME = ".skia";
 export const DIST_DIRECTORY_NAME = "dist";
 export const RECEIPTS_DIRECTORY_NAME = "receipts";
+export const RUN_ID_CLAIMS_DIRECTORY_NAME = "run-ids";
 export const TMP_DIRECTORY_NAME = "tmp";
 export const RUN_METADATA_FILENAME = "run-metadata.json";
 
