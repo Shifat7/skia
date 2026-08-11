@@ -173,72 +173,51 @@ Remaining concerns:
 
 - None for this fix round.
 
-## Final broad-review storage fix round 2
+## Fix round 2
 
-Date: 2026-08-11
+Date: 2026-08-10
 
-Reviewer implementation commit hash: `pending final commit`
+Reviewer implementation commit hash: `f5d1083`
 
 Reviewer implementation commit message:
-`fix: finalize storage broad-review round 2`
+`fix: reject symlinked .skia roots in inspectRun`
 
 Fix-round changed files:
 
-- `.superpowers/sdd/plan/task-3-report.md`
-- `src/limits.ts`
 - `src/storage.ts`
 - `tests/storage-lifecycle.test.ts`
 
-Findings addressed:
+Finding addressed:
 
-1. `writeStagedReceipt()` no longer relies on a check-then-create uniqueness
-   probe. Repository runs and staged receipts now claim one shared exact
-   `run_id` namespace through an atomic create-new marker beneath
-   `.skia/run-ids/`, so an interleaved second writer fails before it can leave
-   multiple valid receipts for one `run_id`.
-2. `allocateRepositoryRun()` now uses the same shared `run_id` claim space.
-   Existing receipts occupy the unsuffixed ID and deterministically force the
-   next legal OD-10 suffix, while staged receipts reject a `run_id` that is
-   already reserved by a repository run or another receipt.
-3. `inspectRun()` and `deleteRun()` now fail closed when older storage already
-   contains both a repository bundle and a staged receipt for the same exact
-   `run_id`. They no longer prefer `.skia/dist/` and silently leave a receipt
-   behind in that ambiguous legacy state.
-4. Storage lifecycle regressions now cover both broad-review findings: an
-   injected interleaving hook proves receipt uniqueness stays atomic under
-   re-entrant writers, and cross-mode collisions are rejected under the shared
-   namespace while legacy repo+receipt collisions remain exact-ID ambiguous and
-   therefore fail closed.
+1. `inspectRun()` no longer bypasses `.skia` root validation for explicit
+   repository-run lookups. Repository-run inspection now discovers an existing
+   validated `.skia/dist` root via the same non-creating read path used by
+   `listRuns()`, so a symlinked `.skia` root is rejected before any external
+   run metadata or manifest content can be read.
 
 Fix-round verification:
 
-Frozen toolchain used:
-
-- Node: `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`
-- npm CLI: `/private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js`
-
-1. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --test dist/tests/storage-lifecycle.test.js`
-
-   Summary:
-
-   - exit 0
-   - 14 storage lifecycle tests passed, 0 failed
-   - includes the new interleaved staged-receipt claim regression and the
-     shared-namespace legacy-collision regression coverage
-
-2. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js run typecheck`
-
-   Summary:
-
-   - exit 0
-   - `tsc --noEmit -p tsconfig.json` completed without diagnostics
-
-3. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js run build`
+1. `npm run build`
 
    Summary:
 
    - exit 0
    - `tsc -p tsconfig.json` completed without diagnostics
+
+2. `node --test dist/tests/path-safety.test.js dist/tests/storage-lifecycle.test.js`
+
+   Summary:
+
+   - exit 0
+   - 13 focused path/storage tests passed, 0 failed
+   - includes the new symlinked `.skia` root regression case for `inspectRun()`
+
+3. `npm run typecheck`
+
+   Summary:
+
+   - exit 0
+   - `tsc --noEmit -p tsconfig.json` completed without diagnostics
 
 4. `git diff --check`
 
@@ -329,46 +308,138 @@ Remaining concerns:
 
 - None for this fix round.
 
-## Fix round 2
+## Final broad-review storage fix round 2
 
-Date: 2026-08-10
+Date: 2026-08-11
 
-Reviewer implementation commit hash: `f5d1083`
+Reviewer implementation commit hash: `e4c5cdd`
 
 Reviewer implementation commit message:
-`fix: reject symlinked .skia roots in inspectRun`
+`fix: finalize storage broad-review round 2`
 
 Fix-round changed files:
 
+- `.superpowers/sdd/plan/task-3-report.md`
+- `src/limits.ts`
 - `src/storage.ts`
 - `tests/storage-lifecycle.test.ts`
 
-Finding addressed:
+Findings addressed:
 
-1. `inspectRun()` no longer bypasses `.skia` root validation for explicit
-   repository-run lookups. Repository-run inspection now discovers an existing
-   validated `.skia/dist` root via the same non-creating read path used by
-   `listRuns()`, so a symlinked `.skia` root is rejected before any external
-   run metadata or manifest content can be read.
+1. `writeStagedReceipt()` no longer relies on a check-then-create uniqueness
+   probe. Repository runs and staged receipts now claim one shared exact
+   `run_id` namespace through an atomic create-new marker beneath
+   `.skia/run-ids/`, so an interleaved second writer fails before it can leave
+   multiple valid receipts for one `run_id`.
+2. `allocateRepositoryRun()` now uses the same shared `run_id` claim space.
+   Existing receipts occupy the unsuffixed ID and deterministically force the
+   next legal OD-10 suffix, while staged receipts reject a `run_id` that is
+   already reserved by a repository run or another receipt.
+3. `inspectRun()` and `deleteRun()` now fail closed when older storage already
+   contains both a repository bundle and a staged receipt for the same exact
+   `run_id`. They no longer prefer `.skia/dist/` and silently leave a receipt
+   behind in that ambiguous legacy state.
+4. Storage lifecycle regressions now cover both broad-review findings: an
+   injected interleaving hook proves receipt uniqueness stays atomic under
+   re-entrant writers, and cross-mode collisions are rejected under the shared
+   namespace while legacy repo+receipt collisions remain exact-ID ambiguous and
+   therefore fail closed.
 
 Fix-round verification:
 
-1. `npm run build`
+Frozen toolchain used:
+
+- Node: `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`
+- npm CLI: `/private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js`
+
+1. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --test dist/tests/storage-lifecycle.test.js`
+
+   Summary:
+
+   - exit 0
+   - 14 storage lifecycle tests passed, 0 failed
+   - includes the new interleaved staged-receipt claim regression and the
+     shared-namespace legacy-collision regression coverage
+
+2. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js run typecheck`
+
+   Summary:
+
+   - exit 0
+   - `tsc --noEmit -p tsconfig.json` completed without diagnostics
+
+3. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js run build`
 
    Summary:
 
    - exit 0
    - `tsc -p tsconfig.json` completed without diagnostics
 
-2. `node --test dist/tests/path-safety.test.js dist/tests/storage-lifecycle.test.js`
+4. `git diff --check`
 
    Summary:
 
    - exit 0
-   - 13 focused path/storage tests passed, 0 failed
-   - includes the new symlinked `.skia` root regression case for `inspectRun()`
+   - no whitespace or patch-format errors reported
 
-3. `npm run typecheck`
+Remaining concerns:
+
+- None for this fix round.
+
+## Final storage fix round 3
+
+Date: 2026-08-11
+
+Reviewer implementation commit hash: `4322488`
+
+Reviewer implementation commit message:
+`fix: retry exact-id deletion after claim cleanup`
+
+Fix-round changed files:
+
+- `src/storage.ts`
+- `tests/storage-lifecycle.test.ts`
+
+Findings addressed:
+
+1. Exact-ID target discovery for `deleteRun()` now includes the matching
+   `.skia/run-ids/<run-id>.json` claim marker read-only. When a prior delete
+   already removed the repository bundle or staged receipt but could not unlink
+   the claim file, the same exact `run_id` remains discoverable for retry.
+2. `deleteRun()` now treats a surviving claim file as an exact cleanup target
+   instead of reporting the run as missing. This preserves OD-11's exact-ID
+   deletion contract without broadening deletion scope, traversing directories,
+   or following symlinks.
+3. Storage lifecycle regression coverage now injects a real claim-removal
+   failure by making `.skia/run-ids/` temporarily non-writable, asserts the
+   reported remaining path is exactly `run-ids/<run-id>.json`, restores
+   permissions, and proves that retrying `deleteRun(runId)` succeeds against
+   that exact leftover target.
+
+Fix-round verification:
+
+Frozen toolchain used:
+
+- Node: `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`
+- npm CLI: `/private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js`
+
+1. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js run build`
+
+   Summary:
+
+   - exit 0
+   - `tsc -p tsconfig.json` completed without diagnostics
+
+2. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --test dist/tests/storage-lifecycle.test.js`
+
+   Summary:
+
+   - exit 0
+   - 15 storage lifecycle tests passed, 0 failed
+   - includes the new claim-file partial-delete retry regression alongside the
+     prior namespace, read-only, and partial-failure coverage
+
+3. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js run typecheck`
 
    Summary:
 
