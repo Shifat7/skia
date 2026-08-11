@@ -89,3 +89,73 @@ Implemented the Task 5 TypeScript/TSX/Python language registry and parser-covera
 ## Commit hashes
 
 - Implementation commit: `64d1acf5c0e79a4a1c247606741482cbdcfaa9aa` (`feat: add language registry parser foundation`)
+
+## Fix round 1: multibyte UTF-8 parser offset mapping
+
+### Issue addressed
+
+- Corrected the important multibyte mapping bug in `src/languages/registry.ts`.
+- Tree-sitter JS `startIndex`/`endIndex` values are UTF-16 code-unit offsets in this binding, not UTF-8 byte offsets.
+- The previous implementation wrote those parser indices directly into exported `*_byte` fields and then derived line/column data from them, which undercounted valid multibyte UTF-8 input.
+
+### Fix summary
+
+- Added an explicit code-unit-boundary → UTF-8-byte-offset map for decoded source text.
+- Converted parser node indices and syntax-error ranges through that map before populating exported byte fields.
+- Kept line/column derivation deterministic by continuing to compute it from the mapped UTF-8 byte offsets.
+- Added multibyte regression fixtures and tests covering:
+  - valid non-ASCII UTF-8 root byte/column mapping; and
+  - syntax-error byte-exact range mapping after multibyte text.
+
+### Fix-round changed files
+
+- `fixtures/languages/multibyte.ts`
+- `fixtures/languages/multibyte-syntax-error.ts`
+- `src/languages/registry.ts`
+- `tests/language-registry.test.ts`
+
+### Fix-round verification commands and exact summaries
+
+1. `which -a node node24 || true`
+   - Exit: `0`
+   - Output summary:
+     - `/opt/homebrew/bin/node`
+   - Result: no separate local `node24` executable was available in this workspace.
+
+2. `node --test --test-name-pattern='multibyte' dist/tests/language-registry.test.js`
+   - Exit: `0`
+   - Output summary:
+     - `tests 2`
+     - `pass 2`
+     - `fail 0`
+
+3. `npm run typecheck`
+   - Exit: `0`
+   - Output summary:
+     - `> skia@0.0.0 typecheck`
+     - `> tsc --noEmit -p tsconfig.json`
+
+4. `npm run build`
+   - Exit: `0`
+   - Output summary:
+     - `> skia@0.0.0 build`
+     - `> tsc -p tsconfig.json`
+
+5. `npm test -- --test-name-pattern='language|parser|coverage'`
+   - Exit: `0`
+   - Output summary:
+     - `tests 57`
+     - `pass 57`
+     - `fail 0`
+
+6. `git diff --check`
+   - Exit: `0`
+   - Output summary: no output
+
+### Fix-round concern update
+
+- The frozen Node 24 / npm 11.18.0 toolchain could not be selected from a separate local binary in this workspace. Verification therefore ran under the currently available `node` executable, which remains outside the frozen contract.
+
+### Fix-round commit hash
+
+- Fix round 1 implementation commit: `8ea72ab1ac9883fcd3f697f36ecef28c8d9edcbc` (`fix: map parser offsets to utf8 bytes`)
