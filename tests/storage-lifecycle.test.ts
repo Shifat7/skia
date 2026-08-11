@@ -674,6 +674,39 @@ test("run deletion removes exactly one run and reports partial deletion failures
   assert.match(blockedDelete.remaining_paths[0] ?? "", /dist\/20260810T010205Z/);
 });
 
+test("deleteRun can retry an exact run ID after claim-file cleanup was the only partial failure", () => {
+  const repositoryRoot = createTempRepository();
+  const run = allocateRepositoryRun(
+    repositoryRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T01:02:03Z"),
+  );
+  const runIdsRoot = absoluteSkiaPath(repositoryRoot, "run-ids");
+
+  fs.chmodSync(runIdsRoot, 0o500);
+  const partialDelete = deleteRun(repositoryRoot, run.runId);
+  fs.chmodSync(runIdsRoot, 0o700);
+
+  assert.deepStrictEqual(partialDelete, {
+    deleted: false,
+    remaining_paths: [`run-ids/${run.runId}.json`],
+  });
+  assert.strictEqual(fs.existsSync(run.runDirectoryPath), false);
+  assert.strictEqual(
+    fs.existsSync(absoluteSkiaPath(repositoryRoot, `run-ids/${run.runId}.json`)),
+    true,
+  );
+
+  assert.deepStrictEqual(deleteRun(repositoryRoot, run.runId), {
+    deleted: true,
+    remaining_paths: [],
+  });
+  assert.strictEqual(
+    fs.existsSync(absoluteSkiaPath(repositoryRoot, `run-ids/${run.runId}.json`)),
+    false,
+  );
+});
+
 test("deleteRun stays read-only on fresh repositories and missing IDs", () => {
   const freshRepositoryRoot = createTempRepository();
   const freshBefore = snapshotRepositoryTree(freshRepositoryRoot);

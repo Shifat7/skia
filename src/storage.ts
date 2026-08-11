@@ -123,6 +123,7 @@ interface RunIdClaimRecord {
 interface ExistingRunTargets {
   readonly repositoryRunDirectoryPath: string | null;
   readonly receiptName: string | null;
+  readonly claimPath: string | null;
 }
 
 let storageTestHooks: StorageTestHooks | null = null;
@@ -589,6 +590,16 @@ function existingRunTargets(repositoryRoot: string, runIdInput: string, runId: R
       matchingReceiptNames(receiptsRoots.leafRootPath, runId),
     )
     : null;
+  const claimRoots = readStorageRoots(repositoryRoot, RUN_ID_CLAIMS_DIRECTORY_NAME);
+  const exactClaimPath = claimRoots === null
+    ? null
+    : validateContainedPath(
+      claimRoots.skiaRootPath,
+      `${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`,
+    );
+  const claimPath = exactClaimPath !== null && fs.existsSync(exactClaimPath)
+    ? exactClaimPath
+    : null;
 
   if (repositoryRunDirectoryPath !== null && receiptName !== null) {
     throw createStorageError(
@@ -599,6 +610,7 @@ function existingRunTargets(repositoryRoot: string, runIdInput: string, runId: R
   return {
     repositoryRunDirectoryPath,
     receiptName,
+    claimPath,
   };
 }
 
@@ -1022,6 +1034,10 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
       };
     }
 
+    return removeRunIdClaim(repositoryRoot, runId);
+  }
+
+  if (targets.claimPath !== null) {
     return removeRunIdClaim(repositoryRoot, runId);
   }
 
