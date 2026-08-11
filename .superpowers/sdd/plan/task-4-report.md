@@ -115,3 +115,70 @@ Concerns:
 - No blocking correctness concerns remain for Task 4. The new Git seam is not
   yet wired into the future CLI/storage flows, which remains expected scope
   for later tasks only.
+
+## Fix round 1
+
+Date: 2026-08-11
+
+Reviewer implementation commit hash: `18c558a`
+
+Reviewer implementation commit message:
+`fix: harden task 4 snapshot identity binding`
+
+Fix-round changed files:
+
+- `src/git.ts`
+- `tests/git-snapshot.test.ts`
+
+Findings addressed:
+
+1. Repository snapshots now bind all committed-tree reads to the captured
+   commit OID. `captureRepositorySnapshot()` resolves `HEAD` once, then uses
+   that immutable OID for `ls-tree` and subsequent blob capture, so a moved ref
+   cannot mix `identity.commit_oid` from commit 1 with entries from commit 2.
+2. Staged snapshots now bind base-side comparisons to the captured base OID.
+   When a staged base is present, the copied-index `diff-index` and patch reads
+   use the resolved base commit directly instead of symbolic `HEAD`, closing
+   the ref-move race between base capture and staged discovery.
+3. Unsupported gitlinks no longer cause fatal blob reads. The staged seam still
+   captures the full status/raw discovery set, but blob capture is now limited
+   to supported regular-file staged records only. Unsupported mode `160000`
+   remains visible in the raw/status records, while malformed supported blob
+   identities still fail explicitly instead of being downgraded to unsupported.
+
+Fix-round verification:
+
+1. `npm test -- --test-name-pattern='git|snapshot|egress'`
+
+   Summary:
+
+   - exit 0
+   - 44 built tests passed, 0 failed
+   - includes the three new regression cases for repository/staged base
+     immutability and unsupported gitlink handling
+
+2. `npm run typecheck`
+
+   Summary:
+
+   - exit 0
+   - `tsc --noEmit -p tsconfig.json` completed without diagnostics
+
+3. `npm run build`
+
+   Summary:
+
+   - exit 0
+   - `tsc -p tsconfig.json` completed without diagnostics
+
+4. `git diff --check`
+
+   Summary:
+
+   - exit 0
+   - no whitespace or patch-format errors reported
+
+Remaining concerns:
+
+- None for this fix round. The three Important findings now have deterministic
+  regression coverage in temporary repositories and wrappers.
