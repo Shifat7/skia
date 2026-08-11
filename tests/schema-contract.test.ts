@@ -69,6 +69,41 @@ test("schema coverage rejects mismatched summary arithmetic", () => {
   expectInvalid(validation, "summary");
 });
 
+test("schema coverage fixtures keep partial, unsupported, failed, and unchecked inputs visible", () => {
+  const fixture = readFixture<{
+    readonly summary: {
+      readonly total_units: number;
+      readonly supported_units: number;
+      readonly partial_units: number;
+      readonly unmapped_units: number;
+      readonly unsupported_units: number;
+      readonly excluded_units: number;
+      readonly failed_units: number;
+      readonly unchecked_units: number;
+    };
+    readonly events: readonly {
+      readonly coverage: string;
+    }[];
+  }>("valid-coverage-visibility.json");
+  const validation = validateCoverageEnvelope(fixture);
+
+  assert.strictEqual(validation.valid, true);
+  assert.deepStrictEqual(
+    fixture.events.map((event) => event.coverage),
+    ["partial", "unsupported", "failed", "unchecked", "unchecked"],
+  );
+  assert.deepStrictEqual(fixture.summary, {
+    total_units: 5,
+    supported_units: 0,
+    partial_units: 1,
+    unmapped_units: 0,
+    unsupported_units: 1,
+    excluded_units: 0,
+    failed_units: 1,
+    unchecked_units: 2,
+  });
+});
+
 test("schema staged receipt accepts the valid fixture envelope", () => {
   const fixture = readFixture<unknown>("valid-staged-receipt.json");
   const validation = validateStagedReceipt(fixture);

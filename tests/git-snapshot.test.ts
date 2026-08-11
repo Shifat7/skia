@@ -16,13 +16,16 @@ import {
   createTempGitRepository,
   headCommit,
   readGitFixture,
+  removeLooseGitObject,
   removeRepoPath,
   renameRepoPath,
   resolveGitExecutable,
   runGit,
   setExecutableEnvironment,
+  stageRawIndexEntry,
   stageAll,
   stagePaths,
+  writeGitBlob,
   writeRepoBinaryFile,
   writeRepoTextFile,
 } from "./git-test-helpers.js";
@@ -145,6 +148,27 @@ test("git snapshot preserves control characters in raw path display without trea
 
   assert.strictEqual(snapshot.status_entries.length, 1);
   assert.strictEqual(snapshot.status_entries[0]?.path_display, "\"odd\\x0aname.ts\"");
+  assert.deepStrictEqual(snapshot.identity.entries, []);
+});
+
+test("git snapshot preserves raw non-UTF-8 path bytes in staged discovery without treating them as supported source paths", () => {
+  const repositoryRoot = createTempGitRepository();
+  const blobOid = writeGitBlob(repositoryRoot, readGitFixture("sample.ts"));
+  const rawPathBytes = Uint8Array.from([
+    ...Buffer.from("src/", "utf8"),
+    0xff,
+    0x01,
+    ...Buffer.from(".ts", "utf8"),
+  ]);
+
+  stageRawIndexEntry(repositoryRoot, blobOid, rawPathBytes);
+
+  const snapshot = captureStagedSnapshot(repositoryRoot);
+
+  assert.strictEqual(snapshot.status_entries.length, 1);
+  assert.deepStrictEqual(snapshot.status_entries[0]?.path_bytes, Buffer.from(rawPathBytes));
+  assert.match(snapshot.status_entries[0]?.path_display ?? "", /\\x01/);
+  assert.deepStrictEqual(snapshot.raw_records[0]?.path_bytes, Buffer.from(rawPathBytes));
   assert.deepStrictEqual(snapshot.identity.entries, []);
 });
 
@@ -271,6 +295,38 @@ test("repository snapshot rejects a repository with no HEAD using the stable sha
   }
 
   throw new Error("expected captureRepositorySnapshot to throw no_head_commit");
+});
+
+test("repository snapshot maps missing-object blob reads to the stable missing_local_object reason", () => {
+  const repositoryRoot = createTempGitRepository();
+  const realGit = resolveGitExecutable();
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  const wrapper = createWrapperScript(`#!/bin/sh
+if [ "$1" = "cat-file" ] && [ "$2" = "blob" ]; then
+  printf 'fatal: bad object %s\\n' "$3" >&2
+  exit 1
+fi
+exec "${realGit}" "$@"
+`);
+
+  try {
+    captureRepositorySnapshot(repositoryRoot, {
+      git_executable: wrapper,
+      process_env: setExecutableEnvironment({}),
+    });
+  } catch (error) {
+    if (error instanceof GitSnapshotError) {
+      assert.strictEqual(error.reason, "missing_local_object");
+      return;
+    }
+
+    throw error;
+  }
+
+  throw new Error("expected captureRepositorySnapshot to throw missing_local_object");
 });
 
 test("repository snapshot binds all committed-tree reads to the captured commit oid", () => {

@@ -106,6 +106,61 @@ export function headCommit(repositoryRoot: string): string {
   return runGit(repositoryRoot, ["rev-parse", "HEAD"]).stdout.trim();
 }
 
+export function writeGitBlob(
+  repositoryRoot: string,
+  content: string | Uint8Array,
+): string {
+  const result = spawnSync("git", ["hash-object", "-w", "--stdin"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    input: typeof content === "string" ? Buffer.from(content, "utf8") : Buffer.from(content),
+  });
+  const stdout = String(result.stdout);
+  const stderr = String(result.stderr);
+
+  if (result.status !== 0) {
+    throw new Error(
+      `git hash-object -w --stdin failed (${result.status ?? "signal"}): ${stderr}`,
+    );
+  }
+
+  return stdout.trim();
+}
+
+export function stageRawIndexEntry(
+  repositoryRoot: string,
+  blobOid: string,
+  pathBytes: Uint8Array,
+  mode = "100644",
+): void {
+  const result = spawnSync("git", ["update-index", "--add", "-z", "--index-info"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    input: Buffer.concat([
+      Buffer.from(`${mode} ${blobOid}\t`, "utf8"),
+      Buffer.from(pathBytes),
+      Buffer.from([0x00]),
+    ]),
+  });
+  const stderr = String(result.stderr);
+
+  if (result.status !== 0) {
+    throw new Error(
+      `git update-index --add -z --index-info failed (${result.status ?? "signal"}): ${stderr}`,
+    );
+  }
+}
+
+export function removeLooseGitObject(
+  repositoryRoot: string,
+  objectId: string,
+): void {
+  fs.rmSync(
+    path.join(repositoryRoot, ".git", "objects", objectId.slice(0, 2), objectId.slice(2)),
+    { force: true },
+  );
+}
+
 export function snapshotGitDirectory(
   repositoryRoot: string,
 ): readonly DirectoryFileRecord[] {

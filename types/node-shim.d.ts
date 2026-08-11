@@ -150,6 +150,7 @@ declare module "node:path" {
 declare module "node:buffer" {
   export class Buffer extends Uint8Array {
     static alloc(size: number): Buffer;
+    static concat(list: readonly Uint8Array[]): Buffer;
     static from(value: string, encoding?: "utf8"): Buffer;
     static from(value: readonly number[]): Buffer;
     static from(value: Uint8Array): Buffer;
@@ -182,6 +183,7 @@ declare module "node:child_process" {
     readonly cwd?: string;
     readonly encoding?: "utf8";
     readonly env?: Readonly<Record<string, string | undefined>>;
+    readonly input?: string | Uint8Array;
     readonly maxBuffer?: number;
     readonly shell?: boolean;
     readonly timeout?: number;

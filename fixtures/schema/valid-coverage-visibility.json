@@ -1,0 +1,59 @@
+{
+  "summary": {
+    "total_units": 5,
+    "supported_units": 0,
+    "partial_units": 1,
+    "unmapped_units": 0,
+    "unsupported_units": 1,
+    "excluded_units": 0,
+    "failed_units": 1,
+    "unchecked_units": 2
+  },
+  "events": [
+    {
+      "id": "coverage-partial",
+      "coverage": "partial",
+      "units": 1,
+      "reason": "syntax_error",
+      "path": "src/partial.tsx",
+      "language": "tsx",
+      "anchors": []
+    },
+    {
+      "id": "coverage-unsupported",
+      "coverage": "unsupported",
+      "units": 1,
+      "reason": "unsupported_language",
+      "path": "vendor/legacy.rb",
+      "language": null,
+      "anchors": []
+    },
+    {
+      "id": "coverage-failed",
+      "coverage": "failed",
+      "units": 1,
+      "reason": "invalid_source_encoding",
+      "path": "src/bad.ts",
+      "language": "typescript",
+      "anchors": []
+    },
+    {
+      "id": "coverage-unchecked-api",
+      "coverage": "unchecked",
+      "units": 1,
+      "reason": "unchecked_subsystem",
+      "path": "docs/subsystems/api.md",
+      "language": null,
+      "anchors": []
+    },
+    {
+      "id": "coverage-unchecked-notifications",
+      "coverage": "unchecked",
+      "units": 1,
+      "reason": "unchecked_subsystem",
+      "path": "docs/subsystems/notifications.md",
+      "language": null,
+      "anchors": []
+    }
+  ]
+}
