@@ -41,13 +41,14 @@
   - Commits: `64d1acf`, `f352412`, `8ea72ab`, `189f1ec`; task review: spec PASS
     after fix round, scoped re-review CLEAN.
 
-- [ ] Task 6: Run the full Phase 1 integration checkpoint.
+- [x] Task 6: Run the full Phase 1 integration checkpoint.
   - Depends on: Tasks 1–5.
   - Verify: typecheck, build, all tests, documentation checks, and diff check.
+  - Commits: `f1b6440`, `69146a8`; task review: spec PASS, scoped review CLEAN.
 
 ## Checkpoints
 
-- [ ] Checkpoint A: Contract and bootstrap verified.
-- [ ] Checkpoint B: Shared schema/path/storage/Git foundations verified.
-- [ ] Checkpoint C: TypeScript/TSX/Python parser foundation and Phase 1 exit
+- [x] Checkpoint A: Contract and bootstrap verified.
+- [x] Checkpoint B: Shared schema/path/storage/Git foundations verified.
+- [x] Checkpoint C: TypeScript/TSX/Python parser foundation and Phase 1 exit
       criteria verified.
