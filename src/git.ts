@@ -34,6 +34,7 @@ import type {
 } from "./types.js";
 
 const EMPTY_TREE_OID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" as GitObjectId;
+const GIT_OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const ZERO_OBJECT_ID = "0".repeat(40);
 
 export interface GitSnapshotTestHooks {
@@ -430,6 +431,20 @@ function maybeObjectId(value: string): GitObjectId | null {
   return value === ZERO_OBJECT_ID ? null : (value as GitObjectId);
 }
 
+function assertValidGitObjectId(
+  oid: GitObjectId | null,
+  context: string,
+): GitObjectId {
+  if (oid === null || !GIT_OBJECT_ID_PATTERN.test(oid)) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      `invalid git object id for ${context}`,
+    );
+  }
+
+  return oid;
+}
+
 function roundTripsUtf8(bytes: Uint8Array): boolean {
   const decoded = bytesToUtf8(bytes);
   const encoded = Buffer.from(decoded, "utf8");
@@ -499,6 +514,45 @@ function toSnapshotEntry(record: GitRawSnapshotRecord): SnapshotEntry {
     base_blob_oid: record.base_blob_oid,
     snapshot_blob_oid: record.staged_blob_oid,
   };
+}
+
+function supportedBlobOids(
+  records: readonly GitRawSnapshotRecord[],
+): readonly GitObjectId[] {
+  const orderedOids: GitObjectId[] = [];
+  const seen = new Set<string>();
+
+  for (const record of records) {
+    if (!isSupportedRecord(record)) {
+      continue;
+    }
+
+    const stagedBlobOid = assertValidGitObjectId(
+      record.staged_blob_oid,
+      `${record.path_display} staged blob`,
+    );
+
+    if (!seen.has(stagedBlobOid)) {
+      seen.add(stagedBlobOid);
+      orderedOids.push(stagedBlobOid);
+    }
+
+    if (record.status !== "M") {
+      continue;
+    }
+
+    const baseBlobOid = assertValidGitObjectId(
+      record.base_blob_oid,
+      `${record.path_display} base blob`,
+    );
+
+    if (!seen.has(baseBlobOid)) {
+      seen.add(baseBlobOid);
+      orderedOids.push(baseBlobOid);
+    }
+  }
+
+  return orderedOids;
 }
 
 function parseStatusEntries(bytes: Uint8Array): readonly GitStatusEntry[] {
@@ -670,7 +724,9 @@ function captureStagedAttempt(
   try {
     const headState = parseStagedHeadState(commandOptions);
     const comparisonBase =
-      headState.baseState === "present" ? "HEAD" : EMPTY_TREE_OID;
+      headState.baseState === "present"
+        ? assertValidGitObjectId(headState.baseCommit, "staged base commit")
+        : EMPTY_TREE_OID;
     const copiedIndexEnv = { GIT_INDEX_FILE: copiedIndexPath };
     const statusEntries = parseStatusEntries(
       runGit(
@@ -706,7 +762,7 @@ function captureStagedAttempt(
       .map((record) => toSnapshotEntry(record));
     const capturedBlobs = readCapturedBlobs(
       commandOptions,
-      uniqueBlobOids(rawRecords),
+      supportedBlobOids(rawRecords),
     );
 
     options?.test_hooks?.before_live_index_revalidation?.();
@@ -814,15 +870,19 @@ export function captureRepositorySnapshot(
 
   const headState = parseRepositoryHeadState(commandOptions);
   const lsTreeBytes = runGit(
-    ["ls-tree", "-r", "-z", "HEAD"],
+    ["ls-tree", "-r", "-z", headState.commitOid],
     commandOptions,
   ).stdout;
   const entries = parseRepositoryEntries(lsTreeBytes);
   const capturedBlobs = readCapturedBlobs(
     commandOptions,
     entries
-      .map((entry) => entry.snapshot_blob_oid)
-      .filter((oid): oid is GitObjectId => oid !== null),
+      .map((entry) =>
+        assertValidGitObjectId(
+          entry.snapshot_blob_oid,
+          `${entry.path} repository blob`,
+        ),
+      ),
   );
 
   const identity: RepositorySnapshotIdentity = {

@@ -12,12 +12,15 @@ import {
   checkoutDetachedHead,
   commitAll,
   createRepoSymlink,
+  createWrapperScript,
   createTempGitRepository,
   headCommit,
   readGitFixture,
   removeRepoPath,
   renameRepoPath,
+  resolveGitExecutable,
   runGit,
+  setExecutableEnvironment,
   stageAll,
   stagePaths,
   writeRepoBinaryFile,
@@ -268,4 +271,123 @@ test("repository snapshot rejects a repository with no HEAD using the stable sha
   }
 
   throw new Error("expected captureRepositorySnapshot to throw no_head_commit");
+});
+
+test("repository snapshot binds all committed-tree reads to the captured commit oid", () => {
+  const repositoryRoot = createTempGitRepository();
+  const realGit = resolveGitExecutable();
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const version = 1;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "commit-1");
+  const commitOne = headCommit(repositoryRoot);
+
+  runGit(repositoryRoot, ["checkout", "-q", "-b", "side"]);
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const version = 2;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "commit-2");
+  const commitTwo = headCommit(repositoryRoot);
+  runGit(repositoryRoot, ["checkout", "-q", "main"]);
+
+  const markerPath = `${repositoryRoot}/.git/ref-moved-once`;
+  const wrapper = createWrapperScript(`#!/bin/sh
+if [ "$1" = "ls-tree" ] && [ ! -f "${markerPath}" ]; then
+  "${realGit}" -C "${repositoryRoot}" update-ref refs/heads/main "${commitTwo}"
+  touch "${markerPath}"
+fi
+exec "${realGit}" "$@"
+`);
+
+  const snapshot = captureRepositorySnapshot(repositoryRoot, {
+    git_executable: wrapper,
+    process_env: setExecutableEnvironment({}),
+  });
+
+  assert.strictEqual(snapshot.identity.commit_oid, commitOne);
+  assert.deepStrictEqual(
+    snapshot.identity.entries.map((entry) => entry.snapshot_blob_oid),
+    [runGit(repositoryRoot, ["rev-parse", `${commitOne}:src/example.ts`]).stdout.trim()],
+  );
+  assert.notStrictEqual(snapshot.identity.commit_oid, commitTwo);
+  assert.deepStrictEqual(
+    snapshot.captured_blobs.map((blob) => Buffer.from(blob.bytes).toString("utf8")),
+    ["export const version = 1;\n"],
+  );
+});
+
+test("staged snapshot binds base-side comparisons to the captured base commit oid", () => {
+  const repositoryRoot = createTempGitRepository();
+  const realGit = resolveGitExecutable();
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const base = 1;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "commit-1");
+  const commitOne = headCommit(repositoryRoot);
+
+  runGit(repositoryRoot, ["checkout", "-q", "-b", "side"]);
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const base = 2;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "commit-2");
+  const commitTwo = headCommit(repositoryRoot);
+  runGit(repositoryRoot, ["checkout", "-q", "main"]);
+
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    "export const base = 1;\nexport const staged = true;\n",
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+
+  const markerPath = `${repositoryRoot}/.git/base-ref-moved-once`;
+  const wrapper = createWrapperScript(`#!/bin/sh
+if [ "$1" = "diff-index" ] && [ ! -f "${markerPath}" ]; then
+  "${realGit}" -C "${repositoryRoot}" update-ref refs/heads/main "${commitTwo}"
+  touch "${markerPath}"
+fi
+exec "${realGit}" "$@"
+`);
+
+  const snapshot = captureStagedSnapshot(repositoryRoot, {
+    git_executable: wrapper,
+    process_env: setExecutableEnvironment({}),
+  });
+  const patchText = Buffer.from(snapshot.patch_bytes).toString("utf8");
+
+  assert.strictEqual(snapshot.identity.base_commit, commitOne);
+  assert.strictEqual(snapshot.raw_records[0]?.base_blob_oid, runGit(
+    repositoryRoot,
+    ["rev-parse", `${commitOne}:src/example.ts`],
+  ).stdout.trim());
+  assert.match(patchText, /export const base = 1;/);
+  assert.strictEqual(/export const base = 2;/.test(patchText), false);
+});
+
+test("staged snapshot retains unsupported gitlinks in raw discovery but does not blob-read them", () => {
+  const repositoryRoot = createTempGitRepository();
+  const submoduleRoot = createTempGitRepository();
+
+  writeRepoTextFile(submoduleRoot, "lib.ts", "export const submodule = true;\n");
+  stageAll(submoduleRoot);
+  commitAll(submoduleRoot, "submodule-seed");
+  const submoduleCommit = headCommit(submoduleRoot);
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+
+  runGit(repositoryRoot, [
+    "update-index",
+    "--add",
+    "--cacheinfo",
+    `160000,${submoduleCommit},vendor/submodule`,
+  ]);
+
+  const snapshot = captureStagedSnapshot(repositoryRoot);
+  const statuses = snapshot.status_entries.map((entry) => `${entry.status}:${entry.path_display}`);
+
+  assert.deepStrictEqual(statuses, ["A:\"vendor/submodule\""]);
+  assert.strictEqual(snapshot.raw_records[0]?.mode, "160000");
+  assert.strictEqual(snapshot.raw_records[0]?.staged_blob_oid, submoduleCommit);
+  assert.deepStrictEqual(snapshot.identity.entries, []);
+  assert.deepStrictEqual(snapshot.captured_blobs, []);
 });
