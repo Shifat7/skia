@@ -33,8 +33,8 @@
   - Depends on: Tasks 2–3 and OD-4.
   - Verify: Git snapshot, race, no-write, and security tests.
   - Commits: `37554db`, `1bdd1e8`, `18c558a`, `13305a2`, `ff254ab`,
-    `6207067`, `221c0a2`; task review: spec PASS after fix rounds, final
-    scoped re-review CLEAN.
+    `6207067`, `221c0a2`, `1c14f78`, `16347ff`; task review: spec PASS after
+    fix rounds, final scoped re-review CLEAN.
 
 - [x] Task 5: Add the TypeScript/TSX/Python language registry and parser
       coverage foundation.
