@@ -26,13 +26,15 @@
   - Depends on: Tasks 1–2 and OD-10/OD-11.
   - Verify: path, storage, and lifecycle tests.
   - Commits: `61479a2`, `384fc45`, `d9ab1bc`, `a068da5`, `f5d1083`,
-    `e1089e0`; task review: spec PASS after fix rounds, scoped re-review CLEAN.
+    `e1089e0`, `ebe0e5b`, `cff20a6`, `e4c5cdd`, `4322488`, `4887b6d`;
+    task review: spec PASS after fix rounds, final scoped re-review CLEAN.
 
 - [x] Task 4: Implement the OD-4-selected hardened Git snapshot seam.
   - Depends on: Tasks 2–3 and OD-4.
   - Verify: Git snapshot, race, no-write, and security tests.
-  - Commits: `37554db`, `1bdd1e8`, `18c558a`, `13305a2`; task review: spec PASS
-    after fix round, scoped re-review CLEAN.
+  - Commits: `37554db`, `1bdd1e8`, `18c558a`, `13305a2`, `ff254ab`,
+    `6207067`, `221c0a2`; task review: spec PASS after fix rounds, final
+    scoped re-review CLEAN.
 
 - [x] Task 5: Add the TypeScript/TSX/Python language registry and parser
       coverage foundation.
