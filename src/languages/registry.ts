@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { createRequire } from "node:module";
 
 import { validateRelativePath } from "../paths.js";
@@ -106,6 +107,34 @@ function createLineStartBytes(bytes: Uint8Array): readonly number[] {
   return starts;
 }
 
+function createCodeUnitToByteOffsets(text: string): readonly number[] {
+  const offsets = [0];
+  let byteOffset = 0;
+
+  for (const character of text) {
+    byteOffset += Buffer.from(character, "utf8").byteLength;
+
+    for (let index = 0; index < character.length; index += 1) {
+      offsets.push(byteOffset);
+    }
+  }
+
+  return offsets;
+}
+
+function mapCodeUnitOffsetToByteOffset(
+  codeUnitToByteOffsets: readonly number[],
+  codeUnitOffset: number,
+): number {
+  const mapped = codeUnitToByteOffsets[codeUnitOffset];
+
+  if (mapped === undefined) {
+    throw new Error(`parser offset ${codeUnitOffset} is outside the decoded source`);
+  }
+
+  return mapped;
+}
+
 function locateLineAndColumn(
   lineStartBytes: readonly number[],
   byteIndex: number,
@@ -154,10 +183,19 @@ function toSyntaxRange(
 
 function summarizeNode(
   node: LanguageParserNode,
+  codeUnitToByteOffsets: readonly number[],
   lineStartBytes: readonly number[],
 ): SyntaxTreeNodeSummary {
-  const start = locateLineAndColumn(lineStartBytes, node.startIndex);
-  const end = locateLineAndColumn(lineStartBytes, node.endIndex);
+  const startByte = mapCodeUnitOffsetToByteOffset(
+    codeUnitToByteOffsets,
+    node.startIndex,
+  );
+  const endByte = mapCodeUnitOffsetToByteOffset(
+    codeUnitToByteOffsets,
+    node.endIndex,
+  );
+  const start = locateLineAndColumn(lineStartBytes, startByte);
+  const end = locateLineAndColumn(lineStartBytes, endByte);
 
   return {
     type: node.type,
@@ -167,8 +205,8 @@ function summarizeNode(
     extra: node.isExtra,
     has_error: node.hasError,
     error: node.isError,
-    start_byte: node.startIndex,
-    end_byte: node.endIndex,
+    start_byte: startByte,
+    end_byte: endByte,
     start_line: start.line,
     start_column: start.column,
     end_line: end.line,
@@ -182,15 +220,19 @@ function summarizeNode(
 function createSyntaxTreeSummary(
   registration: LanguageRegistration,
   rootNode: LanguageParserNode,
+  codeUnitToByteOffsets: readonly number[],
   lineStartBytes: readonly number[],
 ): SyntaxTreeSummary {
   return {
     parser: buildParserDisclosure(registration),
-    root: summarizeNode(rootNode, lineStartBytes),
+    root: summarizeNode(rootNode, codeUnitToByteOffsets, lineStartBytes),
   };
 }
 
-function collectErrorRanges(rootNode: LanguageParserNode): readonly ByteRange[] {
+function collectErrorRanges(
+  rootNode: LanguageParserNode,
+  codeUnitToByteOffsets: readonly number[],
+): readonly ByteRange[] {
   const discovered: ByteRange[] = [];
   const stack: LanguageParserNode[] = [rootNode];
 
@@ -203,8 +245,14 @@ function collectErrorRanges(rootNode: LanguageParserNode): readonly ByteRange[] 
 
     if (node.isError || node.isMissing) {
       discovered.push({
-        start_byte: node.startIndex,
-        end_byte: node.endIndex,
+        start_byte: mapCodeUnitOffsetToByteOffset(
+          codeUnitToByteOffsets,
+          node.startIndex,
+        ),
+        end_byte: mapCodeUnitOffsetToByteOffset(
+          codeUnitToByteOffsets,
+          node.endIndex,
+        ),
       });
     }
 
@@ -413,15 +461,20 @@ export function analyzeSourceFile(
 
   try {
     const tree = parser.parse(decoded.text);
+    const codeUnitToByteOffsets = createCodeUnitToByteOffsets(decoded.text);
     const lineStartBytes = createLineStartBytes(options.bytes.slice(
       decoded.had_utf8_bom ? UTF8_BOM.byteLength : 0,
     ));
     const syntaxTree = createSyntaxTreeSummary(
       registration,
       tree.rootNode,
+      codeUnitToByteOffsets,
       lineStartBytes,
     );
-    const syntaxErrorRanges = collectErrorRanges(tree.rootNode).map((range) =>
+    const syntaxErrorRanges = collectErrorRanges(
+      tree.rootNode,
+      codeUnitToByteOffsets,
+    ).map((range) =>
       toSyntaxRange(range, lineStartBytes),
     );
 

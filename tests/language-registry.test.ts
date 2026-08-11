@@ -172,6 +172,23 @@ test("language parser supports TypeScript, TSX, and Python with artifact-safe sy
   assert.strictEqual(assertParsed(pyResult.parse_result).syntax_tree.root.type, "module");
 });
 
+test("valid multibyte UTF-8 source reports root byte and column offsets in UTF-8 bytes, not UTF-16 code units", () => {
+  const bytes = readFixtureBytes("multibyte.ts");
+  const result = analyze({
+    path: "src/multibyte.ts",
+    bytes,
+  });
+  const parseResult = assertParsed(result.parse_result);
+  const expectedEndByte = bytes.byteLength;
+
+  assert.strictEqual(parseResult.syntax_tree.root.start_byte, 0);
+  assert.strictEqual(parseResult.syntax_tree.root.end_byte, expectedEndByte);
+  assert.strictEqual(parseResult.syntax_tree.root.start_line, 1);
+  assert.strictEqual(parseResult.syntax_tree.root.start_column, 0);
+  assert.strictEqual(parseResult.syntax_tree.root.end_line, 2);
+  assert.strictEqual(parseResult.syntax_tree.root.end_column, 0);
+});
+
 test("syntax errors produce partial coverage with ordered, coalesced byte ranges and deterministic results", () => {
   const first = analyze({
     path: "src/syntax-error.ts",
@@ -195,6 +212,29 @@ test("syntax errors produce partial coverage with ordered, coalesced byte ranges
     assert.ok(ranges[index - 1]!.start_byte <= ranges[index]!.start_byte);
     assert.ok(ranges[index - 1]!.end_byte <= ranges[index]!.start_byte);
   }
+});
+
+test("multibyte UTF-8 syntax errors report byte-exact ranges after multibyte characters", () => {
+  const bytes = readFixtureBytes("multibyte-syntax-error.ts");
+  const result = analyze({
+    path: "src/multibyte-syntax-error.ts",
+    bytes,
+  });
+  const partial = assertPartial(result.parse_result);
+  const expectedStartByte = Buffer.from("const café = (1 +", "utf8").byteLength;
+  const expectedEndByte = expectedStartByte;
+
+  assert.strictEqual(result.coverage_event.coverage, "partial");
+  assert.strictEqual(result.coverage_event.reason, "syntax_error");
+  assert.strictEqual(partial.syntax_error_ranges.length, 1);
+  assert.deepStrictEqual(partial.syntax_error_ranges[0], {
+    start_byte: expectedStartByte,
+    end_byte: expectedEndByte,
+    start_line: 1,
+    start_column: expectedStartByte,
+    end_line: 1,
+    end_column: expectedEndByte,
+  });
 });
 
 test("strict UTF-8 decoding removes an optional leading BOM before parsing", () => {
