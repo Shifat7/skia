@@ -173,6 +173,84 @@ Remaining concerns:
 
 - None for this fix round.
 
+## Fix round 3
+
+Date: 2026-08-11
+
+Reviewer implementation commit hash: `ebe0e5b`
+
+Reviewer implementation commit message:
+`fix: harden storage exact-id receipt handling`
+
+Fix-round changed files:
+
+- `src/storage.ts`
+- `tests/storage-lifecycle.test.ts`
+
+Findings addressed:
+
+1. `writeStagedReceipt()` now enforces a single staged-receipt invariant per
+   exact `run_id`. Before any write, it discovers the existing
+   `.skia/receipts/` root read-only and rejects a second legal receipt whose
+   filename would share the same `run_id` with a different session ID. This
+   keeps OD-11's exact-ID inspect/delete contract manageable because a valid
+   `run_id` can no longer accumulate multiple legal receipt files.
+2. `inspectRun()` and `deleteRun()` now share explicit single-receipt
+   resolution for staged receipts. If an older repository already contains
+   multiple matching receipt files for one `run_id`, the commands fail closed
+   with an ambiguity error instead of silently treating the run as missing.
+3. `deleteRun()` is now metadata-only for misses. Missing-ID lookups reuse the
+   existing read-only root discovery path and no longer create `.skia/`,
+   `.skia/dist/`, or `.skia/receipts/` on a fresh repository or while probing
+   a missing run beneath an existing partial storage tree.
+4. Storage lifecycle regression coverage now proves both fixes: duplicate
+   staged-receipt writes are rejected before they can create an undeletable or
+   uninspectable state, and failed `deleteRun()` lookups leave the repository
+   byte-for-byte unchanged in fresh, dist-only, and receipts-only cases.
+
+Fix-round verification:
+
+Frozen toolchain used:
+
+- Node: `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`
+  → `v24.14.0`
+- npm CLI: `/private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js`
+  → `11.18.0`
+
+1. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js run build`
+
+   Summary:
+
+   - exit 0
+   - `tsc -p tsconfig.json` completed without diagnostics
+
+2. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node /private/tmp/skia-task1-frozen-toolchain-wvkkiS/node_modules/npm/bin/npm-cli.js run typecheck`
+
+   Summary:
+
+   - exit 0
+   - `tsc --noEmit -p tsconfig.json` completed without diagnostics
+
+3. `/Users/shifatr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --test dist/tests/storage-lifecycle.test.js`
+
+   Summary:
+
+   - exit 0
+   - 12 storage lifecycle tests passed, 0 failed
+   - includes the new duplicate-receipt exact-ID regression and the
+     read-only missing-delete regression coverage
+
+4. `git diff --check`
+
+   Summary:
+
+   - exit 0
+   - no whitespace or patch-format errors reported
+
+Remaining concerns:
+
+- None for this fix round.
+
 ## Fix round 2
 
 Date: 2026-08-10
