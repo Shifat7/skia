@@ -68,6 +68,7 @@ declare module "node:fs" {
   export function mkdirSync(path: string, options?: number | MakeDirectoryOptions): string | undefined;
   export function mkdtempSync(prefix: string): string;
   export function openSync(path: string, flags: string, mode?: number): number;
+  export function renameSync(oldPath: string, newPath: string): void;
   export function closeSync(fd: number): void;
   export function fsyncSync(fd: number): void;
   export function writeSync(
@@ -104,6 +105,7 @@ declare module "node:fs" {
     mkdirSync: typeof mkdirSync;
     mkdtempSync: typeof mkdtempSync;
     openSync: typeof openSync;
+    renameSync: typeof renameSync;
     closeSync: typeof closeSync;
     fsyncSync: typeof fsyncSync;
     writeSync: typeof writeSync;
@@ -147,9 +149,11 @@ declare module "node:path" {
 
 declare module "node:buffer" {
   export class Buffer extends Uint8Array {
+    static alloc(size: number): Buffer;
     static from(value: string, encoding?: "utf8"): Buffer;
     static from(value: readonly number[]): Buffer;
     static from(value: Uint8Array): Buffer;
+    toString(encoding?: "utf8"): string;
   }
 }
 
@@ -165,10 +169,39 @@ declare module "node:crypto" {
 declare module "node:process" {
   const process: {
     cwd(): string;
+    readonly env: Readonly<Record<string, string | undefined>>;
+    readonly pid: number;
     readonly platform: string;
   };
 
   export default process;
+}
+
+declare module "node:child_process" {
+  export interface SpawnSyncOptions {
+    readonly cwd?: string;
+    readonly encoding?: "utf8";
+    readonly env?: Readonly<Record<string, string | undefined>>;
+    readonly maxBuffer?: number;
+    readonly shell?: boolean;
+    readonly timeout?: number;
+  }
+
+  export interface SpawnSyncReturns<TStdout = string | Uint8Array> {
+    readonly error?: Error;
+    readonly output: readonly (TStdout | null)[];
+    readonly pid: number;
+    readonly signal: string | null;
+    readonly status: number | null;
+    readonly stdout: TStdout;
+    readonly stderr: TStdout;
+  }
+
+  export function spawnSync(
+    command: string,
+    args?: readonly string[],
+    options?: SpawnSyncOptions,
+  ): SpawnSyncReturns;
 }
 
 declare module "node:test" {

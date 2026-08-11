@@ -11,6 +11,9 @@ export type SnapshotKind = (typeof SNAPSHOT_KINDS)[number];
 export const SNAPSHOT_BASE_STATES = ["present", "unborn"] as const;
 export type SnapshotBaseState = (typeof SNAPSHOT_BASE_STATES)[number];
 
+export const GIT_CHECKOUT_STATES = ["branch", "detached"] as const;
+export type GitCheckoutState = (typeof GIT_CHECKOUT_STATES)[number];
+
 export const ANCHOR_SIDES = ["base", "staged", "repository"] as const;
 export type AnchorSide = (typeof ANCHOR_SIDES)[number];
 
@@ -61,6 +64,9 @@ export const STABLE_ERROR_REASONS = [
   "agent_unavailable",
   "binary_source",
   "generated_path",
+  "git_output_limit_exceeded",
+  "git_process_failed",
+  "git_timeout",
   "index_changed",
   "interrupted_run",
   "invalid_parse_region",
@@ -106,6 +112,36 @@ export interface SnapshotEntry {
   readonly snapshot_blob_oid: GitObjectId | null;
 }
 
+export interface SnapshotCheckout {
+  readonly state: GitCheckoutState;
+  readonly branch_name: string | null;
+}
+
+export interface GitStatusEntry {
+  readonly status: string;
+  readonly path_bytes: Uint8Array;
+  readonly path_display: string;
+  readonly previous_path_bytes: Uint8Array | null;
+  readonly previous_path_display: string | null;
+}
+
+export interface GitRawSnapshotRecord {
+  readonly status: string;
+  readonly path_bytes: Uint8Array;
+  readonly path_display: string;
+  readonly previous_path_bytes: Uint8Array | null;
+  readonly previous_path_display: string | null;
+  readonly previous_mode: string | null;
+  readonly mode: string;
+  readonly base_blob_oid: GitObjectId | null;
+  readonly staged_blob_oid: GitObjectId | null;
+}
+
+export interface GitCapturedBlob {
+  readonly oid: GitObjectId;
+  readonly bytes: Uint8Array;
+}
+
 export interface StagedSnapshotIdentity {
   readonly kind: "staged";
   readonly base_state: SnapshotBaseState;
@@ -127,6 +163,21 @@ export interface RepositorySnapshotIdentity {
 export type SnapshotIdentity =
   | StagedSnapshotIdentity
   | RepositorySnapshotIdentity;
+
+export interface StagedSnapshotCapture {
+  readonly checkout: SnapshotCheckout;
+  readonly identity: StagedSnapshotIdentity;
+  readonly status_entries: readonly GitStatusEntry[];
+  readonly raw_records: readonly GitRawSnapshotRecord[];
+  readonly patch_bytes: Uint8Array;
+  readonly captured_blobs: readonly GitCapturedBlob[];
+}
+
+export interface RepositorySnapshotCapture {
+  readonly checkout: SnapshotCheckout;
+  readonly identity: RepositorySnapshotIdentity;
+  readonly captured_blobs: readonly GitCapturedBlob[];
+}
 
 export interface SourceAnchor {
   readonly side: AnchorSide;
