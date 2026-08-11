@@ -23,11 +23,13 @@ Developer predicts one outcome
 Source-derived feedback + original code on demand
 ```
 
-> **Current status: bootstrap shell only.** The repository now contains a
-> private TypeScript package shell, build scripts, and bootstrap `node:test`
-> harnesses. There is still no implemented `skia review` / `skia repo review`
-> workflow or generated HLD/LLD. The commands below remain the intended
-> product.
+> **Current status: Phase 1 TypeScript foundation plus intended CLI examples.**
+> The repository now contains the implemented snapshot, schema, language-analysis,
+> coverage, and local-storage seams for the future product. The `skia review`
+> and `skia repo review` transcripts below are intended workflows, not commands
+> you can run successfully today. Deferred surfaces remain visible: staged
+> semantic reduction, repository scanning, agent transport, HLD/LLD generation,
+> and behavioral validation are not implemented yet.
 >
 > **Name decision:** The project and command retain the `Skia`/`skia` name for
 > now. Publication and distribution risks from the existing Google Skia
@@ -36,9 +38,9 @@ Source-derived feedback + original code on demand
 
 ---
 
-## The idea in one screen
+## Two intended developer journeys
 
-| | Staged change | Whole repository |
+| | Intended staged journey | Intended repository journey |
 |---|---|---|
 | Command | `skia review` | `skia repo review` |
 | Snapshot | Exact staged Git index | One committed `HEAD` |
@@ -55,7 +57,16 @@ The product is built around one constraint:
 
 ---
 
-## Mode 1 -- understand a staged change
+## Intended workflow: understand a staged change
+
+The future staged flow is meant to feel like this:
+
+```text
+changed code -> exact staged snapshot -> short evidence -> developer prediction -> source check
+```
+
+Intended workflow only — the CLI transcript below is a product example, not
+current executable behavior:
 
 ```text
 $ skia review
@@ -78,7 +89,13 @@ Source check: source-derived match for this displayed path
 [e] evidence details  [d] original staged diff  [n] next
 ```
 
-### What happened?
+### What the developer does next
+
+The developer enters one prediction, checks whether the shown path matches the
+staged source, then either moves on or opens the staged diff to inspect what
+the reduced view did not cover.
+
+### How this staged journey is meant to work
 
 ```text
 Raw staged source
@@ -103,7 +120,7 @@ reserved for a relevant high-risk path.
 The original source and expanded evidence are behind one labelled menu action
 and one terminal keystroke.
 
-### What if compression is unsafe?
+### Honest coverage when reduction is unsafe
 
 Skia does not fill the gap with confident prose:
 
@@ -116,6 +133,18 @@ Not represented:
   - compound stateful branch
 
 [d] inspect unmapped diff  [s] skip  [q] stop
+```
+
+A realistic unsupported case should stay just as explicit:
+
+```text
+WARNING: docs/release-checklist.md is unsupported in staged mode.
+
+Not represented:
+  - Markdown checklist edits
+  - release-note wording changes
+
+[d] inspect staged diff  [s] skip  [q] stop
 ```
 
 A completed prediction covers one supported path. It never turns unmapped or
@@ -133,13 +162,20 @@ These are pilot limits, not risk or safety benchmarks.
 
 ---
 
-## Mode 2 -- understand a TypeScript/Python repository
+## Intended workflow: understand a repository
+
+The future repository flow is meant to start from one committed snapshot, show
+the deterministic inventory first, require explicit consent before any
+agent-assisted step, and leave the unselected remainder visible as `unchecked`.
+
+Intended workflow only — the CLI transcript below is a product example, not
+current executable behavior:
 
 ```text
 $ skia repo review
 
 Snapshot:     HEAD c8d1a18
-Scanned:      84 TypeScript/Python files, 3 config files, 5 docs
+Inventory:    84 TypeScript/Python files, 3 config files, 5 docs
 Unsupported:  2 Ruby files
 Subsystems:   api, billing, persistence, notifications, web
 
@@ -154,7 +190,18 @@ Select up to 2 subsystems:
   [ ] web
 ```
 
-Repository mode has two layers:
+Before any HLD/LLD draft, the developer sees and accepts an explicit handoff:
+
+```text
+Agent consent required
+Provider: local-model or approved remote provider
+Will send: selected subsystem evidence only
+Will keep local: manifest, coverage, raw snapshot identity
+
+[y] continue  [n] stay local-only
+```
+
+Repository mode is intentionally layered:
 
 ```text
 Committed repository snapshot
@@ -174,10 +221,20 @@ Committed repository snapshot
 
 The architecture check is always included. When the repository has more
 subsystems than one short session should cover, the developer chooses which
-ones to check. Everything else is recorded as `unchecked`; Skia does not group,
-rank, or sample those areas silently.
+ones to check next and everything else remains `unchecked`; Skia does not
+group, rank, or sample those areas silently.
 
-### Timestamped local output
+Repository scanning plus HLD/LLD generation are still deferred product
+surfaces. The current repository implements the snapshot, schema, analysis,
+coverage, and storage contracts that those future steps will build on.
+
+### What the developer does next
+
+The developer selects one or two subsystems, decides whether to allow an
+agent-assisted draft, then reads the generated cards alongside the recorded
+`unchecked` remainder before widening coverage.
+
+### Intended local output
 
 One run ID is shared by the directory and every filename:
 
@@ -197,7 +254,7 @@ artifact hashes, selected/unchecked subsystems, and coverage.
 
 HLD and LLD are review aids, not authoritative architecture documentation.
 
-### Agent privacy boundary
+### Intended privacy boundary
 
 Before any repository context leaves the machine, Skia must show:
 
@@ -232,6 +289,29 @@ Across both modes:
 - Unsupported, excluded, failed, unmapped, and unchecked areas remain explicit.
 - Comprehension runs do not modify source, Git state, hooks, or project config.
 - Local artifacts may still be sensitive and require inspect/delete controls.
+
+---
+
+## How the implemented foundation supports both journeys
+
+```text
+Git snapshot -> shared identity/schema -> language analysis -> coverage -> local storage
+```
+
+- Git snapshot: the future review starts from an immutable staged index or
+  committed `HEAD`, so every later claim can point back to one exact source
+  capture.
+- Shared identity/schema: the repository already validates snapshot identity,
+  run metadata, and coverage shapes so staged and repository flows can speak
+  one contract.
+- Language analysis: the current parser layer accepts supported
+  TypeScript/TSX/Python inputs and distinguishes parsed, partial, failed, and
+  unsupported outcomes instead of flattening them.
+- Coverage: explicit `supported`, `partial`, `unmapped`, `unsupported`,
+  `excluded`, `failed`, and `unchecked` states keep missing coverage visible
+  instead of implying silent success.
+- Local storage: run manifests, receipts, and artifacts are designed to stay
+  local under `.skia/`, because even review metadata can be sensitive.
 
 ---
 
