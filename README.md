@@ -125,7 +125,7 @@ and one terminal keystroke.
 Skia does not fill the gap with confident prose:
 
 ```text
-WARNING: 7 changed TypeScript/Python lines are unmapped.
+WARNING: 7 changed TypeScript/TSX/Python lines are unmapped.
 
 Not represented:
   - import change
@@ -175,7 +175,7 @@ current executable behavior:
 $ skia repo review
 
 Snapshot:     HEAD c8d1a18
-Inventory:    84 TypeScript/Python files, 3 config files, 5 docs
+Inventory:    84 TypeScript/TSX/Python files, 3 config files, 5 docs
 Unsupported:  2 Ruby files
 Subsystems:   api, billing, persistence, notifications, web
 
