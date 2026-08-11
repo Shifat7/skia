@@ -374,48 +374,21 @@ function currentBranchRefName(
   }
 }
 
-function gitDirectoryPath(commandOptions: GitCommandOptions): string {
-  const gitDirectory = bytesToUtf8(
-    runGit(["rev-parse", "--git-dir"], commandOptions).stdout,
-  ).trim();
-
-  return path.resolve(commandOptions.repositoryRoot, gitDirectory);
-}
-
 function branchRefExists(
   commandOptions: GitCommandOptions,
   branchRefName: string,
 ): boolean {
-  const gitDirectory = gitDirectoryPath(commandOptions);
-  const looseRefPath = path.resolve(gitDirectory, branchRefName);
+  const matchingRefs = bytesToUtf8(
+    runGit(
+      ["for-each-ref", "--format=%(refname)", "--", branchRefName],
+      commandOptions,
+    ).stdout,
+  )
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 
-  if (fs.existsSync(looseRefPath)) {
-    return true;
-  }
-
-  const packedRefsPath = path.join(gitDirectory, "packed-refs");
-
-  if (!fs.existsSync(packedRefsPath)) {
-    return false;
-  }
-
-  const packedRefsText = fs.readFileSync(packedRefsPath, "utf8");
-
-  for (const line of packedRefsText.split("\n")) {
-    const trimmed = line.trim();
-
-    if (trimmed.length === 0 || trimmed.startsWith("#") || trimmed.startsWith("^")) {
-      continue;
-    }
-
-    const fields = trimmed.split(" ");
-
-    if (fields[1] === branchRefName) {
-      return true;
-    }
-  }
-
-  return false;
+  return matchingRefs.includes(branchRefName);
 }
 
 function parseStagedHeadState(commandOptions: GitCommandOptions): ParsedHeadState {

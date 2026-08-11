@@ -245,3 +245,75 @@ Remaining concerns:
 - None for this fix round. Corrupt current-branch refs now fail closed instead
   of being misclassified as unborn, and the regression is covered in the
   focused temporary-repository suite.
+
+## Final broad-review fix round 2
+
+Date: 2026-08-11
+
+Reviewer implementation commit hash:
+recorded in the Git commit created for this fix round (self-referential within
+this same commit; reported in the final task handoff)
+
+Reviewer implementation commit message:
+`fix: resolve linked worktree branch refs through git`
+
+Fix-round changed files:
+
+- `src/git.ts`
+- `tests/git-snapshot.test.ts`
+
+Finding addressed:
+
+1. Linked-worktree staged snapshots now ask Git's own ref backend whether the
+   symbolic current-branch ref exists instead of manually searching only the
+   per-worktree `--git-dir`. `branchRefExists()` now uses
+   `git for-each-ref --format=%(refname) -- <refname>`, which sees refs stored
+   in the common Git dir and packed refs through the same resolution path Git
+   uses elsewhere. That keeps a genuinely missing current branch ref classified
+   as unborn, but makes an existing invalid linked-worktree branch ref fail
+   closed with the stable `git_process_failed` reason instead of silently
+   falling back to the empty-tree base.
+2. Added a linked-worktree regression that corrupts the common-dir branch ref
+   backing the current worktree and proves staged capture now rejects it. The
+   existing plain corrupt-ref, true unborn, detached, and captured-base-OID
+   regression coverage remains green.
+
+Fix-round verification:
+
+1. Focused frozen Git slice:
+
+   - compiled the Git source plus `tests/git-snapshot.test.ts`,
+     `tests/git-test-helpers.ts`, and `tests/security/git-security.test.ts`
+     into a repo-local temporary output tree with `npx tsc --ignoreConfig ...`
+   - ran `node --test` against the compiled Git snapshot and security tests
+   - exit 0
+   - 20 focused Git tests passed, 0 failed
+   - includes the new linked-worktree corrupt-common-ref regression plus the
+     existing corrupt-ref, unborn, detached, captured-base-OID, and hardened
+     boundary coverage
+
+2. `npm run typecheck`
+
+   Summary:
+
+   - exit 0
+   - `tsc --noEmit -p tsconfig.json` completed without diagnostics
+
+3. `npm run build`
+
+   Summary:
+
+   - exit 0
+   - `tsc -p tsconfig.json` completed without diagnostics
+
+4. `git diff --check`
+
+   Summary:
+
+   - exit 0
+   - no whitespace or patch-format errors reported
+
+Remaining concerns:
+
+- None for this fix round. Linked-worktree branch ref validation now follows
+  Git's authoritative ref view instead of per-worktree filesystem heuristics.

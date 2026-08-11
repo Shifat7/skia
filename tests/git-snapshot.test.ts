@@ -493,3 +493,44 @@ test("staged snapshot rejects a corrupt existing branch ref instead of classifyi
 
   throw new Error("expected corrupt branch ref snapshot capture to fail closed");
 });
+
+test("staged snapshot rejects a corrupt linked-worktree branch ref from the common git dir", () => {
+  const repositoryRoot = createTempGitRepository();
+  const linkedWorktreeRoot = fs.mkdtempSync("/private/tmp/skia-task4-linked-worktree-");
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["worktree", "add", "-q", "-b", "linked-review", linkedWorktreeRoot]);
+
+  writeRepoTextFile(
+    linkedWorktreeRoot,
+    "src/example.ts",
+    `${readGitFixture("sample.ts")}\nexport const linkedCorrupt = true;\n`,
+  );
+  stagePaths(linkedWorktreeRoot, "src/example.ts");
+
+  const branchRefName = runGit(
+    linkedWorktreeRoot,
+    ["symbolic-ref", "--quiet", "HEAD"],
+  ).stdout.trim();
+  const commonGitDirectory = runGit(
+    linkedWorktreeRoot,
+    ["rev-parse", "--git-common-dir"],
+  ).stdout.trim();
+  const branchRefPath = path.join(commonGitDirectory, ...branchRefName.split("/"));
+  fs.writeFileSync(branchRefPath, `${"1".repeat(40)}\n`, "utf8");
+
+  try {
+    captureStagedSnapshot(linkedWorktreeRoot);
+  } catch (error) {
+    if (error instanceof GitSnapshotError) {
+      assert.strictEqual(error.reason, "git_process_failed");
+      return;
+    }
+
+    throw error;
+  }
+
+  throw new Error("expected linked-worktree corrupt branch ref snapshot capture to fail closed");
+});
