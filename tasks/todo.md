@@ -28,9 +28,11 @@
   - Commits: `61479a2`, `384fc45`, `d9ab1bc`, `a068da5`, `f5d1083`,
     `e1089e0`; task review: spec PASS after fix rounds, scoped re-review CLEAN.
 
-- [ ] Task 4: Implement the OD-4-selected hardened Git snapshot seam.
+- [x] Task 4: Implement the OD-4-selected hardened Git snapshot seam.
   - Depends on: Tasks 2–3 and OD-4.
   - Verify: Git snapshot, race, no-write, and security tests.
+  - Commits: `37554db`, `1bdd1e8`, `18c558a`, `13305a2`; task review: spec PASS
+    after fix round, scoped re-review CLEAN.
 
 - [ ] Task 5: Add the TypeScript/TSX/Python language registry and parser
       coverage foundation.
