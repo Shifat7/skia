@@ -3,9 +3,11 @@
 > **Read less code. Predict the behavior that matters.**
 
 Skia is a proposed local comprehension checkpoint for developers working with
-AI-generated code. It compresses supported TypeScript and Python behavior into a short,
-source-anchored view, asks one concrete prediction, and reveals feedback only
-after the developer answers.
+AI-generated code. It compresses supported `typescript | tsx | python`
+behavior into a short, source-anchored view, asks one concrete prediction, and
+reveals feedback only after the developer answers.
+
+Intended workflow — the product promise in one screen:
 
 ```text
 AI writes a change
@@ -46,7 +48,7 @@ Source-derived feedback + original code on demand
 | Snapshot | Exact staged Git index | One committed `HEAD` |
 | Default view | Collapsed changed behavior | Compact HLD, LLD, and architecture evidence |
 | Human check | Predict one observable result | One architecture question plus selected subsystems |
-| Source detail | TypeScript, TSX, and Python | TypeScript/TSX/Python detail; manifests, config, and docs inform structure |
+| Source detail | `typescript | tsx | python` | `typescript | tsx | python` detail; manifests, config, and docs inform structure |
 | Output | Local comprehension receipt | Timestamped local bundle under `.skia/dist/` |
 | What stays visible | Unmapped changed lines | Unsupported languages and unchecked subsystems |
 
@@ -152,7 +154,7 @@ unsupported code into reviewed coverage.
 
 ### Initial boundary
 
-- TypeScript, TSX, and Python source files
+- `typescript | tsx | python` source files
 - Named functions and methods only
 - At most 3 supported changed entities
 - At most 150 added-plus-deleted supported-language lines
@@ -175,7 +177,7 @@ current executable behavior:
 $ skia repo review
 
 Snapshot:     HEAD c8d1a18
-Inventory:    84 TypeScript/TSX/Python files, 3 config files, 5 docs
+Inventory:    84 typescript | tsx | python files, 3 config files, 5 docs
 Unsupported:  2 Ruby files
 Subsystems:   api, billing, persistence, notifications, web
 
@@ -305,8 +307,8 @@ Git snapshot -> shared identity/schema -> language analysis -> coverage -> local
   run metadata, and coverage shapes so staged and repository flows can speak
   one contract.
 - Language analysis: the current parser layer accepts supported
-  TypeScript/TSX/Python inputs and distinguishes parsed, partial, failed, and
-  unsupported outcomes instead of flattening them.
+  `typescript | tsx | python` inputs and distinguishes parsed, partial,
+  failed, and unsupported outcomes instead of flattening them.
 - Coverage: explicit `supported`, `partial`, `unmapped`, `unsupported`,
   `excluded`, `failed`, and `unchecked` states keep missing coverage visible
   instead of implying silent success.
@@ -342,7 +344,7 @@ const validation = validateCoverageEnvelope({
   },
   events: [
     { id: "evt_ts", coverage: "supported", units: 1, reason: null, path: "src/app.ts", language: "typescript", anchors: [] },
-    { id: "evt_tsx", coverage: "partial", units: 1, reason: null, path: "src/view.tsx", language: "tsx", anchors: [] },
+    { id: "evt_tsx", coverage: "partial", units: 1, reason: "syntax_error", path: "src/view.tsx", language: "tsx", anchors: [] },
     { id: "evt_md", coverage: "unsupported", units: 1, reason: "unsupported_language", path: "docs/notes.md", language: null, anchors: [] },
     { id: "evt_py", coverage: "failed", units: 1, reason: "invalid_source_encoding", path: "scripts/job.py", language: "python", anchors: [] },
   ],
@@ -405,6 +407,19 @@ deleteRun(repositoryRoot, allocation.runId); // exact-ID delete; failed deletion
 deriveRepositoryManifestPath(allocation.runId);
 ```
 
+Implemented foundation — incomplete repository allocation stays visible until
+manifest completion:
+
+```ts
+const pending = allocateRepositoryRun(repositoryRoot, repository.identity);
+
+listRuns(repositoryRoot)[0]?.status; // "incomplete"
+inspectRun(repositoryRoot, pending.runId); // metadata visible, manifest still null
+
+completeRepositoryRun(pending, manifest);
+inspectRun(repositoryRoot, pending.runId); // completed manifest is now available
+```
+
 Implemented foundation — traversal validation and storage confinement are
 separate checks:
 
@@ -428,16 +443,20 @@ unsupported, failed, and partial outcomes without inventing a success bucket:
 
 ```ts
 import { analyzeSourceFile } from "./src/languages/registry.js";
+import type { CoverageEventId } from "./src/types.js";
 
-const analyzed = analyzeSourceFile({
+const coverageEventId = (value: string): CoverageEventId => value as CoverageEventId;
+
+const options = {
   bytes: new TextEncoder().encode("export const answer = 42;\n"),
-  coverage_event_id: "evt_supported",
+  coverage_event_id: coverageEventId("evt_supported"),
   max_bytes: 4096,
   mode: "100644",
   path: "src/example.ts",
   snapshot_kind: "staged",
   status: "M",
-});
+};
+const analyzed = analyzeSourceFile(options);
 
 analyzed.registration?.extension; // ".ts"
 analyzed.coverage_event.coverage; // "supported"
@@ -487,6 +506,25 @@ captureStagedSnapshot(...) reads through a copied index and deletes the temp cop
 captureRepositorySnapshot(...) reads committed HEAD with working_changes_included: false
 ```
 
+Implemented foundation — corrupt refs or missing objects fail snapshot capture
+instead of returning a best-effort repository snapshot:
+
+```ts
+import { captureRepositorySnapshot, GitSnapshotError } from "./src/git.js";
+
+try {
+  captureRepositorySnapshot(repositoryRoot);
+} catch (error) {
+  if (error instanceof GitSnapshotError) {
+    error.reason;
+    // "git_process_failed" for a corrupt current branch ref
+    // "missing_local_object" for a missing committed object
+  }
+}
+
+// no successful repository snapshot is returned after these failures
+```
+
 Implemented foundation — repository-mode coverage can still remain visibly
 incomplete:
 
@@ -534,9 +572,10 @@ experiment design, and kill criteria.
 
 ```text
 [x] Product and architecture specification
-[x] Output contracts and validation plan
+[x] Output contracts, validation plan, and canonical JSON Schemas
 [x] Contribution, governance, and security boundaries
-[ ] Canonical JSON Schemas and executable fixtures
+[x] Executable schema, Git, language, and storage fixtures
+[x] Phase 1 snapshot, path, storage, and parser/coverage foundation
 [ ] Staged reduced-reading prototype
 [ ] Repository structural scanner
 [ ] Agent-assisted HLD/LLD prototype
@@ -582,8 +621,8 @@ product examples, not current executable CLI behavior.
 Useful contributions are evidence and design pressure, not unsolicited product
 code:
 
-- synthetic staged TypeScript and Python fixtures;
-- synthetic TypeScript/Python repository layouts;
+- synthetic staged `typescript | tsx | python` fixtures;
+- synthetic `typescript | tsx | python` repository layouts;
 - cases that must remain unmapped or `not_checkable`;
 - prompt-injection, privacy, and provider-boundary cases;
 - schema, requirement, or citation corrections; and
