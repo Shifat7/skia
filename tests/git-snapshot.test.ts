@@ -258,6 +258,53 @@ test("git snapshot returns index_changed after a third live-index mismatch", () 
   throw new Error("expected captureStagedSnapshot to throw index_changed");
 });
 
+test("git snapshot rejects a base-ref move that happens after copied-index creation and retries against the stable new base", () => {
+  const repositoryRoot = createTempGitRepository();
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const base = 1;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "commit-1");
+
+  runGit(repositoryRoot, ["checkout", "-q", "-b", "side"]);
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const base = 2;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "commit-2");
+  const commitTwo = headCommit(repositoryRoot);
+  runGit(repositoryRoot, ["checkout", "-q", "main"]);
+
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    "export const base = 1;\nexport const staged = true;\n",
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+
+  let copiedIndexAttemptCount = 0;
+  let branchMoved = false;
+  const snapshot = captureStagedSnapshot(repositoryRoot, {
+    test_hooks: {
+      after_copied_index_created: () => {
+        copiedIndexAttemptCount += 1;
+
+        if (branchMoved) {
+          return;
+        }
+
+        branchMoved = true;
+        runGit(repositoryRoot, ["update-ref", "refs/heads/main", commitTwo]);
+      },
+    },
+  });
+
+  assert.strictEqual(branchMoved, true);
+  assert.strictEqual(copiedIndexAttemptCount, 2);
+  assert.strictEqual(snapshot.identity.base_commit, commitTwo);
+  assert.strictEqual(
+    snapshot.raw_records[0]?.base_blob_oid,
+    runGit(repositoryRoot, ["rev-parse", `${commitTwo}:src/example.ts`]).stdout.trim(),
+  );
+});
+
 test("repository snapshot binds to HEAD and excludes staged or working-tree changes", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, "src/committed.ts", readGitFixture("sample.ts"));
@@ -297,6 +344,40 @@ test("repository snapshot rejects a repository with no HEAD using the stable sha
   }
 
   throw new Error("expected captureRepositorySnapshot to throw no_head_commit");
+});
+
+test("repository snapshot rejects a corrupt existing branch ref instead of classifying it as no HEAD", () => {
+  const repositoryRoot = createTempGitRepository();
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+
+  const branchName = runGit(
+    repositoryRoot,
+    ["symbolic-ref", "--quiet", "--short", "HEAD"],
+  ).stdout.trim();
+  const branchRefPath = path.join(
+    repositoryRoot,
+    ".git",
+    "refs",
+    "heads",
+    branchName,
+  );
+  fs.writeFileSync(branchRefPath, `${"1".repeat(40)}\n`, "utf8");
+
+  try {
+    captureRepositorySnapshot(repositoryRoot);
+  } catch (error) {
+    if (error instanceof GitSnapshotError) {
+      assert.strictEqual(error.reason, "git_process_failed");
+      return;
+    }
+
+    throw error;
+  }
+
+  throw new Error("expected corrupt repository HEAD capture to fail closed");
 });
 
 test("repository snapshot maps missing-object blob reads to the stable missing_local_object reason", () => {
@@ -408,9 +489,19 @@ exec "${realGit}" "$@"
   const snapshot = captureStagedSnapshot(repositoryRoot, {
     git_executable: wrapper,
     process_env: setExecutableEnvironment({}),
+    test_hooks: {
+      before_live_index_revalidation: () => {
+        if (!fs.existsSync(markerPath)) {
+          return;
+        }
+
+        runGit(repositoryRoot, ["update-ref", "refs/heads/main", commitOne]);
+      },
+    },
   });
   const patchText = Buffer.from(snapshot.patch_bytes).toString("utf8");
 
+  assert.strictEqual(fs.existsSync(markerPath), true);
   assert.strictEqual(snapshot.identity.base_commit, commitOne);
   assert.strictEqual(snapshot.raw_records[0]?.base_blob_oid, runGit(
     repositoryRoot,

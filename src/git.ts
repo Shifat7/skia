@@ -39,6 +39,7 @@ const GIT_OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const ZERO_OBJECT_ID = "0".repeat(40);
 
 export interface GitSnapshotTestHooks {
+  readonly after_copied_index_created?: () => void;
   readonly before_live_index_revalidation?: () => void;
 }
 
@@ -391,6 +392,13 @@ function branchRefExists(
   return matchingRefs.includes(branchRefName);
 }
 
+function sameHeadBaseState(
+  left: ParsedHeadState,
+  right: ParsedHeadState,
+): boolean {
+  return left.baseState === right.baseState && left.baseCommit === right.baseCommit;
+}
+
 function parseStagedHeadState(commandOptions: GitCommandOptions): ParsedHeadState {
   const checkout = parseBranchState(commandOptions);
   const branchRefName = currentBranchRefName(commandOptions);
@@ -434,6 +442,7 @@ function parseStagedHeadState(commandOptions: GitCommandOptions): ParsedHeadStat
 
 function parseRepositoryHeadState(commandOptions: GitCommandOptions): ParsedTreeState {
   const checkout = parseBranchState(commandOptions);
+  const branchRefName = currentBranchRefName(commandOptions);
 
   try {
     const commitOid = bytesToUtf8(
@@ -445,7 +454,19 @@ function parseRepositoryHeadState(commandOptions: GitCommandOptions): ParsedTree
       commitOid,
     };
   } catch (error) {
-    if (error instanceof GitSnapshotError && error.reason === "git_process_failed") {
+    if (
+      error instanceof GitSnapshotError &&
+      error.reason === "git_process_failed" &&
+      checkout.state === "branch" &&
+      branchRefName !== null
+    ) {
+      if (branchRefExists(commandOptions, branchRefName)) {
+        throw new GitSnapshotError(
+          "git_process_failed",
+          `current branch ref ${branchRefName} does not resolve to a valid commit`,
+        );
+      }
+
       throw new GitSnapshotError("no_head_commit");
     }
 
@@ -750,6 +771,7 @@ function captureStagedAttempt(
 ): StagedSnapshotCapture | null {
   const commandOptions = gitCommandOptions(repositoryRoot, options);
   const tmpRoot = ensureGitTempRoot(repositoryRoot);
+  const headState = parseStagedHeadState(commandOptions);
   const indexPath = liveIndexPath(commandOptions);
   const liveIndexBytes = readLiveIndexBytes(indexPath);
   const copiedIndexSha256 = sha256Hex(liveIndexBytes);
@@ -757,7 +779,8 @@ function captureStagedAttempt(
   createNewProtectedFile(copiedIndexPath, liveIndexBytes);
 
   try {
-    const headState = parseStagedHeadState(commandOptions);
+    options?.test_hooks?.after_copied_index_created?.();
+
     const comparisonBase =
       headState.baseState === "present"
         ? assertValidGitObjectId(headState.baseCommit, "staged base commit")
@@ -804,8 +827,12 @@ function captureStagedAttempt(
 
     const revalidatedLiveIndexBytes = readLiveIndexBytes(indexPath);
     const liveIndexSha256 = sha256Hex(revalidatedLiveIndexBytes);
+    const revalidatedHeadState = parseStagedHeadState(commandOptions);
 
-    if (liveIndexSha256 !== copiedIndexSha256) {
+    if (
+      liveIndexSha256 !== copiedIndexSha256 ||
+      !sameHeadBaseState(headState, revalidatedHeadState)
+    ) {
       return null;
     }
 
