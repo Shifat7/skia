@@ -182,3 +182,66 @@ Remaining concerns:
 
 - None for this fix round. The three Important findings now have deterministic
   regression coverage in temporary repositories and wrappers.
+
+## Final broad-review fix round
+
+Date: 2026-08-11
+
+Reviewer implementation commit hash: `ff254ab`
+
+Reviewer implementation commit message:
+`fix: reject corrupt staged branch refs`
+
+Fix-round changed files:
+
+- `src/git.ts`
+- `tests/git-snapshot.test.ts`
+
+Finding addressed:
+
+1. Staged snapshot capture now distinguishes a truly unborn branch from an
+   existing-but-invalid current branch ref. `parseStagedHeadState()` still
+   accepts symbolic-HEAD repos whose current branch ref does not exist at all
+   as `base_state: unborn`, but it now checks whether the symbolic branch ref
+   exists as a loose ref or packed ref before falling back. If the current
+   branch ref exists and `HEAD^{commit}` cannot resolve to a valid commit,
+   capture fails closed with `GitSnapshotError("git_process_failed", ...)`
+   instead of producing an empty-base staged snapshot.
+
+Fix-round verification:
+
+1. `node --test dist/tests/git-snapshot.test.js dist/tests/security/git-security.test.js`
+
+   Summary:
+
+   - exit 0
+   - 19 focused Git snapshot/security tests passed, 0 failed
+   - includes the new corrupt-branch-ref regression while preserving true
+     unborn, detached, captured-OID, and hardened-boundary coverage
+
+2. `npm run typecheck`
+
+   Summary:
+
+   - exit 0
+   - `tsc --noEmit -p tsconfig.json` completed without diagnostics
+
+3. `npm run build`
+
+   Summary:
+
+   - exit 0
+   - `tsc -p tsconfig.json` completed without diagnostics
+
+4. `git diff --check`
+
+   Summary:
+
+   - exit 0
+   - no whitespace or patch-format errors reported
+
+Remaining concerns:
+
+- None for this fix round. Corrupt current-branch refs now fail closed instead
+  of being misclassified as unborn, and the regression is covered in the
+  focused temporary-repository suite.
