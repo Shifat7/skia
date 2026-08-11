@@ -34,10 +34,12 @@
   - Commits: `37554db`, `1bdd1e8`, `18c558a`, `13305a2`; task review: spec PASS
     after fix round, scoped re-review CLEAN.
 
-- [ ] Task 5: Add the TypeScript/TSX/Python language registry and parser
+- [x] Task 5: Add the TypeScript/TSX/Python language registry and parser
       coverage foundation.
   - Depends on: Tasks 2 and 4.
   - Verify: parser, syntax-error, encoding, and coverage fixtures.
+  - Commits: `64d1acf`, `f352412`, `8ea72ab`, `189f1ec`; task review: spec PASS
+    after fix round, scoped re-review CLEAN.
 
 - [ ] Task 6: Run the full Phase 1 integration checkpoint.
   - Depends on: Tasks 1–5.
