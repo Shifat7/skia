@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
+import { resolveLanguageRegistration } from "./languages/registry.js";
 import {
   DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
   DEFAULT_GIT_TIMEOUT_MS,
@@ -468,20 +469,7 @@ function detectLanguage(pathBytes: Uint8Array): SourceLanguage | null {
   }
 
   const relativePath = validateRelativePath(bytesToUtf8(pathBytes));
-
-  if (relativePath.endsWith(".tsx")) {
-    return "tsx";
-  }
-
-  if (relativePath.endsWith(".ts")) {
-    return "typescript";
-  }
-
-  if (relativePath.endsWith(".py")) {
-    return "python";
-  }
-
-  return null;
+  return resolveLanguageRegistration(relativePath)?.language ?? null;
 }
 
 function isSupportedRecord(record: GitRawSnapshotRecord): boolean {

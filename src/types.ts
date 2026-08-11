@@ -78,6 +78,8 @@ export const STABLE_ERROR_REASONS = [
   "no_supported_staged_entity",
   "not_a_git_repository",
   "output_root_symlink",
+  "parse_failed",
+  "parser_initialization_failed",
   "parse_timeout",
   "repository_limit_exceeded",
   "run_id_exhausted",
@@ -199,23 +201,59 @@ export interface SyntaxErrorRange {
   readonly end_column: number;
 }
 
+export interface ParserVersionDisclosure {
+  readonly parser_id: string;
+  readonly parser_package_name: string;
+  readonly parser_package_version: string;
+  readonly grammar_package_name: string;
+  readonly grammar_package_version: string;
+}
+
+export interface SyntaxTreeNodeSummary {
+  readonly type: string;
+  readonly grammar_type: string;
+  readonly named: boolean;
+  readonly missing: boolean;
+  readonly extra: boolean;
+  readonly has_error: boolean;
+  readonly error: boolean;
+  readonly start_byte: number;
+  readonly end_byte: number;
+  readonly start_line: number;
+  readonly start_column: number;
+  readonly end_line: number;
+  readonly end_column: number;
+  readonly child_count: number;
+  readonly named_child_count: number;
+  readonly descendant_count: number;
+}
+
+export interface SyntaxTreeSummary {
+  readonly parser: ParserVersionDisclosure;
+  readonly root: SyntaxTreeNodeSummary;
+}
+
 export type ParseFailureReason = Extract<
   StableErrorReason,
   | "binary_source"
   | "invalid_parse_region"
   | "invalid_source_encoding"
+  | "parse_failed"
+  | "parser_initialization_failed"
   | "parse_timeout"
 >;
 
 export interface ParsedSource {
   readonly kind: "parsed";
   readonly language: SourceLanguage;
+  readonly syntax_tree: SyntaxTreeSummary;
   readonly syntax_error_ranges: readonly [];
 }
 
 export interface PartiallyParsedSource {
   readonly kind: "partial";
   readonly language: SourceLanguage;
+  readonly syntax_tree: SyntaxTreeSummary;
   readonly syntax_error_ranges: readonly [SyntaxErrorRange, ...SyntaxErrorRange[]];
 }
 
@@ -223,6 +261,7 @@ export interface FailedParse {
   readonly kind: "failed";
   readonly language: SourceLanguage;
   readonly reason: ParseFailureReason;
+  readonly syntax_tree: null;
   readonly syntax_error_ranges: readonly [];
 }
 

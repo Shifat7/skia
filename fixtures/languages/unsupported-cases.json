@@ -1,0 +1,50 @@
+[
+  {
+    "name": "symlink",
+    "status": "A",
+    "mode": "120000",
+    "path": "src/link.ts"
+  },
+  {
+    "name": "gitlink",
+    "status": "A",
+    "mode": "160000",
+    "path": "src/submodule.ts"
+  },
+  {
+    "name": "non_regular",
+    "status": "A",
+    "mode": "040000",
+    "path": "src/tree.ts"
+  },
+  {
+    "name": "conflict",
+    "status": "U",
+    "mode": "100644",
+    "path": "src/conflict.ts"
+  },
+  {
+    "name": "type_change",
+    "status": "T",
+    "mode": "100644",
+    "path": "src/type-change.ts"
+  },
+  {
+    "name": "deletion",
+    "status": "D",
+    "mode": "100644",
+    "path": "src/deleted.ts"
+  },
+  {
+    "name": "rename",
+    "status": "R100",
+    "mode": "100644",
+    "path": "src/renamed.ts"
+  },
+  {
+    "name": "copy",
+    "status": "C100",
+    "mode": "100644",
+    "path": "src/copied.ts"
+  }
+]
