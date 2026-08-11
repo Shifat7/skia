@@ -56,6 +56,32 @@ function permissionsMask(statsMode: number): number {
   return statsMode & 0o777;
 }
 
+function snapshotRepositoryTree(repositoryRoot: string): readonly string[] {
+  const entries: string[] = [];
+
+  function visit(currentPath: string, relativePath: string): void {
+    const stats = fs.lstatSync(currentPath);
+    entries.push(relativePath);
+
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      return;
+    }
+
+    for (const entryName of [...fs.readdirSync(currentPath)].sort()) {
+      const childRelativePath = relativePath.length === 0
+        ? entryName
+        : path.join(relativePath, entryName);
+      visit(path.join(currentPath, entryName), childRelativePath);
+    }
+  }
+
+  for (const entryName of [...fs.readdirSync(repositoryRoot)].sort()) {
+    visit(path.join(repositoryRoot, entryName), entryName);
+  }
+
+  return entries;
+}
+
 function brand<T>(value: string): T {
   return value as T;
 }
@@ -131,17 +157,21 @@ function createRepositoryManifest(
   };
 }
 
-function createStagedReceipt(runId: RunId): StagedReceipt {
+function createStagedReceipt(
+  runId: RunId,
+  sessionId: string = "8f5d1a2c",
+): StagedReceipt {
   const fixture = readFixture<StagedReceipt>("valid-staged-receipt.json");
+  const validatedSessionId = validateSessionId(sessionId);
 
   return {
     ...fixture,
     run_id: runId,
-    session_id: validateSessionId("8f5d1a2c"),
+    session_id: validatedSessionId,
     artifact_hashes: [
       {
         kind: "receipt",
-        path: brand<RunArtifactPath>(`receipts/${runId}-8f5d1a2c-session.json`),
+        path: brand<RunArtifactPath>(`receipts/${runId}-${validatedSessionId}-session.json`),
         sha256: brand<Sha256Hex>("e".repeat(64)),
       },
     ],
@@ -476,6 +506,32 @@ test("repository completion writes a manifest only after validated artifacts, an
   assert.strictEqual(inspectedReceiptRun.receipt.run_id, "20260810T020304Z");
 });
 
+test("staged receipts reject a duplicate run ID before the run becomes ambiguous to inspect or delete", () => {
+  const repositoryRoot = createTempRepository();
+  const runId = brand<RunId>("20260810T020304Z");
+
+  writeStagedReceipt(repositoryRoot, createStagedReceipt(runId, "8f5d1a2c"));
+
+  assert.throws(
+    () => writeStagedReceipt(repositoryRoot, createStagedReceipt(runId, "9f6e2b3d")),
+    /run .* already has a staged receipt/i,
+  );
+  assert.deepStrictEqual(
+    [...fs.readdirSync(absoluteSkiaPath(repositoryRoot, "receipts"))].sort(),
+    ["20260810T020304Z-8f5d1a2c-session.json"],
+  );
+
+  const inspectedReceiptRun = inspectRun(repositoryRoot, runId);
+  if (inspectedReceiptRun.kind !== "review") {
+    throw new Error("expected staged receipt inspection");
+  }
+  assert.strictEqual(inspectedReceiptRun.receipt.session_id, "8f5d1a2c");
+  assert.deepStrictEqual(deleteRun(repositoryRoot, runId), {
+    deleted: true,
+    remaining_paths: [],
+  });
+});
+
 test("run deletion removes exactly one run and reports partial deletion failures beneath .skia", () => {
   const repositoryRoot = createTempRepository();
   const firstRun = allocateRepositoryRun(
@@ -513,6 +569,53 @@ test("run deletion removes exactly one run and reports partial deletion failures
   assert.strictEqual(blockedDelete.deleted, false);
   assert.ok(blockedDelete.remaining_paths.length > 0);
   assert.match(blockedDelete.remaining_paths[0] ?? "", /dist\/20260810T010205Z/);
+});
+
+test("deleteRun stays read-only on fresh repositories and missing IDs", () => {
+  const freshRepositoryRoot = createTempRepository();
+  const freshBefore = snapshotRepositoryTree(freshRepositoryRoot);
+
+  assert.throws(
+    () => deleteRun(freshRepositoryRoot, "20260810T010203Z"),
+    /does not exist beneath \.skia/i,
+  );
+  assert.deepStrictEqual(snapshotRepositoryTree(freshRepositoryRoot), freshBefore);
+  assert.strictEqual(fs.existsSync(path.join(freshRepositoryRoot, ".skia")), false);
+
+  const distOnlyRepositoryRoot = createTempRepository();
+  allocateRepositoryRun(
+    distOnlyRepositoryRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T01:02:03Z"),
+  );
+  const distOnlyBefore = snapshotRepositoryTree(distOnlyRepositoryRoot);
+
+  assert.throws(
+    () => deleteRun(distOnlyRepositoryRoot, "20260810T020304Z"),
+    /does not exist beneath \.skia/i,
+  );
+  assert.deepStrictEqual(snapshotRepositoryTree(distOnlyRepositoryRoot), distOnlyBefore);
+  assert.strictEqual(
+    fs.existsSync(path.join(distOnlyRepositoryRoot, ".skia", "receipts")),
+    false,
+  );
+
+  const receiptsOnlyRepositoryRoot = createTempRepository();
+  writeStagedReceipt(
+    receiptsOnlyRepositoryRoot,
+    createStagedReceipt(brand<RunId>("20260810T010203Z")),
+  );
+  const receiptsOnlyBefore = snapshotRepositoryTree(receiptsOnlyRepositoryRoot);
+
+  assert.throws(
+    () => deleteRun(receiptsOnlyRepositoryRoot, "20260810T020304Z"),
+    /does not exist beneath \.skia/i,
+  );
+  assert.deepStrictEqual(snapshotRepositoryTree(receiptsOnlyRepositoryRoot), receiptsOnlyBefore);
+  assert.strictEqual(
+    fs.existsSync(path.join(receiptsOnlyRepositoryRoot, ".skia", "dist")),
+    false,
+  );
 });
 
 test("storage roots, run directories, metadata, and artifacts request owner-only permissions where supported", () => {

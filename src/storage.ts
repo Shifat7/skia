@@ -449,6 +449,34 @@ function receiptFilePath(repositoryRoot: string, receipt: StagedReceipt): string
   );
 }
 
+function matchingReceiptNames(receiptsRootPath: string, runId: RunId): readonly string[] {
+  return [...fs.readdirSync(receiptsRootPath)]
+    .filter((entryName) => entryName.startsWith(`${runId}-`) && entryName.endsWith("-session.json"))
+    .sort();
+}
+
+function resolveSingleReceiptName(
+  runIdInput: string,
+  runId: RunId,
+  receiptNames: readonly string[],
+): string | null {
+  if (receiptNames.length === 0) {
+    return null;
+  }
+
+  if (receiptNames.length > 1) {
+    throw createStorageError(`run ${runIdInput} matches multiple staged receipts beneath .skia`);
+  }
+
+  const [receiptName] = receiptNames;
+
+  if (receiptName === undefined) {
+    throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
+  }
+
+  return receiptName;
+}
+
 function validateCoverageArtifact(runDirectoryPath: string, artifactPath: RunArtifactPath): void {
   const coverage = parseJson<unknown>(artifactAbsolutePath(runDirectoryPath, artifactPath));
   const validation = validateCoverageEnvelope(coverage);
@@ -634,6 +662,20 @@ export function writeStagedReceipt(
     );
   }
 
+  const existingReceiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
+  if (existingReceiptsRoots !== null) {
+    const duplicateReceiptNames = matchingReceiptNames(
+      existingReceiptsRoots.leafRootPath,
+      validation.value.run_id,
+    );
+
+    if (duplicateReceiptNames.length > 0) {
+      throw createStorageError(
+        `run ${validation.value.run_id} already has a staged receipt beneath .skia`,
+      );
+    }
+  }
+
   const absolutePath = receiptFilePath(repositoryRoot, validation.value);
   const serializedReceipt = `${JSON.stringify(validation.value, null, 2)}\n`;
   writeNewFile(absolutePath, serializedReceipt);
@@ -735,16 +777,13 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
   const receiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
 
   if (receiptsRoots !== null) {
-    const matchingReceiptNames = fs.readdirSync(receiptsRoots.leafRootPath)
-      .filter((entryName) => entryName.startsWith(`${runId}-`) && entryName.endsWith("-session.json"));
+    const receiptName = resolveSingleReceiptName(
+      runIdInput,
+      runId,
+      matchingReceiptNames(receiptsRoots.leafRootPath, runId),
+    );
 
-    if (matchingReceiptNames.length === 1) {
-      const receiptName = matchingReceiptNames[0];
-
-      if (receiptName === undefined) {
-        throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
-      }
-
+    if (receiptName !== null) {
       const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, receiptName);
 
       return {
@@ -761,45 +800,41 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
 
 export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRunResult {
   const runId = validateRunId(runIdInput);
-  const { skiaRootPath, leafRootPath: repositoryDistRoot } = ensureStorageRoots(
-    repositoryRoot,
-    DIST_DIRECTORY_NAME,
-  );
-  const repositoryReceiptsRoot = ensureStorageRoots(
-    repositoryRoot,
-    RECEIPTS_DIRECTORY_NAME,
-  ).leafRootPath;
-  const runDirectoryPath = path.join(repositoryDistRoot, runId);
+  const repositoryDistRoots = readStorageRoots(repositoryRoot, DIST_DIRECTORY_NAME);
+  const receiptsRoots = readStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
 
-  if (fs.existsSync(runDirectoryPath)) {
-    return deleteTree(skiaRootPath, runDirectoryPath);
+  if (repositoryDistRoots !== null) {
+    const runDirectoryPath = path.join(repositoryDistRoots.leafRootPath, runId);
+
+    if (fs.existsSync(runDirectoryPath)) {
+      return deleteTree(repositoryDistRoots.skiaRootPath, runDirectoryPath);
+    }
   }
 
-  const matchingReceiptNames = fs.readdirSync(repositoryReceiptsRoot)
-    .filter((entryName) => entryName.startsWith(`${runId}-`) && entryName.endsWith("-session.json"));
+  if (receiptsRoots !== null) {
+    const receiptName = resolveSingleReceiptName(
+      runIdInput,
+      runId,
+      matchingReceiptNames(receiptsRoots.leafRootPath, runId),
+    );
 
-  if (matchingReceiptNames.length === 1) {
-    const receiptName = matchingReceiptNames[0];
+    if (receiptName !== null) {
+      const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, receiptName);
 
-    if (receiptName === undefined) {
-      throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
-    }
+      try {
+        fs.unlinkSync(absoluteReceiptPath);
+      } catch {
+        return {
+          deleted: false,
+          remaining_paths: collectRemainingPaths(receiptsRoots.skiaRootPath, absoluteReceiptPath),
+        };
+      }
 
-    const absoluteReceiptPath = path.join(repositoryReceiptsRoot, receiptName);
-
-    try {
-      fs.unlinkSync(absoluteReceiptPath);
-    } catch {
       return {
-        deleted: false,
-        remaining_paths: collectRemainingPaths(skiaRootPath, absoluteReceiptPath),
+        deleted: true,
+        remaining_paths: [],
       };
     }
-
-    return {
-      deleted: true,
-      remaining_paths: [],
-    };
   }
 
   throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
