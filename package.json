@@ -1,0 +1,36 @@
+{
+  "name": "skia",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Bootstrap shell for the Skia local comprehension CLI.",
+  "type": "module",
+  "sideEffects": false,
+  "packageManager": "npm@11.18.0",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "bin": {
+    "skia": "./dist/src/main.js"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "pretest": "npm run build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test dist/tests/*.test.js dist/tests/golden/*.test.js dist/tests/security/*.test.js",
+    "test:golden": "node --test dist/tests/golden/bootstrap.test.js",
+    "pretest:security": "npm run build",
+    "test:security": "node --test dist/tests/security/*.test.js"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "tree-sitter": "0.21.1",
+    "tree-sitter-python": "0.21.0",
+    "tree-sitter-typescript": "0.23.2"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

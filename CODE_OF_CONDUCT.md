@@ -61,4 +61,4 @@ appeal, and retention before contributor volume grows.
 
 Adapted from the principles of
 [Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct.html)
-for the current single-maintainer, documentation-only project.
+for the current single-maintainer, pre-release project.

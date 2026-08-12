@@ -11,13 +11,14 @@ request for private follow-up and no sensitive detail. Before runnable code or
 an external-agent adapter is released, the maintainer must enable GitHub private
 vulnerability reporting and publish a monitored private security contact.
 
-This volunteer documentation-only project does not yet promise a response SLA.
+This volunteer pre-release project does not yet promise a response SLA.
 A release policy must define acknowledgement, triage, remediation, disclosure,
 and supported-version timelines before users are asked to install code.
 
 ## Current scope
 
-There is no runnable software. Reports are still welcome for:
+There is a bootstrap package shell and test harness, but no implemented
+review/repository workflow. Reports are still welcome for:
 
 - misleading security, privacy, equivalence, coverage, or agent claims;
 - credentials, personal data, proprietary code, or sensitive architecture
@@ -36,8 +37,9 @@ The future CLI must treat these as untrusted:
 
 - Git repository metadata, configuration, status, paths, modes, objects, and
   diagnostics;
-- TypeScript source, comments, strings, documentation, manifests, lockfiles,
-  fixtures, generated/vendor files, and unsupported-language files;
+- TypeScript, TSX, and Python source, comments, strings, documentation,
+  manifests, lockfiles, fixtures, generated/vendor files, and
+  unsupported-language files;
 - terminal input and control characters;
 - agent/provider responses; and
 - existing `.skia/` paths and files.
@@ -89,11 +91,11 @@ Once source exists, pull-request and release checks must include:
 
 - pinned dependency and lockfile review;
 - formatting, lint, tests, schemas, and golden artifacts;
-- Rust dependency advisory and license checks;
+- Node.js/TypeScript dependency advisory and license checks;
 - secret scanning and targeted generated-artifact checks;
 - reproducible release process, checksums, provenance/SBOM where feasible, and
   signed release guidance; and
 - a supported-version and vulnerability-disclosure policy.
 
-Do not publish a binary or package until these controls, the project rename,
-and private reporting channel are in place.
+Do not publish a binary or package until these controls, the retained-name
+distribution decision, and private reporting channel are in place.

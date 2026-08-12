@@ -6,22 +6,25 @@ are experiment starting points, not validated truths.
 
 ---
 
-## OD-1: Project and command name (release blocker)
+## OD-1: Project and command name (release risk)
 
-**Question:** What unique project and command name replaces "Skia"?
+**Question:** How can the retained "Skia" project and `skia` command be
+distributed and documented without creating search or registry confusion?
 
-Google's [Skia graphics project](https://github.com/google/skia),
-[skia.org](https://skia.org/), the existing
-[`skia` Rust crate registry record](https://crates.io/api/v1/crates/skia), and the existing
-[`skia` npm package](https://www.npmjs.com/package/skia) make the current name
-unusable for clear search and registry identity.
+Google’s [Skia graphics project](https://github.com/google/skia),
+[skia.org](https://skia.org/), and the existing
+[`skia` npm package](https://www.npmjs.com/package/skia) create search and
+registry ambiguity for the current name.
 
-**Decision rule:** Verify trademark/search risk plus command and intended
-registry availability. Rename the command, `.skia/` directory, schemas, examples,
-and documentation atomically before release.
+**Current maintainer decision:** Retain the `Skia`/`skia` name for now. Do not
+rename the command, `.skia/` directory, schemas, examples, or documentation as
+part of Phase 1.
+
+**Decision rule:** Before publication, document accepted search, trademark, and
+registry risk, or obtain a deliberate maintainer decision to rename atomically.
 
 **Blocks:** Package publication, release binaries, install docs, public launch,
-and stable artifact paths.
+and stable artifact paths; it does not block Phase 1 implementation.
 
 ---
 
@@ -73,23 +76,37 @@ the card becomes trivia or ritual.
 
 ---
 
-## OD-4: Atomic staged snapshot strategy
+## OD-4: Atomic staged snapshot strategy (decided)
 
 **Question:** Which read-only design binds diff, paths, modes, blob bytes, and
 receipt to one immutable logical index state?
 
-**Candidate approaches:**
+**Decision:** Use a copied temporary index addressed through `GIT_INDEX_FILE`.
+Open the live index once, copy those bytes into a create-new owner-only file
+beneath `.skia/tmp/`, hash the copied bytes with SHA-256, and run all status,
+diff, mode, and blob discovery against that copy. Do not write a tree or any
+other Git object.
 
-- copied temporary index addressed through `GIT_INDEX_FILE`;
-- index checksum plus ordered blob-OID manifest and final revalidation; or
-- another design proven by concurrent mutation tests.
+Before interaction, open and hash the live index again. If it differs, discard
+the candidate and retry the complete capture at most twice more (three total
+attempts). A third mismatch stops with `index_changed`; no mixed snapshot or
+partial receipt is accepted. A successful snapshot identity binds the base OID,
+copied-index SHA-256, ordered raw path/mode/base-blob/staged-blob manifest, and
+SHA-256 of canonical staged patch bytes. Canonical patch generation uses the
+captured index, structured Git arguments, binary/full-index output, disabled
+external diff and text conversion, and the fixed environment from
+[ARCHITECTURE.md](../ARCHITECTURE.md).
 
-**Constraint:** Do not write Git objects merely to create an immutable tree.
-All statuses must be discovered before supported filtering. Lazy fetch and
-optional locks remain disabled.
+The complete NUL-delimited status set is captured before supported filtering.
+Captured blob OIDs and bytes are the only source after acceptance. Lazy fetch
+and optional locks remain disabled. Race fixtures must mutate the live index
+before copy, during copy, between discovery commands, before final validation,
+and after acceptance; every accepted result must contain one index generation
+and every rejected result must leave Git state unchanged.
 
-**Decision rule:** Choose the smallest approach that passes index-race,
-partial-clone, path-byte, status, mode, and zero-Git-write tests.
+**Consequences:** Task 4 implements only this strategy. Temporary index files
+are local process state, never artifact identity or user-visible paths, and are
+removed after success or failure under the OD-11 incomplete-run policy.
 
 ---
 
@@ -157,14 +174,22 @@ wrong.
 
 ---
 
-## OD-9: TypeScript-first repository boundaries
+## OD-9: TypeScript/Python repository boundaries
 
 **Question:** Which manifests, configuration, docs, generated/vendor paths,
 fixtures, and import-resolution forms are included?
 
-**Current proposal:** Detailed behavior is TS/TSX only. Manifests,
-configuration, lockfiles, and docs inform structure. Other languages are
-inventory-level unsupported coverage.
+**Current proposal:** Detailed behavior is supported for TypeScript, TSX, and
+Python. Manifests, configuration, lockfiles, and docs inform structure. Other
+languages are inventory-level unsupported coverage. TypeScript-to-Python
+resolution and cross-language behavior remain unresolved.
+
+Task 0 freezes the source discriminants and parser matrix as `typescript`,
+`tsx`, and `python` in
+[docs/IMPLEMENTATION_SPEC.md](IMPLEMENTATION_SPEC.md#frozen-source-language-contract).
+Python-specific semantic reduction and cross-language resolution remain
+deferred; OD-9 stays open only for the broader repository inclusion matrix and
+resource limits.
 
 **Decision rule:** Freeze a versioned inclusion/status matrix and resource
 limits. Add one new resolver or source category only with dedicated fixtures and
@@ -172,20 +197,27 @@ coverage semantics.
 
 ---
 
-## OD-10: Timestamp and collision format
+## OD-10: Timestamp and collision format (decided)
 
 **Question:** Is second-resolution basic ISO 8601 plus a collision suffix the
 right local run identity?
 
-**Current proposal:** `YYYYMMDDTHHMMSSZ`; atomically allocate `-01`, `-02`, and
-so on when needed. Directory and every filename use the resolved run ID.
+**Decision:** A run ID matches `^[0-9]{8}T[0-9]{6}Z(?:-[0-9]{2})?$`. Format the
+UTC creation instant as `YYYYMMDDTHHMMSSZ`. Attempt the unsuffixed ID first,
+then `-01` through `-99` in lexical order. Allocate each candidate with one
+atomic create-new directory operation; `EEXIST` advances to the next candidate,
+any other error fails, and exhausting `-99` fails with `run_id_exhausted`.
+Never wait for the clock, overwrite, reuse, or randomly alter an ID.
 
-**Decision rule:** Verify path safety, lexical ordering, cross-platform behavior,
-concurrent creation, and usability before schema version 1 freezes.
+The resolved run ID is immutable and appears in the run directory, every
+artifact filename, and the manifest/receipt. Manifest timestamps use RFC 3339
+UTC separately. Tests must cover UTC conversion, lexical ordering, clock
+rollback, invalid IDs, concurrent allocation, `-99` exhaustion, and platforms
+where atomic directory creation or owner-only permissions are unavailable.
 
 ---
 
-## OD-11: Local artifact retention and deletion
+## OD-11: Local artifact retention and deletion (decided)
 
 **Questions:**
 
@@ -194,12 +226,29 @@ concurrent creation, and usability before schema version 1 freezes.
 - What does `runs inspect` redact?
 - What deletion guarantees can be made across platforms?
 
-**Current proposal:** No automatic upload, sharing, tracked export, or team
-surface. Provide list, inspect, and delete. Files use atomic create-new and
-owner-only permissions where supported.
+**Decision:** There is no age-based automatic retention or background cleanup.
+Complete runs persist locally until an explicit exact-ID `runs delete` succeeds.
+An incomplete run is removed automatically at command exit when safe; if any
+cleanup step fails, it remains marked `incomplete`, is visible to `runs list`,
+and requires explicit deletion. Temporary copied indexes are always cleanup
+targets and are never retained as diagnostic artifacts.
 
-**Decision rule:** Test with developers and security reviewers. Do not keep full
-architecture history by default without a clear user benefit.
+`runs list` returns only run ID, mode, completion state, creation/completion
+time, snapshot identifier, and artifact byte count. `runs inspect <run-id>` is
+metadata-only in Phase 1: it validates the ID and manifest, reports coverage,
+errors, artifact names/hashes, and agent disclosure, and does not print source
+excerpts, prompts/model output, or an absolute repository path. Content is read
+directly from the local artifact files only by an explicit user action outside
+the Phase 1 inspect command.
+
+`runs delete <run-id>` accepts one exact grammar-valid ID, refuses symlinks or
+paths escaping `.skia/`, never follows links, and reports partial deletion
+non-zero with every remaining path. Success guarantees only that the named run
+path does not exist when the command returns. It does not promise secure erase,
+media sanitization, deletion from backups/snapshots, or prevention of forensic
+recovery. There is no automatic upload, sharing, tracked export, or team
+surface. Owner-only permissions are used where supported; weaker platform
+semantics are disclosed before artifact creation.
 
 ---
 
@@ -241,8 +290,9 @@ pivot/stop criteria.
   `THEN`; `BECAUSE` and `IMPACT` are conditional.
 - **Feedback order:** Persist prediction before source-check feedback.
 - **Staged budget:** Provisional maximum 3 supported entities and 150
-  added-plus-deleted TypeScript lines; refuse rather than silently sample.
-- **Repository scope:** Agent-assisted, TypeScript-first detailed analysis;
+  added-plus-deleted supported-language lines; refuse rather than silently
+  sample.
+- **Repository scope:** Agent-assisted, TypeScript/Python detailed analysis;
   manifests/config/docs inform structure; other languages remain explicit
   unsupported coverage.
 - **Repository checks:** One architecture card plus developer-selected subsystem

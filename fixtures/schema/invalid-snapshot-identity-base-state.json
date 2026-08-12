@@ -1,0 +1,21 @@
+{
+  "kind": "staged",
+  "checkout": {
+    "state": "branch",
+    "branch_name": "main"
+  },
+  "base_state": "present",
+  "base_commit": null,
+  "copied_index_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "live_index_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "diff_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "entries": [
+    {
+      "path": "src/example.ts",
+      "mode": "100644",
+      "language": "typescript",
+      "base_blob_oid": "2222222222222222222222222222222222222222",
+      "snapshot_blob_oid": "3333333333333333333333333333333333333333"
+    }
+  ]
+}

@@ -3,8 +3,9 @@
 ## Current structure
 
 Skia is maintained by Shifat Rahman. The maintainer owns scope, release,
-security, and merge decisions. The project is documentation-only and has no
-runnable product or users.
+security, and merge decisions. The project is pre-release, currently has only a
+bootstrap package shell, and has no working review/repository workflow or
+users.
 
 ## Decision principles
 

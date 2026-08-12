@@ -1,9 +1,11 @@
 # Contributing to Skia
 
-> **Documentation-only stage.** There is no source, build, test suite, CLI,
-> package, generated HLD/LLD, or release. Current contributions are design,
-> evidence, synthetic fixtures, schemas, documentation, and documentation
-> automation proposals.
+> **Phase 1 foundation stage.** The repository contains exact Git snapshots,
+> schema and coverage validation, TypeScript/TSX/Python analysis, local storage,
+> build scripts, and tests. It still has no runnable review/repository
+> workflows, generated HLD/LLD, or release. Current contributions remain
+> documentation, evidence, synthetic fixtures, contracts, and bounded
+> implementation slices.
 
 ---
 
@@ -11,12 +13,13 @@
 
 The product now has two proposed modes:
 
-- staged collapsed equivalence evidence plus a minimal Behavior Card; and
-- an agent-assisted TypeScript-first repository snapshot with timestamped local
-  HLD/LLD and architecture/selected-subsystem checks.
+- staged simplified evidence plus a minimal Behavior Card; and
+- an agent-assisted TypeScript/TSX/Python repository snapshot with timestamped
+  local HLD/LLD and architecture/selected-subsystem checks.
 
 Before opening a contribution, read the documents you affect and their direct
-references. The canonical contracts are:
+references. Start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) if
+you are new to the repository. The canonical contracts are:
 
 - [PRD.md](PRD.md) for product behavior and truth boundaries;
 - [ARCHITECTURE.md](ARCHITECTURE.md) for technical design;
@@ -24,7 +27,8 @@ references. The canonical contracts are:
 - [docs/artifacts/README.md](docs/artifacts/README.md) for output examples;
 - [docs/VALIDATION.md](docs/VALIDATION.md) for evidence and prohibited claims;
   and
-- [docs/OPEN_DECISIONS.md](docs/OPEN_DECISIONS.md) for unresolved choices.
+- [docs/OPEN_DECISIONS.md](docs/OPEN_DECISIONS.md) for unresolved choices; and
+- [docs/decisions/](docs/decisions/) for accepted architectural rationale.
 
 ---
 
@@ -66,12 +70,12 @@ A documentation change must not claim:
 - privacy without disclosing any external-agent boundary; or
 - professional comprehension benefit before a valid experiment.
 
-### 3.2 Staged collapsed-evidence fixtures
+### 3.2 Staged simplified-evidence fixtures
 
 Use the benchmark fixture issue form. A useful fixture is synthetic, generally
 10 to 50 changed lines, and provides:
 
-- base and staged TypeScript/TSX source;
+- base and staged TypeScript/TSX/Python source;
 - unified staged diff;
 - expected supported entity ownership, or explicit unsupported outcome;
 - expected compact relations and base/staged source anchors;
@@ -92,7 +96,7 @@ manifest-style description, not a private repository archive.
 
 A useful repository fixture states:
 
-- TS/TSX, manifest, configuration, documentation, generated/vendor, fixture,
+- TS/TSX/Python, manifest, configuration, documentation, generated/vendor, fixture,
   unsupported-language, and failure classifications;
 - packages/workspaces, entry points, imports, direct calls, and unresolved
   edges;
@@ -121,7 +125,7 @@ Use the design feedback form. High-value topics include:
 Map proposals to specific acceptance criteria in IMPLEMENTATION_PLAN.md. Include
 alternatives, trade-offs, failure modes, security/privacy impact, resource
 limits, fixtures, and verification commands. Unrequested product source code is
-not accepted during the documentation-only stage.
+not accepted outside the current maintainer-approved implementation slice.
 
 ---
 

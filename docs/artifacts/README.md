@@ -70,10 +70,60 @@ The reducer stores each displayed relation with source anchors and coverage:
 `relation` is a compact review representation. It is not executable code or
 semantic-equivalence proof.
 
+### Complex behavior example
+
+For a change that combines authorization with multiple side effects, the
+collapsed view must preserve order and uncertainty instead of flattening the
+whole function into one optimistic sentence:
+
+```text
+archiveProject(projectId, userId)
+
+project missing                    -> not_found; no writes
+caller is not owner AND not admin  -> forbidden; no writes
+project already archived            -> already_archived; no writes
+otherwise:
+  update project status             -> archived
+  write audit event                 -> project.archived
+  enqueue owner notification        -> project-archived
+
+Coverage: supported for the shown branch conditions and call order.
+Boundary: failure after the status update is not a rollback guarantee;
+inspect the transaction and dependency contracts in the original source.
+```
+
+The associated behavior card should ask about a concrete branch while keeping
+the side-effect boundary visible:
+
+```text
+Given: project exists, caller is an admin, status="active"
+When:  archiveProject(projectId, userId)
+Expected: status update, audit write, and notification enqueue, in that order
+> _________________________________________________
+```
+
+For a Python retry loop, the same output shape distinguishes retryable and
+non-retryable failures:
+
+```text
+sync_customer(customer_id)
+
+local customer missing             -> missing; no API call
+API returns 404                    -> mark deleted; return deleted
+API returns 2xx                    -> upsert response; return updated
+timeout on attempt 1 or 2         -> sleep 2s or 4s; retry
+timeout on attempt 3               -> mark retry_later; return retry_later
+other HTTP error                   -> raise; no retry path shown
+```
+
+The prediction for `HTTP 500 on attempt 1` is therefore “raise; do not retry,”
+not “retry three times.” That distinction is exactly the kind of behavior a
+large AI-generated diff can hide.
+
 ### Unmapped output
 
 ```text
-WARNING: 7 changed TypeScript lines are unmapped.
+WARNING: 7 changed TypeScript/Python lines are unmapped.
 Collapsed evidence does not cover imports, a deleted callback, or a compound
 stateful branch.
 
@@ -168,7 +218,7 @@ The normative receipt will be a JSON Schema fixture. At minimum it binds:
 - schema/tool version and completion timestamp;
 - base commit, branch/detached/unborn state, immutable index identity, ordered
   paths/modes/blob OIDs, and canonical diff hash;
-- total, mapped, and unmapped changed TypeScript lines;
+- total, mapped, and unmapped changed supported-language lines;
 - one entity entry per supported prompt;
 - collapsed evidence and source anchors;
 - system scenario, pre-feedback developer prediction, optional later
@@ -213,7 +263,7 @@ the directory, every filename, and the manifest.
 ```text
 Repository architecture draft
 Snapshot: c8d1a1885f52b1664a6266900296f1ce0886b715
-Coverage: TypeScript-first; see repo-coverage-20260805T001500Z.json
+Coverage: TypeScript/Python; see repo-coverage-20260805T001500Z.json
 Generation: model_derived via configured agent
 Authority: review aid, not maintained architecture or runtime proof
 ```
@@ -295,7 +345,7 @@ subset; otherwise they remain ungraded or `not_checkable`.
 `repo-coverage-<run-id>.json` records every captured tree entry as included,
 excluded, unsupported, or failed. It includes:
 
-- scanned TS/TSX files and bytes;
+- scanned TS/TSX/Python files and bytes;
 - manifests, configuration, lockfiles, and docs used for structure;
 - generated/vendor/fixture/ignored classifications;
 - other source-language inventory;

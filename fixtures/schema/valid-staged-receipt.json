@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "run_id": "20260810T010203Z",
+  "session_id": "8f5d1a2c",
+  "status": "complete",
+  "completed_at": "2026-08-10T01:02:03Z",
+  "snapshot": {
+    "kind": "staged",
+    "checkout": {
+      "state": "branch",
+      "branch_name": "main"
+    },
+    "base_state": "present",
+    "base_commit": "1111111111111111111111111111111111111111",
+    "copied_index_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "live_index_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "diff_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "entries": [
+      {
+        "path": "src/example.ts",
+        "mode": "100644",
+        "language": "typescript",
+        "base_blob_oid": "2222222222222222222222222222222222222222",
+        "snapshot_blob_oid": "3333333333333333333333333333333333333333"
+      }
+    ]
+  },
+  "coverage": {
+    "summary": {
+      "total_units": 1,
+      "supported_units": 1,
+      "partial_units": 0,
+      "unmapped_units": 0,
+      "unsupported_units": 0,
+      "excluded_units": 0,
+      "failed_units": 0,
+      "unchecked_units": 0
+    },
+    "events": [
+      {
+        "id": "coverage-1",
+        "coverage": "supported",
+        "units": 1,
+        "reason": null,
+        "path": "src/example.ts",
+        "language": "typescript",
+        "anchors": []
+      }
+    ]
+  },
+  "artifact_hashes": [
+    {
+      "kind": "receipt",
+      "path": "receipts/20260810T010203Z-8f5d1a2c-session.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "errors": [],
+  "privacy_caveat": "Local receipt may contain sensitive code-derived claims; inspect and delete when no longer needed."
+}

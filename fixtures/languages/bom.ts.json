@@ -1,0 +1,4 @@
+{
+  "source": "export const withBom = 1;\n",
+  "with_utf8_bom": true
+}
