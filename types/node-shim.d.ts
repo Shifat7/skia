@@ -77,7 +77,8 @@ declare module "node:fs" {
     position?: number,
     encoding?: "utf8",
   ): number;
-  export function readFileSync(path: string): Uint8Array;
+  export function readFileSync(path: string | number): Uint8Array;
+  export function readFileSync(path: number, encoding: "utf8"): string;
   export function readFileSync(path: string, encoding: "utf8"): string;
   export function readdirSync(path: string, options?: ReaddirOptions): readonly string[];
   export function realpathSync(path: string): string;
@@ -121,6 +122,11 @@ declare module "node:fs" {
   };
 
   export default fs;
+}
+
+declare class URL {
+  constructor(url: string, base?: string | URL);
+  readonly pathname: string;
 }
 
 declare module "node:path" {
@@ -184,12 +190,19 @@ declare module "node:util" {
 declare module "node:process" {
   const process: {
     cwd(): string;
+    stdout: {
+      write(value: string): void;
+    };
     readonly env: Readonly<Record<string, string | undefined>>;
     readonly pid: number;
     readonly platform: string;
   };
 
   export default process;
+}
+
+declare module "node:url" {
+  export function fileURLToPath(url: URL | string): string;
 }
 
 declare module "node:child_process" {

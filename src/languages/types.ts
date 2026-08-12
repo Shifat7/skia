@@ -61,12 +61,19 @@ export type LanguageParserFactory = (
   registration: LanguageRegistration,
 ) => LanguageParser;
 
+export interface ParserIsolationCommand {
+  readonly command: string;
+  readonly args?: readonly string[];
+}
+
 export interface AnalyzeSourceFileOptions {
   readonly bytes: Uint8Array;
   readonly coverage_event_id: CoverageEventId;
   readonly max_bytes: number;
   readonly mode: string;
   readonly parser_factory?: LanguageParserFactory;
+  readonly parser_isolation_command?: ParserIsolationCommand;
+  readonly parse_timeout_ms?: number;
   readonly path: string;
   readonly snapshot_kind: SnapshotKind;
   readonly status: string | null;

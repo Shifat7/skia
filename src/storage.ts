@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import process from "node:process";
 import { isDeepStrictEqual } from "node:util";
 
 import {
@@ -27,6 +28,7 @@ import {
   validateRelativePath,
   validateRunArtifactPath,
   validateRunId,
+  validateSessionId,
 } from "./paths.js";
 import {
   validateCoverageEnvelope,
@@ -129,6 +131,11 @@ interface ExistingRunTargets {
   readonly claimPath: string | null;
 }
 
+interface ParsedReceiptFileName {
+  readonly runId: RunId;
+  readonly sessionId: StagedReceipt["session_id"];
+}
+
 let storageTestHooks: StorageTestHooks | null = null;
 
 function createStorageError(message: string): Error {
@@ -147,6 +154,25 @@ function parseJson<T>(filePath: string): T {
   return JSON.parse(fs.readFileSync(filePath, "utf8")) as T;
 }
 
+function posixPermissionBitsAvailable(): boolean {
+  return process.platform !== "win32";
+}
+
+function assertSafeDirectoryPermissions(
+  stats: ReturnType<typeof fs.lstatSync>,
+  label: string,
+): void {
+  if (!posixPermissionBitsAvailable()) {
+    return;
+  }
+
+  if ((stats.mode & 0o022) !== 0) {
+    throw createStorageError(
+      `${label} unsafe_permissions: directory must not be group/world writable`,
+    );
+  }
+}
+
 function ensureDirectory(directoryPath: string, label: string): void {
   if (!fs.existsSync(directoryPath)) {
     fs.mkdirSync(directoryPath, { mode: OWNER_DIRECTORY_MODE });
@@ -161,6 +187,8 @@ function ensureDirectory(directoryPath: string, label: string): void {
   if (!stats.isDirectory()) {
     throw createStorageError(`${label} must be a directory`);
   }
+
+  assertSafeDirectoryPermissions(stats, label);
 }
 
 function assertExistingDirectory(directoryPath: string, label: string): void {
@@ -173,6 +201,8 @@ function assertExistingDirectory(directoryPath: string, label: string): void {
   if (!stats.isDirectory()) {
     throw createStorageError(`${label} must be a directory`);
   }
+
+  assertSafeDirectoryPermissions(stats, label);
 }
 
 function ensureStorageRoots(repositoryRoot: string, leafDirectoryName: string): {
@@ -244,7 +274,17 @@ function assertNoSymlinkInPath(rootPath: string, absolutePath: string): void {
     currentPath.startsWith(`${normalizedRootPath}/`) ||
     currentPath.startsWith(`${normalizedRootPath}\\`)
   ) {
-    if (fs.existsSync(currentPath) && fs.lstatSync(currentPath).isSymbolicLink()) {
+    let stats: ReturnType<typeof fs.lstatSync> | null = null;
+
+    try {
+      stats = fs.lstatSync(currentPath);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
+    }
+
+    if (stats?.isSymbolicLink()) {
       throw createStorageError("artifact path must not follow a symlink outside .skia");
     }
 
@@ -254,6 +294,47 @@ function assertNoSymlinkInPath(rootPath: string, absolutePath: string): void {
 
     currentPath = path.dirname(currentPath);
   }
+}
+
+function assertContainedAbsolutePath(rootPath: string, absolutePath: string): void {
+  const normalizedRoot = path.resolve(rootPath);
+  const normalizedPath = path.resolve(absolutePath);
+
+  if (
+    normalizedPath !== normalizedRoot &&
+    !normalizedPath.startsWith(`${normalizedRoot}/`) &&
+    !normalizedPath.startsWith(`${normalizedRoot}\\`)
+  ) {
+    throw createStorageError("path escapes the protected .skia root");
+  }
+}
+
+function assertRegularStorageFile(
+  rootPath: string,
+  filePath: string,
+  label: string,
+): void {
+  assertContainedAbsolutePath(rootPath, filePath);
+  assertNoSymlinkInPath(rootPath, filePath);
+
+  const stats = fs.lstatSync(filePath);
+
+  if (stats.isSymbolicLink()) {
+    throw createStorageError(`${label} must not be a symlink`);
+  }
+
+  if (!stats.isFile()) {
+    throw createStorageError(`${label} must be a regular file`);
+  }
+}
+
+function parseRegularJson<T>(
+  rootPath: string,
+  filePath: string,
+  label: string,
+): T {
+  assertRegularStorageFile(rootPath, filePath, label);
+  return parseJson<T>(filePath);
 }
 
 function writeNewFile(filePath: string, data: string | Uint8Array): void {
@@ -346,7 +427,11 @@ function totalArtifactBytes(runDirectoryPath: string): number {
 }
 
 function parseRepositoryMetadata(runDirectoryPath: string): IncompleteRepositoryRunMetadata {
-  return parseJson<IncompleteRepositoryRunMetadata>(path.join(runDirectoryPath, RUN_METADATA_FILENAME));
+  return parseRegularJson<IncompleteRepositoryRunMetadata>(
+    runDirectoryPath,
+    path.join(runDirectoryPath, RUN_METADATA_FILENAME),
+    "repository run metadata",
+  );
 }
 
 function parseRepositoryMetadataOrNull(
@@ -361,8 +446,15 @@ function parseRepositoryMetadataOrNull(
   return parseRepositoryMetadata(runDirectoryPath);
 }
 
-function validateRepositoryManifestFile(filePath: string): RepositoryManifest {
-  const manifest = parseJson<unknown>(filePath);
+function validateRepositoryManifestFile(
+  runDirectoryPath: string,
+  filePath: string,
+): RepositoryManifest {
+  const manifest = parseRegularJson<unknown>(
+    runDirectoryPath,
+    filePath,
+    "repository manifest",
+  );
   const validation = validateRepositoryManifest(manifest);
 
   if (!validation.valid) {
@@ -376,8 +468,15 @@ function validateRepositoryManifestFile(filePath: string): RepositoryManifest {
   return validation.value;
 }
 
-function validateStagedReceiptFile(filePath: string): StagedReceipt {
-  const receipt = parseJson<unknown>(filePath);
+function validateStagedReceiptFile(
+  skiaRootPath: string,
+  filePath: string,
+): StagedReceipt {
+  const receipt = parseRegularJson<unknown>(
+    skiaRootPath,
+    filePath,
+    "staged receipt",
+  );
   const validation = validateStagedReceipt(receipt);
 
   if (!validation.valid) {
@@ -406,13 +505,19 @@ function collectRemainingPaths(
   skiaRootPath: string,
   absolutePath: string,
 ): readonly string[] {
-  if (!fs.existsSync(absolutePath)) {
-    return [];
+  let stats: ReturnType<typeof fs.lstatSync>;
+
+  try {
+    stats = fs.lstatSync(absolutePath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
+
+    throw error;
   }
 
-  const stats = fs.lstatSync(absolutePath);
-
-  if (!stats.isDirectory() || stats.isSymbolicLink()) {
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
     return [relativePathUnderSkia(skiaRootPath, absolutePath)];
   }
 
@@ -431,22 +536,26 @@ function deleteTree(
   skiaRootPath: string,
   absolutePath: string,
 ): DeleteRunResult {
+  assertContainedAbsolutePath(skiaRootPath, absolutePath);
+  assertNoSymlinkInPath(skiaRootPath, absolutePath);
   const failures: string[] = [];
 
   function visit(entryPath: string): void {
-    if (!fs.existsSync(entryPath)) {
-      return;
-    }
+    let stats: ReturnType<typeof fs.lstatSync>;
 
-    const stats = fs.lstatSync(entryPath);
-
-    if (stats.isDirectory() && !stats.isSymbolicLink()) {
-      for (const childName of fs.readdirSync(entryPath)) {
-        visit(path.join(entryPath, childName));
+    try {
+      stats = fs.lstatSync(entryPath);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        return;
       }
 
+      throw error;
+    }
+
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
       try {
-        fs.rmdirSync(entryPath);
+        fs.unlinkSync(entryPath);
       } catch {
         failures.push(relativePathUnderSkia(skiaRootPath, entryPath));
       }
@@ -454,8 +563,12 @@ function deleteTree(
       return;
     }
 
+    for (const childName of fs.readdirSync(entryPath)) {
+      visit(path.join(entryPath, childName));
+    }
+
     try {
-      fs.unlinkSync(entryPath);
+      fs.rmdirSync(entryPath);
     } catch {
       failures.push(relativePathUnderSkia(skiaRootPath, entryPath));
     }
@@ -463,14 +576,38 @@ function deleteTree(
 
   visit(absolutePath);
 
-  const remainingPaths = failures.length === 0
-    ? collectRemainingPaths(skiaRootPath, absolutePath)
-    : collectRemainingPaths(skiaRootPath, absolutePath);
+  const remainingPaths = collectRemainingPaths(skiaRootPath, absolutePath);
 
   return {
     deleted: remainingPaths.length === 0,
     remaining_paths: remainingPaths,
   };
+}
+
+function assertReceiptFileBinding(
+  entryName: string,
+  receipt: StagedReceipt,
+): void {
+  const parsedName = parseStagedReceiptFileName(entryName);
+
+  if (
+    parsedName === null ||
+    parsedName.runId !== receipt.run_id ||
+    parsedName.sessionId !== receipt.session_id
+  ) {
+    throw createStorageError(
+      `staged receipt filename ${entryName} does not match its envelope identity`,
+    );
+  }
+}
+
+function receiptOwnedArtifactPaths(
+  skiaRootPath: string,
+  receipt: StagedReceipt,
+): readonly string[] {
+  return receipt.artifact_hashes
+    .filter((artifact) => artifact.kind !== "receipt")
+    .map((artifact) => validateContainedPath(skiaRootPath, artifact.path));
 }
 
 function runIdClaimFilePath(repositoryRoot: string, runId: RunId): string {
@@ -486,9 +623,32 @@ function receiptFilePath(repositoryRoot: string, receipt: StagedReceipt): string
   );
 }
 
+function parseStagedReceiptFileName(entryName: string): ParsedReceiptFileName | null {
+  const match =
+    /^([0-9]{8}T[0-9]{6}Z(?:-[0-9]{2})?)-([a-z0-9]{8,32})-session\.json$/.exec(entryName);
+
+  if (match === null) {
+    return null;
+  }
+
+  const [, runIdValue, sessionIdValue] = match;
+
+  if (runIdValue === undefined || sessionIdValue === undefined) {
+    return null;
+  }
+
+  return {
+    runId: validateRunId(runIdValue),
+    sessionId: validateSessionId(sessionIdValue),
+  };
+}
+
 function matchingReceiptNames(receiptsRootPath: string, runId: RunId): readonly string[] {
   return [...fs.readdirSync(receiptsRootPath)]
-    .filter((entryName) => entryName.startsWith(`${runId}-`) && entryName.endsWith("-session.json"))
+    .filter((entryName) => {
+      const parsedName = parseStagedReceiptFileName(entryName);
+      return parsedName !== null && parsedName.runId === runId;
+    })
     .sort();
 }
 
@@ -1003,7 +1163,7 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
       const manifestPath = path.join(runDirectoryPath, deriveRepositoryManifestPath(runId));
 
       if (fs.existsSync(manifestPath)) {
-        const manifest = validateRepositoryManifestFile(manifestPath);
+        const manifest = validateRepositoryManifestFile(runDirectoryPath, manifestPath);
         runs.push({
           run_id: manifest.run_id,
           mode: "repo_review",
@@ -1029,7 +1189,14 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
         continue;
       }
 
-      const receipt = validateStagedReceiptFile(receiptPath);
+      const parsedName = parseStagedReceiptFileName(entryName);
+
+      if (parsedName === null) {
+        continue;
+      }
+
+      const receipt = validateStagedReceiptFile(repositoryReceiptsRoots.skiaRootPath, receiptPath);
+      assertReceiptFileBinding(entryName, receipt);
       runs.push({
         run_id: receipt.run_id,
         mode: "review",
@@ -1061,7 +1228,9 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
       run_id: runId,
       metadata,
       manifest_path: deriveRepositoryManifestPath(runId),
-      manifest: fs.existsSync(manifestPath) ? validateRepositoryManifestFile(manifestPath) : null,
+      manifest: fs.existsSync(manifestPath)
+        ? validateRepositoryManifestFile(targets.repositoryRunDirectoryPath, manifestPath)
+        : null,
     };
   }
 
@@ -1073,12 +1242,14 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
     }
 
     const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, targets.receiptName);
+    const receipt = validateStagedReceiptFile(receiptsRoots.skiaRootPath, absoluteReceiptPath);
+    assertReceiptFileBinding(targets.receiptName, receipt);
 
     return {
       kind: "review",
       run_id: runId,
       receipt_path: validateRunArtifactPath(`receipts/${targets.receiptName}`),
-      receipt: validateStagedReceiptFile(absoluteReceiptPath),
+      receipt,
     };
   }
 
@@ -1117,13 +1288,32 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
 
     const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, targets.receiptName);
 
-    try {
-      fs.unlinkSync(absoluteReceiptPath);
-    } catch {
+    const receipt = validateStagedReceiptFile(receiptsRoots.skiaRootPath, absoluteReceiptPath);
+    assertReceiptFileBinding(targets.receiptName, receipt);
+    const deleteTargets = [
+      ...receiptOwnedArtifactPaths(receiptsRoots.skiaRootPath, receipt),
+    ];
+    const failures: string[] = [];
+
+    for (const target of deleteTargets) {
+      const result = deleteTree(receiptsRoots.skiaRootPath, target);
+      failures.push(...result.remaining_paths);
+    }
+
+    if (failures.length > 0) {
       return {
         deleted: false,
-        remaining_paths: collectRemainingPaths(receiptsRoots.skiaRootPath, absoluteReceiptPath),
+        remaining_paths: [...new Set(failures)].sort(),
       };
+    }
+
+    const receiptDeleteResult = deleteTree(
+      receiptsRoots.skiaRootPath,
+      absoluteReceiptPath,
+    );
+
+    if (!receiptDeleteResult.deleted) {
+      return receiptDeleteResult;
     }
 
     return removeRunIdClaim(repositoryRoot, runId);

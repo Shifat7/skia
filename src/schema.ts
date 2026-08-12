@@ -12,6 +12,7 @@ import {
   coverageEnvelopeSchema,
   RFC3339_UTC_PATTERN,
 } from "../schemas/shared.js";
+import { deriveRepositoryArtifactPath } from "./paths.js";
 import type {
   ArtifactDescriptor,
   ArtifactHashRecord,
@@ -21,6 +22,7 @@ import type {
   RepositoryManifest,
   SnapshotEntry,
   SnapshotIdentity,
+  ManifestArtifactKind,
   SourceAnchor,
   StagedReceipt,
 } from "./types.js";
@@ -129,6 +131,29 @@ function validRfc3339Utc(value: string): boolean {
   );
 }
 
+function runIdToRfc3339Utc(value: string): string {
+  return (
+    `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}` +
+    `T${value.slice(9, 11)}:${value.slice(11, 13)}:${value.slice(13, 15)}Z`
+  );
+}
+
+function runIdCalendarErrors(
+  runId: string,
+): readonly SchemaValidationError[] {
+  if (validRfc3339Utc(runIdToRfc3339Utc(runId))) {
+    return [];
+  }
+
+  return [
+    {
+      instance_path: "/run_id",
+      keyword: "run_id_calendar",
+      message: "run_id must be a real UTC calendar timestamp",
+    },
+  ];
+}
+
 function completionTimestampErrors(value: {
   readonly status: string;
   readonly completed_at: string | null;
@@ -183,9 +208,14 @@ function duplicateValues(
   return [...duplicates].sort();
 }
 
+interface AggregatedUnits {
+  readonly totals: Readonly<Record<CoverageState, number>>;
+  readonly overflowed: boolean;
+}
+
 function aggregateUnits(
   events: readonly CoverageEvent[],
-): Readonly<Record<CoverageState, number>> {
+): AggregatedUnits {
   const totals: Record<CoverageState, number> = {
     supported: 0,
     partial: 0,
@@ -196,11 +226,24 @@ function aggregateUnits(
     unchecked: 0,
   };
 
+  let overflowed = false;
+
   for (const event of events) {
-    totals[event.coverage] += event.units;
+    const next = safeAddUnits(totals[event.coverage], event.units);
+    if (next === null) {
+      overflowed = true;
+      continue;
+    }
+
+    totals[event.coverage] = next;
   }
 
-  return totals;
+  return { totals, overflowed };
+}
+
+function safeAddUnits(left: number, right: number): number | null {
+  const total = left + right;
+  return Number.isSafeInteger(total) ? total : null;
 }
 
 function validateSourceAnchor(anchor: SourceAnchor): readonly SchemaValidationError[] {
@@ -288,15 +331,23 @@ function coverageEnvelopeInvariants(
   value: CoverageEnvelope,
 ): readonly SchemaValidationError[] {
   const errors: SchemaValidationError[] = [];
-  const units = aggregateUnits(value.events);
-  const totalFromEvents =
-    units.supported +
-    units.partial +
-    units.unmapped +
-    units.unsupported +
-    units.excluded +
-    units.failed +
-    units.unchecked;
+  const aggregate = aggregateUnits(value.events);
+  const units = aggregate.totals;
+  let totalFromEvents: number | null = 0;
+
+  for (const unitCount of Object.values(units)) {
+    totalFromEvents =
+      totalFromEvents === null ? null : safeAddUnits(totalFromEvents, unitCount);
+  }
+
+  if (aggregate.overflowed || totalFromEvents === null) {
+    errors.push({
+      instance_path: "/summary",
+      keyword: "coverage_arithmetic",
+      message:
+        "coverage event unit aggregates must not exceed Number.MAX_SAFE_INTEGER",
+    });
+  }
 
   const summaryPairs = [
     ["supported", value.summary.supported_units, units.supported],
@@ -318,7 +369,10 @@ function coverageEnvelopeInvariants(
     }
   }
 
-  if (value.summary.total_units !== totalFromEvents) {
+  if (
+    totalFromEvents !== null &&
+    value.summary.total_units !== totalFromEvents
+  ) {
     errors.push({
       instance_path: "/summary",
       keyword: "coverage_arithmetic",
@@ -381,9 +435,53 @@ function stagedReceiptInvariants(
 
   return [
     ...errors,
+    ...runIdCalendarErrors(value.run_id),
     ...completionTimestampErrors(value),
+    ...validateStagedCoverageAnchors(value.snapshot.entries, value.coverage),
     ...validateArtifactHashes(value.artifact_hashes, value.run_id),
   ];
+}
+
+function validateStagedCoverageAnchors(
+  snapshotEntries: readonly SnapshotEntry[],
+  coverage: CoverageEnvelope,
+): readonly SchemaValidationError[] {
+  const errors: SchemaValidationError[] = [];
+  const snapshotEntryByPath = new Map(
+    snapshotEntries.map((entry) => [entry.path, entry]),
+  );
+
+  for (const [eventIndex, event] of coverage.events.entries()) {
+    for (const [anchorIndex, anchor] of event.anchors.entries()) {
+      const snapshotEntry = snapshotEntryByPath.get(anchor.path);
+      const expectedBlob = anchor.side === "base"
+        ? snapshotEntry?.base_blob_oid
+        : anchor.side === "staged"
+          ? snapshotEntry?.snapshot_blob_oid
+          : null;
+
+      if (
+        snapshotEntry === undefined ||
+        anchor.side === "repository" ||
+        snapshotEntry.language !== anchor.language ||
+        expectedBlob === null ||
+        expectedBlob !== anchor.blob_oid
+      ) {
+        errors.push({
+          instance_path: `/coverage/events/${eventIndex}/anchors/${anchorIndex}`,
+          keyword: "staged_anchor_binding",
+          message:
+            "coverage source anchors must match a staged snapshot entry by path, language, side, and blob_oid",
+        });
+      }
+    }
+  }
+
+  return errors;
+}
+
+function expectedArtifactPath(kind: ManifestArtifactKind, runId: string): string {
+  return deriveRepositoryArtifactPath(runId as RepositoryManifest["run_id"], kind);
 }
 
 function validateArtifactDescriptors(
@@ -423,11 +521,12 @@ function validateArtifactDescriptors(
   }
 
   for (const [index, artifact] of artifacts.entries()) {
-    if (!artifact.path.includes(runId)) {
+    if (artifact.path !== expectedArtifactPath(artifact.kind, runId)) {
       errors.push({
         instance_path: `/artifacts/${index}/path`,
-        keyword: "run_id_path_match",
-        message: "manifest artifact paths must include the manifest run_id",
+        keyword: "canonical_artifact_path",
+        message:
+          "manifest artifact path must be the canonical path for its kind and run_id",
       });
     }
 
@@ -443,10 +542,50 @@ function validateArtifactDescriptors(
   return errors;
 }
 
+function validateRepositoryCoverageAnchors(
+  snapshotEntries: readonly SnapshotEntry[],
+  coverage: CoverageEnvelope,
+): readonly SchemaValidationError[] {
+  const errors: SchemaValidationError[] = [];
+  const snapshotEntryByPath = new Map(
+    snapshotEntries.map((entry) => [entry.path, entry]),
+  );
+
+  for (const [eventIndex, event] of coverage.events.entries()) {
+    for (const [anchorIndex, anchor] of event.anchors.entries()) {
+      const snapshotEntry = snapshotEntryByPath.get(anchor.path);
+
+      if (
+        anchor.side !== "repository" ||
+        snapshotEntry === undefined ||
+        snapshotEntry.language !== anchor.language ||
+        snapshotEntry.snapshot_blob_oid !== anchor.blob_oid
+      ) {
+        errors.push({
+          instance_path: `/coverage/events/${eventIndex}/anchors/${anchorIndex}`,
+          keyword: "repository_anchor_binding",
+          message:
+            "coverage source anchors must match a repository snapshot entry by path, language, side, and blob_oid",
+        });
+      }
+    }
+  }
+
+  return errors;
+}
+
 function repositoryManifestInvariants(
   value: RepositoryManifest,
 ): readonly SchemaValidationError[] {
   const errors: SchemaValidationError[] = [];
+
+  if (value.status === "incomplete") {
+    errors.push({
+      instance_path: "/status",
+      keyword: "terminal_manifest",
+      message: "repository manifests must be terminal with complete or partial status",
+    });
+  }
 
   if (value.snapshot.kind !== "repository") {
     errors.push({
@@ -457,7 +596,9 @@ function repositoryManifestInvariants(
   }
 
   errors.push(
+    ...runIdCalendarErrors(value.run_id),
     ...validateArtifactDescriptors(value.artifacts, value.run_id, value.status),
+    ...validateRepositoryCoverageAnchors(value.snapshot.entries, value.coverage),
     ...completionTimestampErrors(value),
   );
 

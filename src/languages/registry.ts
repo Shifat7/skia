@@ -1,48 +1,107 @@
-import { Buffer } from "node:buffer";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import { validateRelativePath } from "../paths.js";
 import type {
   CoverageEvent,
   ParseFailureReason,
   ParseResult,
-  ParserVersionDisclosure,
   RepositoryRelativePath,
   SourceLanguage,
   StableErrorReason,
   SyntaxErrorRange,
-  SyntaxTreeNodeSummary,
   SyntaxTreeSummary,
 } from "../types.js";
-import { PYTHON_LANGUAGE_REGISTRATION } from "./python.js";
+import {
+  type ParserSummary,
+  summarizeParserTree,
+} from "./parser-summary.js";
 import {
   type AnalyzeSourceFileOptions,
   type DecodedSource,
   type LanguageParser,
   type LanguageParserFactory,
-  type LanguageParserNode,
   type LanguageRegistration,
   type SourceAnalysisResult,
 } from "./types.js";
-import { TYPESCRIPT_LANGUAGE_REGISTRATIONS } from "./typescript.js";
 
 const require = createRequire(import.meta.url);
-
-type TreeSitterParserConstructor = new () => LanguageParser;
-
-interface ByteRange {
-  start_byte: number;
-  end_byte: number;
-}
-
-const TREE_SITTER_PARSER = require("tree-sitter") as TreeSitterParserConstructor;
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const UTF8_BOM = Uint8Array.from([0xef, 0xbb, 0xbf]);
+const DEFAULT_PARSE_TIMEOUT_MS = 1_000;
+const MAX_ISOLATED_PARSER_OUTPUT_BYTES = 4 * 1024 * 1024;
+const ISOLATED_PARSER_CHILD_PATH = fileURLToPath(
+  new URL("./isolated-parser-child.js", import.meta.url),
+);
+const NODE_EXECUTABLE = (process as unknown as {
+  readonly execPath?: string;
+}).execPath ?? "node";
 
-export const LANGUAGE_REGISTRY = Object.freeze([
-  ...TYPESCRIPT_LANGUAGE_REGISTRATIONS,
-  PYTHON_LANGUAGE_REGISTRATION,
-] as const satisfies readonly LanguageRegistration[]);
+type IsolatedParserResponse =
+  | {
+    readonly kind: "parsed";
+    readonly summary: ParserSummary;
+  }
+  | {
+    readonly kind: "failed";
+    readonly reason: Extract<
+      ParseFailureReason,
+      "parse_failed" | "parse_timeout" | "parser_initialization_failed"
+    >;
+  };
+
+interface SpawnError extends Error {
+  readonly code?: string;
+}
+
+const LANGUAGE_METADATA = [
+  {
+    extension: ".ts",
+    language: "typescript",
+    dialect_id: "typescript",
+    parser_id: "tree-sitter-typescript.typescript",
+    parser: { name: "tree-sitter", version: "0.21.1" },
+    grammar: { name: "tree-sitter-typescript", version: "0.23.2" },
+  },
+  {
+    extension: ".tsx",
+    language: "tsx",
+    dialect_id: "tsx",
+    parser_id: "tree-sitter-typescript.tsx",
+    parser: { name: "tree-sitter", version: "0.21.1" },
+    grammar: { name: "tree-sitter-typescript", version: "0.23.2" },
+  },
+  {
+    extension: ".py",
+    language: "python",
+    dialect_id: "python",
+    parser_id: "tree-sitter-python",
+    parser: { name: "tree-sitter", version: "0.21.1" },
+    grammar: { name: "tree-sitter-python", version: "0.21.0" },
+  },
+] as const;
+
+export const LANGUAGE_REGISTRY = Object.freeze(
+  LANGUAGE_METADATA.map((metadata) => ({
+    ...metadata,
+    load_language: () => {
+      if (metadata.parser_id === "tree-sitter-python") {
+        return (require("tree-sitter-python") as { readonly language: unknown }).language;
+      }
+
+      const grammar = require("tree-sitter-typescript") as {
+        readonly typescript: unknown;
+        readonly tsx: unknown;
+      };
+
+      return metadata.parser_id.endsWith(".tsx")
+        ? grammar.tsx
+        : grammar.typescript;
+    },
+  })) satisfies readonly LanguageRegistration[],
+);
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) {
@@ -81,212 +140,6 @@ function createCoverageEvent(
     language: options.language,
     anchors: [],
   };
-}
-
-function buildParserDisclosure(
-  registration: LanguageRegistration,
-): ParserVersionDisclosure {
-  return {
-    parser_id: registration.parser_id,
-    parser_package_name: registration.parser.name,
-    parser_package_version: registration.parser.version,
-    grammar_package_name: registration.grammar.name,
-    grammar_package_version: registration.grammar.version,
-  };
-}
-
-function createLineStartBytes(bytes: Uint8Array): readonly number[] {
-  const starts = [0];
-
-  for (let index = 0; index < bytes.byteLength; index += 1) {
-    if (bytes[index] === 0x0a && index + 1 <= bytes.byteLength) {
-      starts.push(index + 1);
-    }
-  }
-
-  return starts;
-}
-
-function createCodeUnitToByteOffsets(text: string): readonly number[] {
-  const offsets = [0];
-  let byteOffset = 0;
-
-  for (const character of text) {
-    byteOffset += Buffer.from(character, "utf8").byteLength;
-
-    for (let index = 0; index < character.length; index += 1) {
-      offsets.push(byteOffset);
-    }
-  }
-
-  return offsets;
-}
-
-function mapCodeUnitOffsetToByteOffset(
-  codeUnitToByteOffsets: readonly number[],
-  codeUnitOffset: number,
-): number {
-  const mapped = codeUnitToByteOffsets[codeUnitOffset];
-
-  if (mapped === undefined) {
-    throw new Error(`parser offset ${codeUnitOffset} is outside the decoded source`);
-  }
-
-  return mapped;
-}
-
-function locateLineAndColumn(
-  lineStartBytes: readonly number[],
-  byteIndex: number,
-): { readonly line: number; readonly column: number } {
-  let low = 0;
-  let high = lineStartBytes.length - 1;
-  let best = 0;
-
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const lineStart = lineStartBytes[middle] ?? 0;
-
-    if (lineStart <= byteIndex) {
-      best = middle;
-      low = middle + 1;
-      continue;
-    }
-
-    high = middle - 1;
-  }
-
-  const selectedLineStart = lineStartBytes[best] ?? 0;
-
-  return {
-    line: best + 1,
-    column: byteIndex - selectedLineStart,
-  };
-}
-
-function toSyntaxRange(
-  range: ByteRange,
-  lineStartBytes: readonly number[],
-): SyntaxErrorRange {
-  const start = locateLineAndColumn(lineStartBytes, range.start_byte);
-  const end = locateLineAndColumn(lineStartBytes, range.end_byte);
-
-  return {
-    start_byte: range.start_byte,
-    end_byte: range.end_byte,
-    start_line: start.line,
-    start_column: start.column,
-    end_line: end.line,
-    end_column: end.column,
-  };
-}
-
-function summarizeNode(
-  node: LanguageParserNode,
-  codeUnitToByteOffsets: readonly number[],
-  lineStartBytes: readonly number[],
-): SyntaxTreeNodeSummary {
-  const startByte = mapCodeUnitOffsetToByteOffset(
-    codeUnitToByteOffsets,
-    node.startIndex,
-  );
-  const endByte = mapCodeUnitOffsetToByteOffset(
-    codeUnitToByteOffsets,
-    node.endIndex,
-  );
-  const start = locateLineAndColumn(lineStartBytes, startByte);
-  const end = locateLineAndColumn(lineStartBytes, endByte);
-
-  return {
-    type: node.type,
-    grammar_type: node.grammarType,
-    named: node.isNamed,
-    missing: node.isMissing,
-    extra: node.isExtra,
-    has_error: node.hasError,
-    error: node.isError,
-    start_byte: startByte,
-    end_byte: endByte,
-    start_line: start.line,
-    start_column: start.column,
-    end_line: end.line,
-    end_column: end.column,
-    child_count: node.childCount,
-    named_child_count: node.namedChildCount,
-    descendant_count: node.descendantCount,
-  };
-}
-
-function createSyntaxTreeSummary(
-  registration: LanguageRegistration,
-  rootNode: LanguageParserNode,
-  codeUnitToByteOffsets: readonly number[],
-  lineStartBytes: readonly number[],
-): SyntaxTreeSummary {
-  return {
-    parser: buildParserDisclosure(registration),
-    root: summarizeNode(rootNode, codeUnitToByteOffsets, lineStartBytes),
-  };
-}
-
-function collectErrorRanges(
-  rootNode: LanguageParserNode,
-  codeUnitToByteOffsets: readonly number[],
-): readonly ByteRange[] {
-  const discovered: ByteRange[] = [];
-  const stack: LanguageParserNode[] = [rootNode];
-
-  while (stack.length > 0) {
-    const node = stack.pop();
-
-    if (node === undefined) {
-      continue;
-    }
-
-    if (node.isError || node.isMissing) {
-      discovered.push({
-        start_byte: mapCodeUnitOffsetToByteOffset(
-          codeUnitToByteOffsets,
-          node.startIndex,
-        ),
-        end_byte: mapCodeUnitOffsetToByteOffset(
-          codeUnitToByteOffsets,
-          node.endIndex,
-        ),
-      });
-    }
-
-    for (let index = node.children.length - 1; index >= 0; index -= 1) {
-      const child = node.children[index];
-
-      if (child !== undefined) {
-        stack.push(child);
-      }
-    }
-  }
-
-  discovered.sort((left, right) => {
-    if (left.start_byte !== right.start_byte) {
-      return left.start_byte - right.start_byte;
-    }
-
-    return left.end_byte - right.end_byte;
-  });
-
-  const coalesced: ByteRange[] = [];
-
-  for (const range of discovered) {
-    const previous = coalesced.at(-1);
-
-    if (previous === undefined || range.start_byte > previous.end_byte) {
-      coalesced.push({ ...range });
-      continue;
-    }
-
-    previous.end_byte = Math.max(previous.end_byte, range.end_byte);
-  }
-
-  return coalesced;
 }
 
 function unsupportedLimitReason(
@@ -373,8 +226,209 @@ function decodeSourceBytes(
   }
 }
 
-function defaultParserFactory(): LanguageParser {
-  return new TREE_SITTER_PARSER();
+function contentBytesForDecodedSource(
+  bytes: Uint8Array,
+  decoded: DecodedSource,
+): Uint8Array {
+  return bytes.slice(decoded.had_utf8_bom ? UTF8_BOM.byteLength : 0);
+}
+
+function createParsedOrPartialResult(
+  path: RepositoryRelativePath,
+  registration: LanguageRegistration,
+  decoded: DecodedSource,
+  summary: ParserSummary,
+  coverageEventId: AnalyzeSourceFileOptions["coverage_event_id"],
+): SourceAnalysisResult {
+  if (summary.syntax_error_ranges.length === 0) {
+    const parseResult: ParseResult = {
+      kind: "parsed",
+      language: registration.language,
+      syntax_tree: summary.syntax_tree,
+      syntax_error_ranges: [],
+    };
+
+    return {
+      coverage_event: createCoverageEvent(
+        {
+          coverage: "supported",
+          language: registration.language,
+          path,
+          reason: null,
+        },
+        coverageEventId,
+      ),
+      decoded_source: decoded,
+      parse_result: parseResult,
+      registration,
+    };
+  }
+
+  const parseResult: ParseResult = {
+    kind: "partial",
+    language: registration.language,
+    syntax_tree: summary.syntax_tree,
+    syntax_error_ranges: summary.syntax_error_ranges as [
+      SyntaxErrorRange,
+      ...SyntaxErrorRange[],
+    ],
+  };
+
+  return {
+    coverage_event: createCoverageEvent(
+      {
+        coverage: "partial",
+        language: registration.language,
+        path,
+        reason: "syntax_error",
+      },
+      coverageEventId,
+    ),
+    decoded_source: decoded,
+    parse_result: parseResult,
+    registration,
+  };
+}
+
+function parseWithInjectedParserFactory(
+  options: {
+    readonly content_bytes: Uint8Array;
+    readonly coverage_event_id: AnalyzeSourceFileOptions["coverage_event_id"];
+    readonly decoded: DecodedSource;
+    readonly parser_factory: LanguageParserFactory;
+    readonly path: RepositoryRelativePath;
+    readonly registration: LanguageRegistration;
+  },
+): SourceAnalysisResult {
+  let parser: LanguageParser;
+
+  try {
+    parser = options.parser_factory(options.registration);
+    parser.setLanguage(options.registration.load_language());
+  } catch {
+    return createFailedResult(
+      options.path,
+      options.registration,
+      "parser_initialization_failed",
+      options.coverage_event_id,
+    );
+  }
+
+  try {
+    const tree = parser.parse(options.decoded.text);
+    const summary = summarizeParserTree(
+      options.registration,
+      tree.rootNode,
+      options.decoded.text,
+      options.content_bytes,
+    );
+
+    return createParsedOrPartialResult(
+      options.path,
+      options.registration,
+      options.decoded,
+      summary,
+      options.coverage_event_id,
+    );
+  } catch {
+    return createFailedResult(
+      options.path,
+      options.registration,
+      "parse_failed",
+      options.coverage_event_id,
+    );
+  }
+}
+
+function normalizeParseTimeoutMs(timeoutMs: number | undefined): number {
+  if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) {
+    return DEFAULT_PARSE_TIMEOUT_MS;
+  }
+
+  return Math.max(1, Math.floor(timeoutMs));
+}
+
+function isSpawnTimeout(error: SpawnError | undefined): boolean {
+  return error?.code === "ETIMEDOUT";
+}
+
+function isIsolatedParserResponse(value: unknown): value is IsolatedParserResponse {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<IsolatedParserResponse>;
+
+  if (candidate.kind === "parsed") {
+    return candidate.summary !== undefined;
+  }
+
+  return candidate.kind === "failed"
+    && (
+      candidate.reason === "parse_failed"
+      || candidate.reason === "parse_timeout"
+      || candidate.reason === "parser_initialization_failed"
+    );
+}
+
+function parseWithIsolatedDefaultParser(
+  options: {
+    readonly command: AnalyzeSourceFileOptions["parser_isolation_command"];
+    readonly content_bytes: Uint8Array;
+    readonly decoded: DecodedSource;
+    readonly registration: LanguageRegistration;
+    readonly timeout_ms: number | undefined;
+  },
+): IsolatedParserResponse {
+  const command = options.command ?? {
+    command: NODE_EXECUTABLE,
+    args: [ISOLATED_PARSER_CHILD_PATH],
+  };
+  const result = spawnSync(
+    command.command,
+    command.args ?? [],
+    {
+      encoding: "utf8",
+      input: JSON.stringify({
+        parser_id: options.registration.parser_id,
+        text: options.decoded.text,
+        content_bytes: Array.from(options.content_bytes),
+      }),
+      maxBuffer: MAX_ISOLATED_PARSER_OUTPUT_BYTES,
+      shell: false,
+      timeout: normalizeParseTimeoutMs(options.timeout_ms),
+    },
+  );
+  const spawnError = result.error as SpawnError | undefined;
+
+  if (isSpawnTimeout(spawnError)) {
+    return {
+      kind: "failed",
+      reason: "parse_timeout",
+    };
+  }
+
+  if (spawnError !== undefined || result.status !== 0 || result.signal !== null) {
+    return {
+      kind: "failed",
+      reason: "parse_failed",
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(String(result.stdout));
+
+    if (isIsolatedParserResponse(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to the stable failed contract below.
+  }
+
+  return {
+    kind: "failed",
+    reason: "parse_failed",
+  };
 }
 
 export function resolveLanguageRegistration(
@@ -444,94 +498,41 @@ export function analyzeSourceFile(
     );
   }
 
-  const parserFactory = options.parser_factory ?? (() => defaultParserFactory());
-  let parser: LanguageParser;
+  const contentBytes = contentBytesForDecodedSource(options.bytes, decoded);
 
-  try {
-    parser = parserFactory(registration);
-    parser.setLanguage(registration.load_language());
-  } catch {
+  if (options.parser_factory !== undefined) {
+    return parseWithInjectedParserFactory({
+      content_bytes: contentBytes,
+      coverage_event_id: options.coverage_event_id,
+      decoded,
+      parser_factory: options.parser_factory,
+      path: relativePath,
+      registration,
+    });
+  }
+
+  const isolatedResult = parseWithIsolatedDefaultParser({
+    command: options.parser_isolation_command,
+    content_bytes: contentBytes,
+    decoded,
+    registration,
+    timeout_ms: options.parse_timeout_ms,
+  });
+
+  if (isolatedResult.kind === "failed") {
     return createFailedResult(
       relativePath,
       registration,
-      "parser_initialization_failed",
+      isolatedResult.reason,
       options.coverage_event_id,
     );
   }
 
-  try {
-    const tree = parser.parse(decoded.text);
-    const codeUnitToByteOffsets = createCodeUnitToByteOffsets(decoded.text);
-    const lineStartBytes = createLineStartBytes(options.bytes.slice(
-      decoded.had_utf8_bom ? UTF8_BOM.byteLength : 0,
-    ));
-    const syntaxTree = createSyntaxTreeSummary(
-      registration,
-      tree.rootNode,
-      codeUnitToByteOffsets,
-      lineStartBytes,
-    );
-    const syntaxErrorRanges = collectErrorRanges(
-      tree.rootNode,
-      codeUnitToByteOffsets,
-    ).map((range) =>
-      toSyntaxRange(range, lineStartBytes),
-    );
-
-    if (syntaxErrorRanges.length === 0) {
-      const parseResult: ParseResult = {
-        kind: "parsed",
-        language: registration.language,
-        syntax_tree: syntaxTree,
-        syntax_error_ranges: [],
-      };
-
-      return {
-        coverage_event: createCoverageEvent(
-          {
-            coverage: "supported",
-            language: registration.language,
-            path: relativePath,
-            reason: null,
-          },
-          options.coverage_event_id,
-        ),
-        decoded_source: decoded,
-        parse_result: parseResult,
-        registration,
-      };
-    }
-
-    const parseResult: ParseResult = {
-      kind: "partial",
-      language: registration.language,
-      syntax_tree: syntaxTree,
-      syntax_error_ranges: syntaxErrorRanges as [
-        SyntaxErrorRange,
-        ...SyntaxErrorRange[],
-      ],
-    };
-
-    return {
-      coverage_event: createCoverageEvent(
-        {
-          coverage: "partial",
-          language: registration.language,
-          path: relativePath,
-          reason: "syntax_error",
-        },
-        options.coverage_event_id,
-      ),
-      decoded_source: decoded,
-      parse_result: parseResult,
-      registration,
-    };
-  } catch {
-    return createFailedResult(
-      relativePath,
-      registration,
-      "parse_failed",
-      options.coverage_event_id,
-    );
-  }
+  return createParsedOrPartialResult(
+    relativePath,
+    registration,
+    decoded,
+    isolatedResult.summary,
+    options.coverage_event_id,
+  );
 }

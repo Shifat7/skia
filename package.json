@@ -21,6 +21,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "node --test dist/tests/*.test.js dist/tests/golden/*.test.js dist/tests/security/*.test.js",
     "test:golden": "node --test dist/tests/golden/bootstrap.test.js",
+    "pretest:security": "npm run build",
     "test:security": "node --test dist/tests/security/*.test.js"
   },
   "dependencies": {

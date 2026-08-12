@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +15,7 @@ import {
   createWrapperScript,
   readGitFixture,
   resolveGitExecutable,
+  runGit,
   setExecutableEnvironment,
   snapshotGitDirectory,
   stageAll,
@@ -86,6 +88,72 @@ exec "${realGit}" "$@"
   assert.match(log, /NO_PROXY=$/m);
   assert.match(log, /ARGV=\[[^\n]*--no-ext-diff\]/);
   assert.match(log, /ARGV=\[[^\n]*--no-textconv\]/);
+});
+
+test("git security disables repository-configured fsmonitor commands during capture", () => {
+  const repositoryRoot = createTempGitRepository();
+  const logDirectory = fs.mkdtempSync(TEMP_PREFIX);
+  const markerPath = path.join(logDirectory, "fsmonitor-ran");
+  const hookPath = createWrapperScript(`#!/bin/sh
+printf 'fsmonitor executed\\n' >> "${markerPath}"
+exit 1
+`);
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    `${readGitFixture("sample.ts")}\nexport const updated = true;\n`,
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+  runGit(repositoryRoot, ["config", "core.fsmonitor", hookPath]);
+
+  const snapshot = captureStagedSnapshot(repositoryRoot);
+
+  assert.strictEqual(snapshot.identity.entries[0]?.path, "src/example.ts");
+  assert.strictEqual(fs.existsSync(markerPath), false);
+});
+
+test("git security freezes staged patch rendering against unstaged gitattributes changes", () => {
+  const repositoryRoot = createTempGitRepository();
+
+  writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts -diff\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const value = 1;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const value = 2;\n");
+  stagePaths(repositoryRoot, "src/example.ts");
+  writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts diff\n");
+
+  const snapshot = captureStagedSnapshot(repositoryRoot);
+  const patchText = Buffer.from(snapshot.patch_bytes).toString("utf8");
+
+  assert.match(patchText, /@@/);
+  assert.match(patchText, /export const value = 2;/);
+  assert.strictEqual(/GIT binary patch|Binary files/.test(patchText), false);
+});
+
+test("git security maps spawn failures without stderr to a stable GitSnapshotError", () => {
+  const repositoryRoot = createTempGitRepository();
+  const missingGit = path.join(repositoryRoot, "does-not-exist-git");
+
+  let thrown: unknown = null;
+  try {
+    captureStagedSnapshot(repositoryRoot, { git_executable: missingGit });
+  } catch (error) {
+    thrown = error;
+  }
+
+  assert.ok(thrown instanceof GitSnapshotError);
+  if (!(thrown instanceof GitSnapshotError)) {
+    throw new Error("expected a GitSnapshotError");
+  }
+
+  assert.strictEqual(thrown.reason, "git_process_failed");
+  assert.match(thrown.detail ?? "", /spawn|ENOENT|does-not-exist-git/);
 });
 
 test("git security bounds hung subprocesses and escapes diagnostics", () => {

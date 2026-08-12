@@ -124,6 +124,23 @@ test("git snapshot resolves a nested invocation to the actual repository root", 
   assert.strictEqual(fs.existsSync(path.join(nestedRoot, ".skia")), false);
 });
 
+test("git snapshot preserves trailing whitespace in the discovered repository root", () => {
+  const parentDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "skia-space-parent-"));
+  const repositoryRoot = path.join(parentDirectory, "repo with trailing spaces  ");
+  const nestedRoot = path.join(repositoryRoot, "packages", "example");
+
+  fs.mkdirSync(nestedRoot, { recursive: true });
+  runGit(repositoryRoot, ["init", "-q"]);
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, "src/example.ts");
+
+  const snapshot = captureStagedSnapshot(nestedRoot);
+
+  assert.strictEqual(snapshot.identity.entries[0]?.path, "src/example.ts");
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia", "tmp")), true);
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot.trimEnd(), ".skia")), false);
+});
+
 test("git snapshot represents detached staged state explicitly", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
@@ -348,6 +365,44 @@ test("git snapshot rejects a base-ref move that happens after copied-index creat
   );
 });
 
+test("git snapshot rejects a same-commit branch switch that happens after copied-index creation", () => {
+  const repositoryRoot = createTempGitRepository();
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const base = 1;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["branch", "same-commit"]);
+
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    "export const base = 1;\nexport const staged = true;\n",
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+
+  let copiedIndexAttemptCount = 0;
+  let branchSwitched = false;
+  const snapshot = captureStagedSnapshot(repositoryRoot, {
+    test_hooks: {
+      after_copied_index_created: () => {
+        copiedIndexAttemptCount += 1;
+
+        if (branchSwitched) {
+          return;
+        }
+
+        branchSwitched = true;
+        runGit(repositoryRoot, ["checkout", "-q", "same-commit"]);
+      },
+    },
+  });
+
+  assert.strictEqual(branchSwitched, true);
+  assert.strictEqual(copiedIndexAttemptCount, 2);
+  assert.strictEqual(snapshot.checkout.state, "branch");
+  assert.strictEqual(snapshot.checkout.branch_name, "same-commit");
+});
+
 test("repository snapshot binds to HEAD and excludes staged or working-tree changes", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, "src/committed.ts", readGitFixture("sample.ts"));
@@ -404,6 +459,31 @@ test("repository snapshot captures each committed blob object once", () => {
     ["src/one.ts", "src/two.ts"],
   );
   assert.strictEqual(snapshot.captured_blobs.length, 1);
+});
+
+test("repository snapshot ignores replacement refs when resolving committed objects", () => {
+  const repositoryRoot = createTempGitRepository();
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const value = 1;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  const originalCommit = headCommit(repositoryRoot);
+
+  runGit(repositoryRoot, ["checkout", "-q", "-b", "replacement"]);
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const value = 999;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "replacement");
+  const replacementCommit = headCommit(repositoryRoot);
+  runGit(repositoryRoot, ["checkout", "-q", "main"]);
+  runGit(repositoryRoot, ["replace", originalCommit, replacementCommit]);
+
+  const snapshot = captureRepositorySnapshot(repositoryRoot);
+
+  assert.strictEqual(snapshot.identity.commit_oid, originalCommit);
+  assert.deepStrictEqual(
+    snapshot.captured_blobs.map((blob) => Buffer.from(blob.bytes).toString("utf8")),
+    ["export const value = 1;\n"],
+  );
 });
 
 test("repository snapshot rejects a repository with no HEAD using the stable shared reason", () => {
@@ -465,6 +545,9 @@ test("repository snapshot maps missing-object blob reads to the stable missing_l
   stageAll(repositoryRoot);
   commitAll(repositoryRoot, "seed");
   const wrapper = createWrapperScript(`#!/bin/sh
+while [ "$1" = "-c" ]; do
+  shift 2
+done
 if [ "$1" = "cat-file" ] && [ "$2" = "blob" ]; then
   printf 'fatal: bad object %s\\n' "$3" >&2
   exit 1
@@ -507,6 +590,9 @@ test("repository snapshot binds all committed-tree reads to the captured commit 
 
   const markerPath = `${repositoryRoot}/.git/ref-moved-once`;
   const wrapper = createWrapperScript(`#!/bin/sh
+while [ "$1" = "-c" ]; do
+  shift 2
+done
 if [ "$1" = "ls-tree" ] && [ ! -f "${markerPath}" ]; then
   "${realGit}" -C "${repositoryRoot}" update-ref refs/heads/main "${commitTwo}"
   touch "${markerPath}"
@@ -556,6 +642,9 @@ test("staged snapshot binds base-side comparisons to the captured base commit oi
 
   const markerPath = `${repositoryRoot}/.git/base-ref-moved-once`;
   const wrapper = createWrapperScript(`#!/bin/sh
+while [ "$1" = "-c" ]; do
+  shift 2
+done
 if [ "$1" = "diff-index" ] && [ ! -f "${markerPath}" ]; then
   "${realGit}" -C "${repositoryRoot}" update-ref refs/heads/main "${commitTwo}"
   touch "${markerPath}"

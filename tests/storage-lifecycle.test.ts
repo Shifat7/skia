@@ -113,7 +113,7 @@ function createRepositoryManifest(
   coverageSha: Sha256Hex,
   cardsPath: RunArtifactPath,
   cardsSha: Sha256Hex,
-  coverage: CoverageEnvelope = readFixture<CoverageEnvelope>("valid-coverage.json"),
+  coverage: CoverageEnvelope = repositoryCoverageFixture(),
   snapshot: RepositorySnapshotIdentity = createRepositorySnapshotIdentity(),
 ): RepositoryManifest {
   return {
@@ -159,6 +159,22 @@ function createRepositoryManifest(
     cards_file: cardsPath,
     errors: [],
     privacy_caveat: "Local-only artifact. Explicit deletion is required.",
+  };
+}
+
+function repositoryCoverageFixture(): CoverageEnvelope {
+  const coverage = readFixture<CoverageEnvelope>("valid-coverage.json");
+
+  return {
+    ...coverage,
+    events: coverage.events.map((event) => ({
+      ...event,
+      anchors: event.anchors.map((anchor) => ({
+        ...anchor,
+        side: "repository" as const,
+        blob_oid: brand<GitObjectId>("d".repeat(40)),
+      })),
+    })),
   };
 }
 
@@ -292,6 +308,82 @@ test("inspectRun rejects a symlinked .skia root before reading external reposito
   );
 });
 
+test("inspectRun rejects symlinked metadata, manifest, and staged receipt leaf files", () => {
+  const metadataRepositoryRoot = createTempRepository();
+  const metadataRun = allocateRepositoryRun(
+    metadataRepositoryRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T01:02:03Z"),
+  );
+  const externalMetadataPath = path.join(
+    fs.mkdtempSync(TEMP_PREFIX),
+    RUN_METADATA_FILENAME,
+  );
+  fs.writeFileSync(
+    externalMetadataPath,
+    fs.readFileSync(metadataRun.metadataPath),
+  );
+  fs.rmSync(metadataRun.metadataPath, { force: true });
+  fs.symlinkSync(externalMetadataPath, metadataRun.metadataPath);
+
+  assert.throws(
+    () => inspectRun(metadataRepositoryRoot, metadataRun.runId),
+    /symlink|regular file/i,
+  );
+
+  const manifestRepositoryRoot = createTempRepository();
+  const manifestRun = allocateRepositoryRun(
+    manifestRepositoryRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T01:02:03Z"),
+  );
+  const externalManifestPath = path.join(
+    fs.mkdtempSync(TEMP_PREFIX),
+    deriveRepositoryManifestPath(manifestRun.runId),
+  );
+  fs.writeFileSync(
+    externalManifestPath,
+    `${JSON.stringify(
+      createRepositoryManifest(
+        manifestRun.runId,
+        deriveRepositoryArtifactPath(manifestRun.runId, "coverage"),
+        brand<Sha256Hex>("a".repeat(64)),
+        deriveRepositoryArtifactPath(manifestRun.runId, "behavior_cards"),
+        brand<Sha256Hex>("b".repeat(64)),
+      ),
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  fs.symlinkSync(externalManifestPath, manifestRun.manifestPath);
+
+  assert.throws(
+    () => inspectRun(manifestRepositoryRoot, manifestRun.runId),
+    /symlink|regular file/i,
+  );
+
+  const receiptRepositoryRoot = createTempRepository();
+  const receiptRunId = brand<RunId>("20260810T020304Z");
+  const receipt = createStagedReceipt(receiptRunId);
+  const receiptWrite = writeStagedReceipt(receiptRepositoryRoot, receipt);
+  const externalReceiptPath = path.join(
+    fs.mkdtempSync(TEMP_PREFIX),
+    "20260810T020304Z-8f5d1a2c-session.json",
+  );
+  fs.writeFileSync(
+    externalReceiptPath,
+    fs.readFileSync(receiptWrite.path),
+  );
+  fs.rmSync(receiptWrite.path, { force: true });
+  fs.symlinkSync(externalReceiptPath, receiptWrite.path);
+
+  assert.throws(
+    () => inspectRun(receiptRepositoryRoot, receiptRunId),
+    /symlink|regular file/i,
+  );
+});
+
 test("listRuns tolerates a partially allocated run directory without metadata and surfaces it as incomplete", () => {
   const repositoryRoot = createTempRepository();
   const partialRunDirectory = path.join(
@@ -342,6 +434,35 @@ test("repository run allocation rejects symlinked output roots", () => {
   );
 });
 
+test("storage rejects group or world writable existing .skia directories where POSIX mode bits are available", () => {
+  if (process.platform === "win32") {
+    return;
+  }
+
+  const skiaRootRepository = createTempRepository();
+  fs.mkdirSync(path.join(skiaRootRepository, ".skia"), 0o777);
+  fs.chmodSync(path.join(skiaRootRepository, ".skia"), 0o777);
+
+  assert.throws(
+    () => listRuns(skiaRootRepository),
+    /unsafe_permissions/i,
+  );
+
+  const leafRepository = createTempRepository();
+  fs.mkdirSync(path.join(leafRepository, ".skia"), 0o700);
+  fs.mkdirSync(path.join(leafRepository, ".skia", "dist"), 0o770);
+  fs.chmodSync(path.join(leafRepository, ".skia", "dist"), 0o770);
+
+  assert.throws(
+    () => allocateRepositoryRun(
+      leafRepository,
+      createRepositorySnapshotIdentity(),
+      new Date("2026-08-10T01:02:03Z"),
+    ),
+    /unsafe_permissions/i,
+  );
+});
+
 test("artifact writes are create-new, reject nested symlink traversal, and fail closed on run-id exhaustion", () => {
   const repositoryRoot = createTempRepository();
   const run = allocateRepositoryRun(
@@ -351,7 +472,7 @@ test("artifact writes are create-new, reject nested symlink traversal, and fail 
   );
   const coveragePath = deriveRepositoryArtifactPath(run.runId, "coverage");
   const cardsPath = deriveRepositoryArtifactPath(run.runId, "behavior_cards");
-  const coverageJson = JSON.stringify(readFixture<CoverageEnvelope>("valid-coverage.json"));
+  const coverageJson = JSON.stringify(repositoryCoverageFixture());
 
   writeArtifactFile(run, coveragePath, coverageJson);
   const cardsWrite = writeArtifactFile(run, cardsPath, "{\"cards\":[]}");
@@ -401,7 +522,7 @@ test("repository completion validates hashes and coverage schema before writing 
   );
   const coveragePath = deriveRepositoryArtifactPath(run.runId, "coverage");
   const cardsPath = deriveRepositoryArtifactPath(run.runId, "behavior_cards");
-  const coverageJson = JSON.stringify(readFixture<CoverageEnvelope>("valid-coverage.json"));
+  const coverageJson = JSON.stringify(repositoryCoverageFixture());
 
   writeArtifactFile(run, coveragePath, coverageJson);
   const cardsWrite = writeArtifactFile(run, cardsPath, "{\"cards\":[]}");
@@ -467,7 +588,7 @@ test("repository completion validates hashes and coverage schema before writing 
   writeArtifactFile(
     symlinkRun,
     symlinkCoveragePath,
-    JSON.stringify(readFixture<CoverageEnvelope>("valid-coverage.json")),
+    JSON.stringify(repositoryCoverageFixture()),
   );
   writeArtifactFile(symlinkRun, symlinkCardsPath, "{\"cards\":[]}");
 
@@ -506,7 +627,7 @@ test("repository completion rejects divergence between inline and coverage artif
   );
   const coveragePath = deriveRepositoryArtifactPath(run.runId, "coverage");
   const cardsPath = deriveRepositoryArtifactPath(run.runId, "behavior_cards");
-  const coverage = readFixture<CoverageEnvelope>("valid-coverage.json");
+  const coverage = repositoryCoverageFixture();
   const coverageWrite = writeArtifactFile(run, coveragePath, JSON.stringify(coverage));
   const cardsWrite = writeArtifactFile(run, cardsPath, "{\"cards\":[]}");
   const divergentCoverage = readFixture<CoverageEnvelope>("valid-coverage-visibility.json");
@@ -528,6 +649,53 @@ test("repository completion rejects divergence between inline and coverage artif
   );
 });
 
+test("repository completion rejects incomplete manifests before writing the manifest file", () => {
+  const repositoryRoot = createTempRepository();
+  const run = allocateRepositoryRun(
+    repositoryRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T01:02:03Z"),
+  );
+  const coveragePath = deriveRepositoryArtifactPath(run.runId, "coverage");
+  const cardsPath = deriveRepositoryArtifactPath(run.runId, "behavior_cards");
+  const coverageWrite = writeArtifactFile(
+    run,
+    coveragePath,
+    JSON.stringify(repositoryCoverageFixture()),
+  );
+  const cardsWrite = writeArtifactFile(run, cardsPath, "{\"cards\":[]}");
+  const incompleteManifest = {
+    ...createRepositoryManifest(
+      run.runId,
+      coveragePath,
+      coverageWrite.sha256,
+      cardsPath,
+      cardsWrite.sha256,
+    ),
+    status: "incomplete",
+    completed_at: null,
+  } satisfies RepositoryManifest;
+
+  assert.throws(
+    () => completeRepositoryRun(run, incompleteManifest),
+    /incomplete|terminal/i,
+  );
+  assert.strictEqual(fs.existsSync(run.manifestPath), false);
+});
+
+test("storage rejects impossible calendar run IDs at read and delete entry points", () => {
+  const repositoryRoot = createTempRepository();
+
+  assert.throws(
+    () => inspectRun(repositoryRoot, "20260229T010203Z"),
+    /real UTC calendar timestamp|invalid run ID/i,
+  );
+  assert.throws(
+    () => deleteRun(repositoryRoot, "20260229T010203Z"),
+    /real UTC calendar timestamp|invalid run ID/i,
+  );
+});
+
 test("repository completion writes a manifest only after validated artifacts, and list/inspect cover repository and receipt runs without reading artifact content", () => {
   const repositoryRoot = createTempRepository();
   const run = allocateRepositoryRun(
@@ -540,7 +708,7 @@ test("repository completion writes a manifest only after validated artifacts, an
   const coverageWrite = writeArtifactFile(
     run,
     coveragePath,
-    JSON.stringify(readFixture<CoverageEnvelope>("valid-coverage.json")),
+    JSON.stringify(repositoryCoverageFixture()),
   );
   const cardsWrite = writeArtifactFile(run, cardsPath, "{\"cards\":[]}");
 
@@ -626,6 +794,73 @@ test("staged receipt run-id claims stay unique under interleaved writers", () =>
   assert.strictEqual(inspectedReceiptRun.receipt.session_id, "8f5d1a2c");
 });
 
+test("staged receipt lookup parses exact run and session components from filenames", () => {
+  const repositoryRoot = createTempRepository();
+  const suffixedRunId = brand<RunId>("20260810T020304Z-01");
+
+  writeStagedReceipt(repositoryRoot, createStagedReceipt(suffixedRunId, "8f5d1a2c"));
+
+  assert.throws(
+    () => inspectRun(repositoryRoot, "20260810T020304Z"),
+    /does not exist beneath \.skia/i,
+  );
+
+  const inspectedRun = inspectRun(repositoryRoot, suffixedRunId);
+  if (inspectedRun.kind !== "review") {
+    throw new Error("expected staged receipt inspection");
+  }
+  assert.strictEqual(inspectedRun.receipt.run_id, suffixedRunId);
+  assert.strictEqual(inspectedRun.receipt.session_id, "8f5d1a2c");
+});
+
+test("staged receipt lookup rejects a filename whose envelope identity differs", () => {
+  const repositoryRoot = createTempRepository();
+  const runId = brand<RunId>("20260810T020304Z");
+  const receipt = createStagedReceipt(runId, "8f5d1a2c");
+  const receiptWrite = writeStagedReceipt(repositoryRoot, receipt);
+  const mismatchedPath = path.join(
+    path.dirname(receiptWrite.path),
+    "20260810T020304Z-9f6e2b3d-session.json",
+  );
+
+  fs.renameSync(receiptWrite.path, mismatchedPath);
+
+  assert.throws(
+    () => inspectRun(repositoryRoot, runId),
+    /filename .* does not match its envelope identity/i,
+  );
+});
+
+test("receipt deletion fails closed on symlinked artifact ancestors", () => {
+  const repositoryRoot = createTempRepository();
+  const runId = brand<RunId>("20260810T030407Z");
+  const artifactPath = brand<RunArtifactPath>(`linked/${runId}-hld.md`);
+  const externalRoot = fs.mkdtempSync(TEMP_PREFIX);
+  const linkedPath = absoluteSkiaPath(repositoryRoot, "linked");
+  const artifactAbsolutePath = absoluteSkiaPath(repositoryRoot, artifactPath);
+  fs.mkdirSync(path.dirname(artifactAbsolutePath), { recursive: true });
+  fs.writeFileSync(artifactAbsolutePath, "# hld\n", "utf8");
+  const artifactSha = createHash("sha256").update("# hld\n").digest("hex");
+
+  const receipt = createStagedReceipt(runId, "8f5d1a2c", [
+    {
+      kind: "hld",
+      path: artifactPath,
+      sha256: brand<Sha256Hex>(artifactSha),
+    },
+  ]);
+
+  writeStagedReceipt(repositoryRoot, receipt);
+  fs.renameSync(linkedPath, `${linkedPath}-moved`);
+  fs.symlinkSync(externalRoot, linkedPath);
+
+  assert.throws(
+    () => deleteRun(repositoryRoot, runId),
+    /symlink/i,
+  );
+  assert.strictEqual(fs.readdirSync(externalRoot).length, 0);
+});
+
 test("staged receipts reject a duplicate run ID before the run becomes ambiguous to inspect or delete", () => {
   const repositoryRoot = createTempRepository();
   const runId = brand<RunId>("20260810T020304Z");
@@ -650,6 +885,60 @@ test("staged receipts reject a duplicate run ID before the run becomes ambiguous
     deleted: true,
     remaining_paths: [],
   });
+});
+
+test("deleteRun removes receipt-owned artifacts before receipt and claim, and retries partial artifact deletion", () => {
+  const repositoryRoot = createTempRepository();
+  const runId = brand<RunId>("20260810T030405Z");
+  const sessionId = "8f5d1a2c";
+  const artifactPath = brand<RunArtifactPath>(`artifacts/${runId}-${sessionId}-hld.md`);
+  const artifactContents = "# hld\n";
+  const artifactAbsolutePath = absoluteSkiaPath(repositoryRoot, artifactPath);
+  const artifactDirectory = path.dirname(artifactAbsolutePath);
+
+  fs.mkdirSync(artifactDirectory, { recursive: true });
+  fs.writeFileSync(artifactAbsolutePath, artifactContents, "utf8");
+  const artifactSha = createHash("sha256").update(artifactContents).digest("hex");
+  writeStagedReceipt(
+    repositoryRoot,
+    createStagedReceipt(runId, sessionId, [
+      {
+        kind: "hld",
+        path: artifactPath,
+        sha256: brand<Sha256Hex>(artifactSha),
+      },
+    ]),
+  );
+
+  fs.chmodSync(artifactDirectory, 0o500);
+  const partialDelete = deleteRun(repositoryRoot, runId);
+  fs.chmodSync(artifactDirectory, 0o700);
+
+  assert.strictEqual(partialDelete.deleted, false);
+  assert.deepStrictEqual(partialDelete.remaining_paths, [artifactPath]);
+  assert.strictEqual(fs.existsSync(artifactAbsolutePath), true);
+  assert.strictEqual(
+    fs.existsSync(absoluteSkiaPath(repositoryRoot, `receipts/${runId}-${sessionId}-session.json`)),
+    true,
+  );
+  assert.strictEqual(
+    fs.existsSync(absoluteSkiaPath(repositoryRoot, `run-ids/${runId}.json`)),
+    true,
+  );
+
+  assert.deepStrictEqual(deleteRun(repositoryRoot, runId), {
+    deleted: true,
+    remaining_paths: [],
+  });
+  assert.strictEqual(fs.existsSync(artifactAbsolutePath), false);
+  assert.strictEqual(
+    fs.existsSync(absoluteSkiaPath(repositoryRoot, `receipts/${runId}-${sessionId}-session.json`)),
+    false,
+  );
+  assert.strictEqual(
+    fs.existsSync(absoluteSkiaPath(repositoryRoot, `run-ids/${runId}.json`)),
+    false,
+  );
 });
 
 test("staged receipt writes verify stored artifact hashes and use a non-self-referential receipt hash", () => {

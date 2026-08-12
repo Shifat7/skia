@@ -82,6 +82,61 @@ test("schema coverage rejects mismatched summary arithmetic", () => {
   expectInvalid(validation, "summary");
 });
 
+test("schema coverage rejects units above Number.MAX_SAFE_INTEGER", () => {
+  const fixture = readFixture<{
+    readonly summary: Record<string, unknown>;
+    readonly events: Array<Record<string, unknown>>;
+  }>("valid-coverage.json");
+  fixture.summary.total_units = Number.MAX_SAFE_INTEGER + 1;
+  fixture.summary.supported_units = Number.MAX_SAFE_INTEGER + 1;
+  fixture.events[0] = {
+    ...fixture.events[0],
+    units: Number.MAX_SAFE_INTEGER + 1,
+  };
+
+  expectInvalid(validateCoverageEnvelope(fixture), "must be <= 9007199254740991");
+});
+
+test("schema coverage rejects aggregate arithmetic above Number.MAX_SAFE_INTEGER", () => {
+  const fixture = {
+    summary: {
+      total_units: Number.MAX_SAFE_INTEGER,
+      supported_units: Number.MAX_SAFE_INTEGER,
+      partial_units: 1,
+      unmapped_units: 0,
+      unsupported_units: 0,
+      excluded_units: 0,
+      failed_units: 0,
+      unchecked_units: 0,
+    },
+    events: [
+      {
+        id: "coverage-max-safe",
+        coverage: "supported",
+        units: Number.MAX_SAFE_INTEGER,
+        reason: null,
+        path: "src/example.ts",
+        language: "typescript",
+        anchors: [],
+      },
+      {
+        id: "coverage-one-more",
+        coverage: "partial",
+        units: 1,
+        reason: "syntax_error",
+        path: "src/example.ts",
+        language: "typescript",
+        anchors: [],
+      },
+    ],
+  };
+
+  expectInvalid(
+    validateCoverageEnvelope(fixture),
+    "coverage event unit aggregates must not exceed Number.MAX_SAFE_INTEGER",
+  );
+});
+
 test("schema coverage fixtures keep partial, unsupported, failed, and unchecked inputs visible", () => {
   const fixture = readFixture<{
     readonly summary: {
@@ -131,6 +186,13 @@ test("schema staged receipt rejects impossible calendar timestamps", () => {
   expectInvalid(validateStagedReceipt(fixture), "real UTC calendar timestamp");
 });
 
+test("schema staged receipt rejects impossible calendar run IDs", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-staged-receipt.json");
+  fixture.run_id = "20260229T010203Z";
+
+  expectInvalid(validateStagedReceipt(fixture), "run_id must be a real UTC calendar timestamp");
+});
+
 test("schema staged receipt rejects repository snapshots in the staged envelope", () => {
   const fixture = readFixture<unknown>("invalid-staged-receipt-snapshot-kind.json");
   const validation = validateStagedReceipt(fixture);
@@ -145,11 +207,45 @@ test("schema staged receipt rejects artifact hashes whose paths do not include t
   expectInvalid(validation, "artifact hash paths must include the receipt run_id");
 });
 
+test("schema staged receipt binds coverage anchors to staged snapshot entries", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-staged-receipt.json");
+  const coverage = fixture.coverage as {
+    readonly events: Array<Record<string, unknown>>;
+  };
+  coverage.events[0] = {
+    ...coverage.events[0],
+    anchors: [
+      {
+        side: "staged",
+        path: "src/example.ts",
+        blob_oid: "4444444444444444444444444444444444444444",
+        language: "typescript",
+        start_line: 1,
+        start_column: 0,
+        end_line: 1,
+        end_column: 1,
+      },
+    ],
+  };
+
+  expectInvalid(
+    validateStagedReceipt(fixture),
+    "coverage source anchors must match a staged snapshot entry",
+  );
+});
+
 test("schema repository manifest accepts the valid fixture envelope", () => {
   const fixture = readFixture<unknown>("valid-repository-manifest.json");
   const validation = validateRepositoryManifest(fixture);
 
   assert.strictEqual(validation.valid, true);
+});
+
+test("schema repository manifest rejects impossible calendar run IDs", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-repository-manifest.json");
+  fixture.run_id = "20261310T010203Z";
+
+  expectInvalid(validateRepositoryManifest(fixture), "run_id must be a real UTC calendar timestamp");
 });
 
 test("schema repository manifest requires every artifact kind descriptor", () => {
@@ -172,6 +268,62 @@ test("schema repository manifest rejects coverage and card references that do no
     validation,
     "coverage_file must resolve to a complete coverage artifact in the manifest",
   );
+});
+
+test("schema repository manifest binds coverage anchors to repository snapshot entries", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-repository-manifest.json") as {
+    readonly coverage: {
+      readonly events: Array<Record<string, unknown>>;
+    };
+  } & Record<string, unknown>;
+  fixture.coverage.events[0] = {
+    id: "coverage-1",
+    coverage: "supported",
+    units: 1,
+    reason: null,
+    path: "src/example.ts",
+    language: "typescript",
+    anchors: [
+      {
+        side: "repository",
+        path: "src/example.ts",
+        blob_oid: "4444444444444444444444444444444444444444",
+        language: "typescript",
+        start_line: 1,
+        start_column: 0,
+        end_line: 1,
+        end_column: 1,
+      },
+    ],
+  };
+
+  expectInvalid(
+    validateRepositoryManifest(fixture),
+    "coverage source anchors must match a repository snapshot entry",
+  );
+});
+
+test("schema repository manifest requires canonical artifact paths for each kind", () => {
+  const fixture = readFixture<{
+    readonly artifacts: Array<Record<string, unknown>>;
+  } & Record<string, unknown>>("valid-repository-manifest.json");
+  fixture.artifacts[0] = {
+    ...fixture.artifacts[0],
+    path: "archive/20260810T010203Z/repo-hld-20260810T010203Z.md",
+  };
+
+  expectInvalid(
+    validateRepositoryManifest(fixture),
+    "manifest artifact path must be the canonical path for its kind and run_id",
+  );
+});
+
+test("schema repository manifest rejects incomplete terminal manifests", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-repository-manifest.json");
+  fixture.status = "incomplete";
+  fixture.completed_at = null;
+
+  expectInvalid(validateRepositoryManifest(fixture), "repository manifests must be terminal");
 });
 
 test("schema repository manifest rejects cards_file references that do not resolve", () => {

@@ -409,3 +409,25 @@ test("parser execution failures are failed with a stable reason", () => {
   assert.strictEqual(result.coverage_event.reason, "parse_failed");
   assert.strictEqual(assertFailed(result.parse_result).reason, "parse_failed");
 });
+
+test("default parser isolation returns parse_timeout when the parser process exceeds its deadline", () => {
+  const result = analyzeSourceFile({
+    coverage_event_id: coverageEventId("coverage:timeout.ts"),
+    max_bytes: 4_096,
+    mode: "100644",
+    path: "src/timeout.ts",
+    snapshot_kind: "staged",
+    status: "A",
+    bytes: Buffer.from("const value: number = 1;\n", "utf8"),
+    parse_timeout_ms: 25,
+    parser_isolation_command: {
+      command: "node",
+      args: ["-e", "setInterval(() => undefined, 1000);"],
+    },
+  } as AnalyzeSourceFileOptions);
+
+  assert.strictEqual(result.coverage_event.coverage, "failed");
+  assert.strictEqual(result.coverage_event.reason, "parse_timeout");
+  assert.strictEqual(assertFailed(result.parse_result).reason, "parse_timeout");
+  assert.strictEqual(result.decoded_source, null);
+});

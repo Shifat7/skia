@@ -134,6 +134,18 @@ export function validateRunId(value: string): RunId {
     throw new Error(`invalid run ID ${escapePathForDisplay(value)}`);
   }
 
+  const timestamp =
+    `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}` +
+    `T${value.slice(9, 11)}:${value.slice(11, 13)}:${value.slice(13, 15)}Z`;
+  const parsedTimestamp = new Date(timestamp);
+
+  if (
+    !Number.isFinite(parsedTimestamp.getTime()) ||
+    parsedTimestamp.toISOString().replace(".000Z", "Z") !== timestamp
+  ) {
+    throw new Error(`invalid run ID ${escapePathForDisplay(value)}: timestamp is not a real UTC instant`);
+  }
+
   return value as RunId;
 }
 

@@ -182,6 +182,20 @@ function bytesToUtf8(bytes: Uint8Array): string {
   return asBuffer(bytes).toString("utf8");
 }
 
+function stripGitRecordTerminator(bytes: Uint8Array): string {
+  const text = bytesToUtf8(bytes);
+
+  if (text.endsWith("\r\n")) {
+    return text.slice(0, -2);
+  }
+
+  if (text.endsWith("\n")) {
+    return text.slice(0, -1);
+  }
+
+  return text;
+}
+
 function escapeDiagnosticBytes(bytes: Uint8Array): string {
   let escaped = "";
 
@@ -260,7 +274,7 @@ function runGit(
   extraEnv?: Readonly<Record<string, string | undefined>>,
 ): GitCommandResult {
   const env = buildGitEnvironment(commandOptions.processEnv, extraEnv);
-  const result = spawnSync(commandOptions.gitExecutable, [...args], optionsWithOptionalEnv({
+  const result = spawnSync(commandOptions.gitExecutable, ["-c", "core.fsmonitor=false", ...args], optionsWithOptionalEnv({
     cwd: commandOptions.repositoryRoot,
     env,
     maxBuffer: commandOptions.outputLimitBytes,
@@ -286,7 +300,7 @@ function runGit(
 
     throw new GitSnapshotError(
       "git_process_failed",
-      escapeDiagnosticBytes(asBuffer(result.stderr as Uint8Array)),
+      gitSpawnFailureDetail(result.stderr, result.error),
     );
   }
 
@@ -304,6 +318,21 @@ function runGit(
   };
 }
 
+function gitSpawnFailureDetail(
+  stderr: Uint8Array | string | null | undefined,
+  error: Error,
+): string {
+  const stderrBytes = stderr === undefined || stderr === null
+    ? Buffer.alloc(0)
+    : asBuffer(stderr as Uint8Array);
+
+  if (stderrBytes.length > 0) {
+    return escapeDiagnosticBytes(stderrBytes);
+  }
+
+  return escapeDiagnosticBytes(Buffer.from(error.message, "utf8"));
+}
+
 function buildGitEnvironment(
   processEnv: Readonly<Record<string, string | undefined>>,
   extraEnv?: Readonly<Record<string, string | undefined>>,
@@ -314,6 +343,7 @@ function buildGitEnvironment(
     SYSTEMROOT: processEnv.SYSTEMROOT,
     GIT_OPTIONAL_LOCKS: "0",
     GIT_NO_LAZY_FETCH: "1",
+    GIT_NO_REPLACE_OBJECTS: "1",
     GIT_PAGER: "cat",
     PAGER: "cat",
     GIT_TERMINAL_PROMPT: "0",
@@ -350,9 +380,9 @@ function resolveGitRepositoryRoot(
 ): string {
   const requestedRoot = path.resolve(repositoryRoot);
   const requestedOptions = gitCommandOptions(requestedRoot, options);
-  const discoveredRoot = bytesToUtf8(
+  const discoveredRoot = stripGitRecordTerminator(
     runGit(["rev-parse", "--show-toplevel"], requestedOptions).stdout,
-  ).trim();
+  );
 
   if (discoveredRoot.length === 0) {
     throw new GitSnapshotError("git_process_failed", "git returned an empty repository root");
@@ -422,7 +452,11 @@ function sameHeadBaseState(
   left: ParsedHeadState,
   right: ParsedHeadState,
 ): boolean {
-  return left.baseState === right.baseState && left.baseCommit === right.baseCommit;
+  return left.baseState === right.baseState &&
+    left.baseCommit === right.baseCommit &&
+    left.branchRefName === right.branchRefName &&
+    left.checkout.state === right.checkout.state &&
+    left.checkout.branch_name === right.checkout.branch_name;
 }
 
 function parseStagedHeadState(commandOptions: GitCommandOptions): ParsedHeadState {
@@ -508,6 +542,12 @@ function liveIndexPath(commandOptions: GitCommandOptions): string {
   return path.resolve(commandOptions.repositoryRoot, gitPath);
 }
 
+function absoluteGitDirectory(commandOptions: GitCommandOptions): string {
+  return stripGitRecordTerminator(
+    runGit(["rev-parse", "--absolute-git-dir"], commandOptions).stdout,
+  );
+}
+
 function readLiveIndexBytes(indexPath: string): Uint8Array {
   return fs.existsSync(indexPath) ? fs.readFileSync(indexPath) : Buffer.alloc(0);
 }
@@ -524,6 +564,16 @@ function tempIndexFilePath(
     tmpRoot,
     `copied-index-${process.pid}-${Date.now()}-${attemptNumber}.bin`,
   );
+}
+
+function createTemporaryAttributeWorkTree(
+  tmpRoot: string,
+  attemptNumber: number,
+): string {
+  return fs.mkdtempSync(path.join(
+    tmpRoot,
+    `attribute-worktree-${process.pid}-${attemptNumber}-`,
+  ));
 }
 
 function gitObjectFormat(commandOptions: GitCommandOptions): GitObjectFormat {
@@ -846,12 +896,14 @@ function captureStagedAttempt(
   const objectFormat = gitObjectFormat(commandOptions);
   const objectIdLength = gitObjectIdLength(objectFormat);
   const indexPath = liveIndexPath(commandOptions);
+  const gitDirectory = absoluteGitDirectory(commandOptions);
   const indexWasPresent = liveIndexExists(indexPath);
   const liveIndexBytes = readLiveIndexBytes(indexPath);
   const copiedIndexSha256 = sha256Hex(liveIndexBytes);
   const copiedIndexPath = indexWasPresent
     ? tempIndexFilePath(tmpRoot, attemptNumber)
     : null;
+  const attributeWorkTree = createTemporaryAttributeWorkTree(tmpRoot, attemptNumber);
 
   if (copiedIndexPath !== null) {
     createNewProtectedFile(copiedIndexPath, liveIndexBytes);
@@ -865,8 +917,15 @@ function captureStagedAttempt(
         ? assertValidGitObjectId(headState.baseCommit, "staged base commit")
         : (EMPTY_TREE_OIDS[objectFormat] as GitObjectId);
     const copiedIndexEnv = copiedIndexPath === null
-      ? undefined
-      : { GIT_INDEX_FILE: copiedIndexPath };
+      ? {
+          GIT_DIR: gitDirectory,
+          GIT_WORK_TREE: attributeWorkTree,
+        }
+      : {
+          GIT_DIR: gitDirectory,
+          GIT_INDEX_FILE: copiedIndexPath,
+          GIT_WORK_TREE: attributeWorkTree,
+        };
     const statusEntries = parseStatusEntries(
       runGit(
         ["diff-index", "--cached", "--name-status", "-z", "-M", comparisonBase],
@@ -941,6 +1000,7 @@ function captureStagedAttempt(
     if (copiedIndexPath !== null && fs.existsSync(copiedIndexPath)) {
       fs.rmSync(copiedIndexPath, { force: true });
     }
+    fs.rmSync(attributeWorkTree, { force: true, recursive: true });
   }
 }
 
@@ -1041,16 +1101,14 @@ export function captureRepositorySnapshot(
     commandOptions,
   ).stdout;
   const entries = parseRepositoryEntries(lsTreeBytes, objectIdLength);
-  const capturedBlobs = readCapturedBlobs(
-    commandOptions,
-    uniqueObjectIds(entries
-      .map((entry) =>
-        assertValidGitObjectId(
-          entry.snapshot_blob_oid,
-          `${entry.path} repository blob`,
-        ),
-      )),
-  );
+  const capturedBlobs = readCapturedBlobs(commandOptions, uniqueObjectIds(
+    entries.map((entry) =>
+      assertValidGitObjectId(
+        entry.snapshot_blob_oid,
+        `${entry.path} repository blob`,
+      ),
+    ),
+  ));
 
   const identity: RepositorySnapshotIdentity = {
     kind: "repository",
