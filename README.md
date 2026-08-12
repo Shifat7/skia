@@ -47,6 +47,75 @@ The project and command retain the `Skia`/`skia` name for now. Publication and
 distribution risks from the existing Google Skia project remain an open release
 decision; see [open decisions](docs/OPEN_DECISIONS.md).
 
+## See it in examples
+
+### Example 1: an AI change you do not want to blindly trust
+
+Intended workflow — this is what the future staged review is meant to show.
+
+The AI changes a pricing function:
+
+```diff
+ function calculateFinalPrice(total, member, promotion) {
+-  return total;
++  if (member) total *= 0.9;
++  if (promotion > 0) total -= promotion;
++  return Math.max(0, Math.round(total));
+ }
+```
+
+Instead of making you reread the whole diff, Skia is intended to produce a
+small behavior check:
+
+```text
+$ skia review                         # intended workflow; not runnable yet
+
+CHANGED BEHAVIOR
+- active members receive a 10% discount
+- a positive promotion is subtracted afterward
+- the result is clamped at 0 and rounded
+
+YOUR TURN
+total=100, member=true, promotion=10
+What should calculateFinalPrice(...) return?  > 80
+
+SOURCE CHECK
+src/pricing.ts:12-18  covered by the displayed evidence
+```
+
+You answer the question, then choose whether to trust the change, open the
+original source, or investigate what Skia could not represent.
+
+### Example 2: when Skia cannot make a claim
+
+Implemented foundation — unsupported and failed inputs stay visible instead
+of being presented as safe:
+
+```text
+src/view.tsx      partial     syntax error; inspect the highlighted range
+docs/guide.md     unsupported unsupported_language; no semantic claim
+scripts/job.py    failed      invalid_source_encoding; analysis stopped
+src/config.ts     unchecked   not analyzed in this run
+```
+
+The useful result is not “everything looks fine.” It is knowing exactly which
+files still require your attention.
+
+### Example 3: a repository review with an honest remainder
+
+Intended workflow — a future repository review would look like this:
+
+```text
+$ skia repo review                   # intended workflow; not runnable yet
+
+SNAPSHOT  committed HEAD abc123
+FOUND     84 TypeScript/TSX/Python files, 3 config files, 5 docs
+SELECTED  authentication, billing, persistence
+UNCHECKED generated code, deployment scripts, remaining subsystems
+
+NEXT      answer one architecture question, then inspect the source behind it
+```
+
 ---
 
 ## Two intended developer journeys
