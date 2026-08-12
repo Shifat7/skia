@@ -4,8 +4,9 @@
 
 Skia is intended to be a local checkpoint between an AI-generated change and
 your decision to keep it. Give it a staged Git change; get a short,
-source-backed explanation of the behavior that matters, one concrete question
-to answer, and an honest account of what was not covered.
+source-backed explanation and simplified code view of the behavior that
+matters, one concrete question to answer, and an honest account of what was not
+covered.
 
 ## What Skia is for
 
@@ -65,7 +66,21 @@ The AI changes a pricing function:
 ```
 
 Instead of making you reread the whole diff, Skia is intended to produce a
-small behavior check:
+small behavior check with a simplified code view:
+
+```text
+SIMPLIFIED VIEW — not executable
+src/pricing.ts:12-18
+
+function calculateFinalPrice(total, member, promotion) {
+  if (member)    total = total * 0.90
+  if (promotion > 0) total = total - promotion
+  return round(max(total, 0))
+}
+```
+
+Read this as a map of the important decisions, not as a replacement file to
+copy into your project. The original staged source remains authoritative.
 
 ```text
 $ skia review                         # intended workflow; not runnable yet
@@ -84,7 +99,12 @@ src/pricing.ts:12-18  covered by the displayed evidence
 ```
 
 You answer the question, then choose whether to trust the change, open the
-original source, or investigate what Skia could not represent.
+original source, or investigate what Skia could not represent. If a branch is
+unsupported, partial, failed, or unchecked, Skia keeps that state visible
+instead of filling the gap with made-up simplified code.
+
+The product decision behind this boundary is recorded in
+[ADR-001](docs/decisions/ADR-001-simplified-code-as-evidence.md).
 
 ### Example 2: when Skia cannot make a claim
 
