@@ -495,6 +495,7 @@ function stagedReceiptInvariants(
     ...errors,
     ...runIdCalendarErrors(value.run_id),
     ...completionTimestampErrors(value),
+    ...coverageEnvelopeInvariants(value.coverage),
     ...validateStagedCoverageAnchors(value.snapshot.entries, value.coverage),
     ...validateArtifactHashes(value.artifact_hashes, value.run_id, value.session_id),
   ];

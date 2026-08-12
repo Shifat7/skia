@@ -179,6 +179,19 @@ test("schema staged receipt accepts the valid fixture envelope", () => {
   assert.strictEqual(validation.valid, true);
 });
 
+test("schema staged receipt rejects inconsistent coverage arithmetic", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-staged-receipt.json");
+  const coverage = fixture.coverage as {
+    readonly summary: Record<string, unknown>;
+  };
+  coverage.summary.supported_units = 0;
+
+  expectInvalid(
+    validateStagedReceipt(fixture),
+    "summary supported_units must equal the aggregated event units",
+  );
+});
+
 test("schema staged receipt rejects impossible calendar timestamps", () => {
   const fixture = readFixture<Record<string, unknown>>("valid-staged-receipt.json");
   fixture.completed_at = "2026-02-29T01:02:03Z";
