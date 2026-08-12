@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { MAX_GIT_CAPTURED_BLOB_BYTES } from "../src/limits.js";
 import {
   captureRepositorySnapshot,
   captureStagedSnapshot,
@@ -495,6 +496,41 @@ test("repository snapshot captures each committed blob object once", () => {
     ["src/one.ts", "src/two.ts"],
   );
   assert.strictEqual(snapshot.captured_blobs.length, 1);
+});
+
+test("repository snapshot rejects aggregate captured blob bytes beyond the limit", () => {
+  const repositoryRoot = createTempGitRepository();
+  const blobBytes = 900_000;
+  const blobCount = Math.floor(MAX_GIT_CAPTURED_BLOB_BYTES / blobBytes) + 1;
+
+  for (let index = 0; index < blobCount; index += 1) {
+    const blobContents = Buffer.alloc(blobBytes);
+    blobContents.fill(65 + index);
+    const blobOid = writeGitBlob(
+      repositoryRoot,
+      blobContents,
+    );
+    stageRawIndexEntry(
+      repositoryRoot,
+      blobOid,
+      Buffer.from(`src/aggregate-${index}.ts`, "utf8"),
+    );
+  }
+  commitAll(repositoryRoot, "aggregate blob limit");
+
+  try {
+    captureRepositorySnapshot(repositoryRoot);
+  } catch (error) {
+    if (error instanceof GitSnapshotError) {
+      assert.strictEqual(error.reason, "git_output_limit_exceeded");
+      assert.match(error.detail ?? "", /aggregate byte limit/);
+      return;
+    }
+
+    throw error;
+  }
+
+  throw new Error("expected aggregate captured blob bytes to be rejected");
 });
 
 test("repository snapshot ignores replacement refs when resolving committed objects", () => {

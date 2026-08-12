@@ -9,6 +9,8 @@ import { resolveLanguageRegistration } from "./languages/registry.js";
 import {
   DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
   DEFAULT_GIT_TIMEOUT_MS,
+  MAX_GIT_CAPTURED_BLOB_BYTES,
+  MAX_GIT_CAPTURED_BLOB_COUNT,
   MAX_GIT_INDEX_BYTES,
   OWNER_DIRECTORY_MODE,
   OWNER_FILE_MODE,
@@ -906,10 +908,31 @@ function readCapturedBlobs(
   commandOptions: GitCommandOptions,
   blobOids: readonly GitObjectId[],
 ): readonly GitCapturedBlob[] {
-  return blobOids.map((oid) => ({
-    oid,
-    bytes: runGit(["cat-file", "blob", oid], commandOptions).stdout,
-  }));
+  if (blobOids.length > MAX_GIT_CAPTURED_BLOB_COUNT) {
+    throw new GitSnapshotError(
+      "git_output_limit_exceeded",
+      `Git blob capture includes ${blobOids.length} objects; limit is ${MAX_GIT_CAPTURED_BLOB_COUNT}`,
+    );
+  }
+
+  const captured: GitCapturedBlob[] = [];
+  let totalBytes = 0;
+
+  for (const oid of blobOids) {
+    const bytes = runGit(["cat-file", "blob", oid], commandOptions).stdout;
+
+    if (bytes.byteLength > MAX_GIT_CAPTURED_BLOB_BYTES - totalBytes) {
+      throw new GitSnapshotError(
+        "git_output_limit_exceeded",
+        `Git blob capture exceeds aggregate byte limit of ${MAX_GIT_CAPTURED_BLOB_BYTES}`,
+      );
+    }
+
+    totalBytes += bytes.byteLength;
+    captured.push({ oid, bytes });
+  }
+
+  return captured;
 }
 
 function uniqueObjectIds(values: readonly GitObjectId[]): readonly GitObjectId[] {

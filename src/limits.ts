@@ -11,6 +11,8 @@ export const MAX_RUN_ID_COLLISION_SUFFIX = 99;
 export const DEFAULT_GIT_TIMEOUT_MS = 5_000;
 export const DEFAULT_GIT_OUTPUT_LIMIT_BYTES = 1_000_000;
 export const MAX_GIT_INDEX_BYTES = 16 * 1024 * 1024;
+export const MAX_GIT_CAPTURED_BLOB_COUNT = 4_096;
+export const MAX_GIT_CAPTURED_BLOB_BYTES = 16 * 1024 * 1024;
 
 export const LOCAL_RETENTION_CAVEAT =
   "There is no age-based automatic retention or background cleanup. Complete runs remain local until explicit exact-ID deletion succeeds.";
