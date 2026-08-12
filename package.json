@@ -16,6 +16,7 @@
     "dist/"
   ],
   "scripts": {
+    "pretest": "npm run build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
     "test": "node --test dist/tests/*.test.js dist/tests/golden/*.test.js dist/tests/security/*.test.js",
