@@ -55,6 +55,19 @@ test("schema snapshot identity rejects a present base state without a base commi
   expectInvalid(validation, "base_commit");
 });
 
+test("schema snapshot identity rejects Windows absolute and control-character paths", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-snapshot-identity.json");
+  const snapshot = fixture as {
+    readonly entries: Array<Record<string, unknown>>;
+  };
+  snapshot.entries[0] = {
+    ...snapshot.entries[0],
+    path: "C:\\tmp\\example.ts",
+  };
+
+  expectInvalid(validateSnapshotIdentity(fixture), "pattern");
+});
+
 test("schema coverage accepts internally consistent event arithmetic", () => {
   const fixture = readFixture<unknown>("valid-coverage.json");
   const validation = validateCoverageEnvelope(fixture);
@@ -111,6 +124,13 @@ test("schema staged receipt accepts the valid fixture envelope", () => {
   assert.strictEqual(validation.valid, true);
 });
 
+test("schema staged receipt rejects impossible calendar timestamps", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-staged-receipt.json");
+  fixture.completed_at = "2026-02-29T01:02:03Z";
+
+  expectInvalid(validateStagedReceipt(fixture), "real UTC calendar timestamp");
+});
+
 test("schema staged receipt rejects repository snapshots in the staged envelope", () => {
   const fixture = readFixture<unknown>("invalid-staged-receipt-snapshot-kind.json");
   const validation = validateStagedReceipt(fixture);
@@ -130,6 +150,18 @@ test("schema repository manifest accepts the valid fixture envelope", () => {
   const validation = validateRepositoryManifest(fixture);
 
   assert.strictEqual(validation.valid, true);
+});
+
+test("schema repository manifest requires every artifact kind descriptor", () => {
+  const fixture = readFixture<{
+    readonly artifacts: readonly Record<string, unknown>[];
+  } & Record<string, unknown>>("valid-repository-manifest.json");
+  const withoutHld = {
+    ...fixture,
+    artifacts: fixture.artifacts.filter((artifact) => artifact.kind !== "hld"),
+  };
+
+  expectInvalid(validateRepositoryManifest(withoutHld), "contain at least 1");
 });
 
 test("schema repository manifest rejects coverage and card references that do not resolve", () => {

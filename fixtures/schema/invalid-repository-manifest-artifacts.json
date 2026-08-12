@@ -35,6 +35,24 @@
   },
   "artifacts": [
     {
+      "kind": "hld",
+      "path": "repo-hld-20260810T010203Z.md",
+      "state": "not_available",
+      "not_available_reason": "agent_consent_declined"
+    },
+    {
+      "kind": "lld",
+      "path": "repo-lld-20260810T010203Z.md",
+      "state": "not_available",
+      "not_available_reason": "agent_consent_declined"
+    },
+    {
+      "kind": "collapsed_evidence",
+      "path": "repo-collapsed-evidence-20260810T010203Z.md",
+      "state": "not_available",
+      "not_available_reason": "agent_consent_declined"
+    },
+    {
       "kind": "coverage",
       "path": "repo-coverage-20260810T010203Z.json",
       "state": "complete",

@@ -6,6 +6,10 @@
   "completed_at": "2026-08-10T01:02:03Z",
   "snapshot": {
     "kind": "staged",
+    "checkout": {
+      "state": "branch",
+      "branch_name": "main"
+    },
     "base_state": "present",
     "base_commit": "1111111111111111111111111111111111111111",
     "copied_index_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

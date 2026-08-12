@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -79,6 +80,48 @@ test("git snapshot represents unborn staged branches explicitly", () => {
   assert.strictEqual(snapshot.identity.base_state, "unborn");
   assert.strictEqual(snapshot.identity.base_commit, null);
   assert.strictEqual(snapshot.identity.entries[0]?.path, "born.ts");
+});
+
+test("git snapshot preserves an absent unborn index instead of copying a corrupt empty file", () => {
+  const repositoryRoot = createTempGitRepository();
+  const liveIndexPath = path.resolve(
+    repositoryRoot,
+    runGit(repositoryRoot, ["rev-parse", "--git-path", "index"]).stdout.trim(),
+  );
+
+  assert.strictEqual(fs.existsSync(liveIndexPath), false);
+  const snapshot = captureStagedSnapshot(repositoryRoot);
+
+  assert.strictEqual(snapshot.identity.base_state, "unborn");
+  assert.deepStrictEqual(snapshot.identity.entries, []);
+  assert.deepStrictEqual(snapshot.status_entries, []);
+  assert.strictEqual(fs.existsSync(liveIndexPath), false);
+});
+
+test("git snapshot uses the repository object format for unborn SHA-256 snapshots", () => {
+  const repositoryRoot = createTempGitRepository("sha256");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, "src/example.ts");
+
+  const snapshot = captureStagedSnapshot(repositoryRoot);
+
+  assert.strictEqual(snapshot.identity.base_state, "unborn");
+  assert.match(snapshot.identity.entries[0]?.snapshot_blob_oid ?? "", /^[0-9a-f]{64}$/);
+  assert.match(snapshot.raw_records[0]?.staged_blob_oid ?? "", /^[0-9a-f]{64}$/);
+});
+
+test("git snapshot resolves a nested invocation to the actual repository root", () => {
+  const repositoryRoot = createTempGitRepository();
+  const nestedRoot = path.join(repositoryRoot, "packages", "example");
+  fs.mkdirSync(nestedRoot, { recursive: true });
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+
+  const snapshot = captureStagedSnapshot(nestedRoot);
+
+  assert.strictEqual(snapshot.identity.entries[0]?.path, "src/example.ts");
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia", "tmp")), true);
+  assert.strictEqual(fs.existsSync(path.join(nestedRoot, ".skia")), false);
 });
 
 test("git snapshot represents detached staged state explicitly", () => {
@@ -327,6 +370,40 @@ test("repository snapshot binds to HEAD and excludes staged or working-tree chan
     snapshot.identity.entries.map((entry) => entry.path),
     ["src/committed.ts"],
   );
+});
+
+test("repository snapshot skips malformed committed UTF-8 paths", () => {
+  const repositoryRoot = createTempGitRepository();
+  const blobOid = writeGitBlob(repositoryRoot, readGitFixture("sample.ts"));
+  const rawPathBytes = Uint8Array.from([
+    ...Buffer.from("src/", "utf8"),
+    0xff,
+    ...Buffer.from(".ts", "utf8"),
+  ]);
+  stageRawIndexEntry(repositoryRoot, blobOid, rawPathBytes);
+  commitAll(repositoryRoot, "non-utf8 path");
+
+  const snapshot = captureRepositorySnapshot(repositoryRoot);
+
+  assert.deepStrictEqual(snapshot.identity.entries, []);
+  assert.deepStrictEqual(snapshot.captured_blobs, []);
+});
+
+test("repository snapshot captures each committed blob object once", () => {
+  const repositoryRoot = createTempGitRepository();
+  const content = readGitFixture("sample.ts");
+  writeRepoTextFile(repositoryRoot, "src/one.ts", content);
+  writeRepoTextFile(repositoryRoot, "src/two.ts", content);
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "duplicate blobs");
+
+  const snapshot = captureRepositorySnapshot(repositoryRoot);
+
+  assert.deepStrictEqual(
+    snapshot.identity.entries.map((entry) => entry.path),
+    ["src/one.ts", "src/two.ts"],
+  );
+  assert.strictEqual(snapshot.captured_blobs.length, 1);
 });
 
 test("repository snapshot rejects a repository with no HEAD using the stable shared reason", () => {
@@ -587,7 +664,9 @@ test("staged snapshot rejects a corrupt existing branch ref instead of classifyi
 
 test("staged snapshot rejects a corrupt linked-worktree branch ref from the common git dir", () => {
   const repositoryRoot = createTempGitRepository();
-  const linkedWorktreeRoot = fs.mkdtempSync("/private/tmp/skia-task4-linked-worktree-");
+  const linkedWorktreeRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "skia-task4-linked-worktree-"),
+  );
 
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
   stageAll(repositoryRoot);

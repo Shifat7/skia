@@ -147,6 +147,16 @@ declare module "node:path" {
   export default path;
 }
 
+declare module "node:os" {
+  export function tmpdir(): string;
+
+  const os: {
+    readonly tmpdir: typeof tmpdir;
+  };
+
+  export default os;
+}
+
 declare module "node:buffer" {
   export class Buffer extends Uint8Array {
     static alloc(size: number): Buffer;
@@ -165,6 +175,10 @@ declare module "node:crypto" {
   }
 
   export function createHash(algorithm: "sha256"): Hash;
+}
+
+declare module "node:util" {
+  export function isDeepStrictEqual(actual: unknown, expected: unknown): boolean;
 }
 
 declare module "node:process" {

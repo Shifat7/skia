@@ -2,10 +2,11 @@ import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-const TEMP_PREFIX = "/private/tmp/skia-task4-";
+const TEMP_PREFIX = path.join(os.tmpdir(), "skia-task4-");
 const FIXTURE_DIRECTORY = path.join(process.cwd(), "fixtures/git");
 
 export interface GitRunOptions {
@@ -22,9 +23,11 @@ export function readGitFixture(filename: string): string {
   return fs.readFileSync(path.join(FIXTURE_DIRECTORY, filename), "utf8");
 }
 
-export function createTempGitRepository(): string {
+export function createTempGitRepository(
+  objectFormat: "sha1" | "sha256" = "sha1",
+): string {
   const repositoryRoot = fs.mkdtempSync(TEMP_PREFIX);
-  runGit(repositoryRoot, ["init", "-q"]);
+  runGit(repositoryRoot, ["init", "-q", `--object-format=${objectFormat}`]);
   runGit(repositoryRoot, ["config", "user.name", "skia"]);
   runGit(repositoryRoot, ["config", "user.email", "skia@example.com"]);
   return repositoryRoot;

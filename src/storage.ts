@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   DIST_DIRECTORY_NAME,
@@ -39,6 +40,7 @@ import type {
   RunId,
   RunState,
   Sha256Hex,
+  CoverageEnvelope,
   StagedReceipt,
 } from "./types.js";
 
@@ -66,6 +68,7 @@ export interface RepositoryRunAllocation {
   readonly runDirectoryPath: string;
   readonly metadataPath: string;
   readonly manifestPath: string;
+  readonly snapshot: RepositorySnapshotIdentity;
 }
 
 export interface RunListEntry {
@@ -258,7 +261,18 @@ function writeNewFile(filePath: string, data: string | Uint8Array): void {
   const fileDescriptor = fs.openSync(filePath, "wx", OWNER_FILE_MODE);
 
   try {
-    fs.writeSync(fileDescriptor, bytes);
+    let offset = 0;
+
+    while (offset < bytes.length) {
+      const written = fs.writeSync(fileDescriptor, bytes.subarray(offset));
+
+      if (written <= 0) {
+        throw createStorageError(`could not write ${filePath}`);
+      }
+
+      offset += written;
+    }
+
     fs.fsyncSync(fileDescriptor);
   } finally {
     fs.closeSync(fileDescriptor);
@@ -614,7 +628,10 @@ function existingRunTargets(repositoryRoot: string, runIdInput: string, runId: R
   };
 }
 
-function validateCoverageArtifact(runDirectoryPath: string, artifactPath: RunArtifactPath): void {
+function validateCoverageArtifact(
+  runDirectoryPath: string,
+  artifactPath: RunArtifactPath,
+): CoverageEnvelope {
   const coverage = parseJson<unknown>(artifactAbsolutePath(runDirectoryPath, artifactPath));
   const validation = validateCoverageEnvelope(coverage);
 
@@ -624,6 +641,64 @@ function validateCoverageArtifact(runDirectoryPath: string, artifactPath: RunArt
         .map((error) => error.message)
         .join("; ")}`,
     );
+  }
+
+  return validation.value;
+}
+
+function stagedReceiptHashWithoutSelf(receipt: StagedReceipt): Sha256Hex {
+  const receiptWithoutSelf = {
+    ...receipt,
+    artifact_hashes: receipt.artifact_hashes.filter((artifact) => artifact.kind !== "receipt"),
+  };
+
+  return sha256Hex(`${JSON.stringify(receiptWithoutSelf, null, 2)}\n`);
+}
+
+function validateStagedArtifactHashes(
+  skiaRootPath: string,
+  receipt: StagedReceipt,
+): void {
+  const receiptArtifacts = receipt.artifact_hashes.filter((artifact) => artifact.kind === "receipt");
+
+  if (receiptArtifacts.length !== 1) {
+    throw createStorageError("staged receipt must contain exactly one receipt artifact hash");
+  }
+
+  const receiptArtifact = receiptArtifacts[0];
+  if (receiptArtifact === undefined) {
+    throw createStorageError("staged receipt is missing its receipt artifact hash");
+  }
+
+  if (receiptArtifact.path !== deriveStagedReceiptPath(receipt.run_id, receipt.session_id)) {
+    throw createStorageError("receipt artifact hash path does not match the staged receipt path");
+  }
+
+  if (receiptArtifact.sha256 !== stagedReceiptHashWithoutSelf(receipt)) {
+    throw createStorageError("receipt artifact hash does not match the non-self-referential receipt contents");
+  }
+
+  for (const artifact of receipt.artifact_hashes) {
+    if (artifact.kind === "receipt") {
+      continue;
+    }
+
+    const absolutePath = validateContainedPath(skiaRootPath, artifact.path);
+    assertNoSymlinkInPath(skiaRootPath, absolutePath);
+
+    if (!fs.existsSync(absolutePath)) {
+      throw createStorageError(`staged artifact ${artifact.path} is missing`);
+    }
+
+    const stats = fs.lstatSync(absolutePath);
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      throw createStorageError(`staged artifact ${artifact.path} must be a regular file`);
+    }
+
+    const actualSha256 = sha256Hex(fs.readFileSync(absolutePath));
+    if (actualSha256 !== artifact.sha256) {
+      throw createStorageError(`staged artifact ${artifact.path} sha256 does not match the receipt`);
+    }
   }
 }
 
@@ -737,6 +812,7 @@ export function allocateRepositoryRun(
         runDirectoryPath,
         metadataPath,
         manifestPath: path.join(runDirectoryPath, deriveRepositoryManifestPath(runId)),
+        snapshot,
       };
     } catch (error) {
       try {
@@ -781,6 +857,10 @@ export function completeRepositoryRun(
     throw createStorageError("repository manifest run_id does not match the allocated run");
   }
 
+  if (!isDeepStrictEqual(manifest.snapshot, allocation.snapshot)) {
+    throw createStorageError("repository manifest snapshot does not match the allocated snapshot");
+  }
+
   const validation = validateRepositoryManifest(manifest);
 
   if (!validation.valid) {
@@ -798,6 +878,8 @@ export function completeRepositoryRun(
       absolutePath: validateCompleteArtifactPath(allocation, artifact.path),
     }));
 
+  let coverageArtifactValue: CoverageEnvelope | null = null;
+
   for (const { artifact, absolutePath } of completeArtifacts) {
     const artifactBytes = fs.readFileSync(absolutePath);
     const actualSha256 = sha256Hex(artifactBytes);
@@ -807,8 +889,15 @@ export function completeRepositoryRun(
     }
 
     if (artifact.kind === "coverage") {
-      validateCoverageArtifact(allocation.runDirectoryPath, artifact.path);
+      coverageArtifactValue = validateCoverageArtifact(allocation.runDirectoryPath, artifact.path);
     }
+  }
+
+  if (
+    coverageArtifactValue === null ||
+    !isDeepStrictEqual(coverageArtifactValue, validation.value.coverage)
+  ) {
+    throw createStorageError("coverage artifact does not match inline manifest coverage");
   }
 
   writeNewFile(allocation.manifestPath, `${JSON.stringify(validation.value, null, 2)}\n`);
@@ -832,6 +921,9 @@ export function writeStagedReceipt(
         .join("; ")}`,
     );
   }
+
+  const { skiaRootPath } = ensureStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
+  validateStagedArtifactHashes(skiaRootPath, validation.value);
 
   let claimPath: string;
   try {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -20,7 +21,7 @@ import {
   writeRepoTextFile,
 } from "../git-test-helpers.js";
 
-const TEMP_PREFIX = "/private/tmp/skia-task4-security-";
+const TEMP_PREFIX = path.join(os.tmpdir(), "skia-task4-security-");
 
 test("git security uses the fixed allowlisted environment, clears inherited redirect/network variables, and disables ext-diff/textconv", () => {
   const repositoryRoot = createTempGitRepository();
@@ -112,6 +113,30 @@ exit 1
   }
 
   throw new Error("expected a timeout GitSnapshotError");
+});
+
+test("git security escapes carriage returns in process diagnostics", () => {
+  const repositoryRoot = createTempGitRepository();
+  const wrapper = createWrapperScript(`#!/bin/sh
+printf 'bad\\rdetail\\n' >&2
+exit 1
+`);
+
+  let thrown: unknown = null;
+  try {
+    captureStagedSnapshot(repositoryRoot, { git_executable: wrapper });
+  } catch (error) {
+    thrown = error;
+  }
+
+  assert.ok(thrown instanceof GitSnapshotError);
+  if (!(thrown instanceof GitSnapshotError)) {
+    throw new Error("expected a GitSnapshotError");
+  }
+
+  assert.strictEqual(thrown.reason, "git_process_failed");
+  assert.strictEqual((thrown.detail ?? "").includes("\r"), false);
+  assert.match(thrown.detail ?? "", /\\r/);
 });
 
 test("git security enforces subprocess output bounds", () => {

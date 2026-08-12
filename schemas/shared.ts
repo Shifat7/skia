@@ -4,6 +4,7 @@ import {
   ANCHOR_SIDES,
   ARTIFACT_STATES,
   COVERAGE_STATES,
+  GIT_CHECKOUT_STATES,
   HASHED_ARTIFACT_KINDS,
   MANIFEST_ARTIFACT_KINDS,
   RUN_STATES,
@@ -23,7 +24,7 @@ export const SHA256_PATTERN = "^[0-9a-f]{64}$";
 export const RUN_ID_PATTERN = "^[0-9]{8}T[0-9]{6}Z(?:-[0-9]{2})?$";
 export const SESSION_ID_PATTERN = "^[a-z0-9]{8,32}$";
 export const RELATIVE_PATH_PATTERN =
-  "^(?!/)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[^\\u0000]+$";
+  "^(?!/)(?![A-Za-z]:[\\\\/])(?!.*\\\\)(?!.*[\\u0000-\\u001f\\u007f])(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[^\\u0000-\\u001f\\u007f]+$";
 export const GIT_MODE_PATTERN = "^[0-7]{6}$";
 
 export const gitObjectIdSchema = {
@@ -46,6 +47,7 @@ export const nullableSha256Schema = {
 
 export const relativePathSchema = {
   type: "string",
+  minLength: 1,
   pattern: RELATIVE_PATH_PATTERN,
 } as const;
 
@@ -413,4 +415,19 @@ export const completionTimestampInvariant = {
 export const snapshotBaseStateSchema = {
   type: "string",
   enum: [...SNAPSHOT_BASE_STATES],
+} as const;
+
+export const snapshotCheckoutSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["state", "branch_name"],
+  properties: {
+    state: {
+      type: "string",
+      enum: [...GIT_CHECKOUT_STATES],
+    },
+    branch_name: {
+      anyOf: [{ type: "string", minLength: 1 }, { type: "null" }],
+    },
+  },
 } as const;

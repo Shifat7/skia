@@ -8,7 +8,10 @@ import {
 import { repositoryManifestSchema } from "../schemas/repository-manifest.js";
 import { snapshotIdentitySchema } from "../schemas/snapshot-identity.js";
 import { stagedReceiptSchema } from "../schemas/staged-receipt.js";
-import { coverageEnvelopeSchema } from "../schemas/shared.js";
+import {
+  coverageEnvelopeSchema,
+  RFC3339_UTC_PATTERN,
+} from "../schemas/shared.js";
 import type {
   ArtifactDescriptor,
   ArtifactHashRecord,
@@ -21,6 +24,8 @@ import type {
   SourceAnchor,
   StagedReceipt,
 } from "./types.js";
+
+const RFC3339_UTC_REGEX = new RegExp(RFC3339_UTC_PATTERN);
 
 export interface SchemaValidationError {
   readonly instance_path: string;
@@ -110,6 +115,35 @@ function valid<T>(value: T): SchemaValidationResult<T> {
     valid: true,
     value,
   };
+}
+
+function validRfc3339Utc(value: string): boolean {
+  if (!RFC3339_UTC_REGEX.test(value)) {
+    return false;
+  }
+
+  const timestamp = new Date(value);
+  return (
+    Number.isFinite(timestamp.getTime()) &&
+    timestamp.toISOString().replace(".000Z", "Z") === value
+  );
+}
+
+function completionTimestampErrors(value: {
+  readonly status: string;
+  readonly completed_at: string | null;
+}): readonly SchemaValidationError[] {
+  if (value.completed_at === null || validRfc3339Utc(value.completed_at)) {
+    return [];
+  }
+
+  return [
+    {
+      instance_path: "/completed_at",
+      keyword: "rfc3339_calendar",
+      message: "completed_at must be a real UTC calendar timestamp",
+    },
+  ];
 }
 
 function validateWithInvariants<T>(
@@ -345,7 +379,11 @@ function stagedReceiptInvariants(
     });
   }
 
-  return [...errors, ...validateArtifactHashes(value.artifact_hashes, value.run_id)];
+  return [
+    ...errors,
+    ...completionTimestampErrors(value),
+    ...validateArtifactHashes(value.artifact_hashes, value.run_id),
+  ];
 }
 
 function validateArtifactDescriptors(
@@ -371,6 +409,17 @@ function validateArtifactDescriptors(
       keyword: "unique_paths",
       message: `manifest artifacts must use unique paths; duplicate path ${path}`,
     });
+  }
+
+  const presentKinds = new Set(artifacts.map((artifact) => artifact.kind));
+  for (const kind of ["hld", "lld", "collapsed_evidence", "behavior_cards", "coverage"] as const) {
+    if (!presentKinds.has(kind)) {
+      errors.push({
+        instance_path: "/artifacts",
+        keyword: "required_kinds",
+        message: `manifest artifacts must include a descriptor for ${kind}`,
+      });
+    }
   }
 
   for (const [index, artifact] of artifacts.entries()) {
@@ -409,6 +458,7 @@ function repositoryManifestInvariants(
 
   errors.push(
     ...validateArtifactDescriptors(value.artifacts, value.run_id, value.status),
+    ...completionTimestampErrors(value),
   );
 
   const artifactByPath = new Map(value.artifacts.map((artifact) => [artifact.path, artifact]));

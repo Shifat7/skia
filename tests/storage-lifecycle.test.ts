@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
@@ -35,7 +37,7 @@ import {
 } from "../src/paths.js";
 
 const FIXTURE_DIRECTORY = path.join(process.cwd(), "fixtures/schema");
-const TEMP_PREFIX = "/private/tmp/skia-task3-";
+const TEMP_PREFIX = path.join(os.tmpdir(), "skia-task3-");
 
 function readFixture<T>(filename: string): T {
   return JSON.parse(
@@ -111,14 +113,16 @@ function createRepositoryManifest(
   coverageSha: Sha256Hex,
   cardsPath: RunArtifactPath,
   cardsSha: Sha256Hex,
+  coverage: CoverageEnvelope = readFixture<CoverageEnvelope>("valid-coverage.json"),
+  snapshot: RepositorySnapshotIdentity = createRepositorySnapshotIdentity(),
 ): RepositoryManifest {
   return {
     schema_version: 1,
     run_id: runId,
     status: "partial",
     completed_at: "2026-08-10T01:02:05Z",
-    snapshot: createRepositorySnapshotIdentity(),
-    coverage: readFixture<CoverageEnvelope>("valid-coverage.json"),
+    snapshot,
+    coverage,
     artifacts: [
       {
         kind: "hld",
@@ -161,19 +165,28 @@ function createRepositoryManifest(
 function createStagedReceipt(
   runId: RunId,
   sessionId: string = "8f5d1a2c",
+  extraArtifactHashes: StagedReceipt["artifact_hashes"] = [],
 ): StagedReceipt {
   const fixture = readFixture<StagedReceipt>("valid-staged-receipt.json");
   const validatedSessionId = validateSessionId(sessionId);
-
-  return {
+  const receiptWithoutSelf = {
     ...fixture,
     run_id: runId,
     session_id: validatedSessionId,
+    artifact_hashes: extraArtifactHashes,
+  } satisfies StagedReceipt;
+  const receiptHash = createHash("sha256")
+    .update(`${JSON.stringify(receiptWithoutSelf, null, 2)}\n`)
+    .digest("hex");
+
+  return {
+    ...receiptWithoutSelf,
     artifact_hashes: [
+      ...extraArtifactHashes,
       {
         kind: "receipt",
         path: brand<RunArtifactPath>(`receipts/${runId}-${validatedSessionId}-session.json`),
-        sha256: brand<Sha256Hex>("e".repeat(64)),
+        sha256: brand<Sha256Hex>(receiptHash),
       },
     ],
   };
@@ -210,6 +223,36 @@ test("repository run allocation writes incomplete metadata before artifacts and 
   );
 
   assert.strictEqual(secondRun.runId, "20260810T010203Z-01");
+});
+
+test("repository completion rejects a manifest for a snapshot different from the allocation", () => {
+  const repositoryRoot = createTempRepository();
+  const run = allocateRepositoryRun(
+    repositoryRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T01:02:03Z"),
+  );
+  const mismatchedSnapshot: RepositorySnapshotIdentity = {
+    ...run.snapshot,
+    commit_oid: brand<GitObjectId>("f".repeat(40)),
+  };
+
+  assert.throws(
+    () =>
+      completeRepositoryRun(
+        run,
+        createRepositoryManifest(
+          run.runId,
+          brand<RunArtifactPath>(`repo-coverage-${run.runId}.json`),
+          brand<Sha256Hex>("a".repeat(64)),
+          brand<RunArtifactPath>(`repo-cards-${run.runId}.json`),
+          brand<Sha256Hex>("b".repeat(64)),
+          undefined,
+          mismatchedSnapshot,
+        ),
+      ),
+    /snapshot does not match/i,
+  );
 });
 
 test("listRuns and inspectRun stay read-only on a fresh repository", () => {
@@ -454,6 +497,37 @@ test("repository completion validates hashes and coverage schema before writing 
   );
 });
 
+test("repository completion rejects divergence between inline and coverage artifact envelopes", () => {
+  const repositoryRoot = createTempRepository();
+  const run = allocateRepositoryRun(
+    repositoryRoot,
+    createRepositorySnapshotIdentity(),
+    new Date("2026-08-10T01:02:03Z"),
+  );
+  const coveragePath = deriveRepositoryArtifactPath(run.runId, "coverage");
+  const cardsPath = deriveRepositoryArtifactPath(run.runId, "behavior_cards");
+  const coverage = readFixture<CoverageEnvelope>("valid-coverage.json");
+  const coverageWrite = writeArtifactFile(run, coveragePath, JSON.stringify(coverage));
+  const cardsWrite = writeArtifactFile(run, cardsPath, "{\"cards\":[]}");
+  const divergentCoverage = readFixture<CoverageEnvelope>("valid-coverage-visibility.json");
+
+  assert.throws(
+    () =>
+      completeRepositoryRun(
+        run,
+        createRepositoryManifest(
+          run.runId,
+          coveragePath,
+          coverageWrite.sha256,
+          cardsPath,
+          cardsWrite.sha256,
+          divergentCoverage,
+        ),
+      ),
+    /inline manifest coverage/i,
+  );
+});
+
 test("repository completion writes a manifest only after validated artifacts, and list/inspect cover repository and receipt runs without reading artifact content", () => {
   const repositoryRoot = createTempRepository();
   const run = allocateRepositoryRun(
@@ -576,6 +650,51 @@ test("staged receipts reject a duplicate run ID before the run becomes ambiguous
     deleted: true,
     remaining_paths: [],
   });
+});
+
+test("staged receipt writes verify stored artifact hashes and use a non-self-referential receipt hash", () => {
+  const repositoryRoot = createTempRepository();
+  const runId = brand<RunId>("20260810T030405Z");
+  const artifactPath = brand<RunArtifactPath>(`artifacts/${runId}-hld.md`);
+  const artifactContents = "# hld\n";
+  const artifactAbsolutePath = absoluteSkiaPath(repositoryRoot, artifactPath);
+  fs.mkdirSync(path.dirname(artifactAbsolutePath), { recursive: true });
+  fs.writeFileSync(artifactAbsolutePath, artifactContents, "utf8");
+  const artifactSha = createHash("sha256").update(artifactContents).digest("hex");
+
+  writeStagedReceipt(
+    repositoryRoot,
+    createStagedReceipt(runId, "8f5d1a2c", [
+      {
+        kind: "hld",
+        path: artifactPath,
+        sha256: brand<Sha256Hex>(artifactSha),
+      },
+    ]),
+  );
+
+  const badReceipt = createStagedReceipt(
+    brand<RunId>("20260810T030406Z"),
+    "8f5d1a2c",
+  );
+  const receiptArtifact = badReceipt.artifact_hashes[0];
+  if (receiptArtifact === undefined) {
+    throw new Error("expected a receipt artifact hash");
+  }
+
+  assert.throws(
+    () =>
+      writeStagedReceipt(repositoryRoot, {
+        ...badReceipt,
+        artifact_hashes: [
+          {
+            ...receiptArtifact,
+            sha256: brand<Sha256Hex>("0".repeat(64)),
+          },
+        ],
+      }),
+    /non-self-referential|receipt artifact hash/i,
+  );
 });
 
 test("repository runs and staged receipts share one exact run-id namespace and legacy cross-mode collisions fail closed", () => {

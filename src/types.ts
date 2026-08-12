@@ -146,6 +146,7 @@ export interface GitCapturedBlob {
 
 export interface StagedSnapshotIdentity {
   readonly kind: "staged";
+  readonly checkout: SnapshotCheckout;
   readonly base_state: SnapshotBaseState;
   readonly base_commit: GitObjectId | null;
   readonly copied_index_sha256: Sha256Hex;

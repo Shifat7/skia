@@ -4,6 +4,7 @@ import {
   nullableGitObjectIdSchema,
   nullableSha256Schema,
   sha256Schema,
+  snapshotCheckoutSchema,
   snapshotBaseStateSchema,
   snapshotEntrySchema,
 } from "./shared.js";
@@ -17,6 +18,7 @@ export const snapshotIdentitySchema = {
       additionalProperties: false,
       required: [
         "kind",
+        "checkout",
         "base_state",
         "base_commit",
         "copied_index_sha256",
@@ -28,6 +30,7 @@ export const snapshotIdentitySchema = {
         kind: {
           const: "staged",
         },
+        checkout: snapshotCheckoutSchema,
         base_state: snapshotBaseStateSchema,
         base_commit: nullableGitObjectIdSchema,
         copied_index_sha256: sha256Schema,

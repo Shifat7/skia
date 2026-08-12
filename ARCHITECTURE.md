@@ -1,8 +1,10 @@
 # Skia Architecture -- Proposed Target
 
-> **Unimplemented design.** The repository contains no TypeScript package,
-> source code, tests, generated HLD/LLD, or runnable command. Every module,
-> type, command, and data flow below is a proposal.
+> **Foundation implemented; product workflows remain proposed.** The repository
+> contains a TypeScript package, source code, tests, schemas, Git snapshot
+> capture, language analysis, and local storage foundation. The staged/repository
+> CLI workflows, semantic reduction, agent boundary, and generated HLD/LLD
+> consumers described below remain unimplemented and are proposal-level design.
 
 ---
 
@@ -83,7 +85,9 @@ or measured requirement justifies them.
 
 The exact package, lockfile, module, and source-language matrix is normative in
 the [implementation specification](docs/IMPLEMENTATION_SPEC.md#frozen-package-contract).
-Package creation remains Task 1; this architecture records contracts only.
+The remaining CLI orchestration and deferred consumer modules are follow-up
+implementation tasks; this architecture records both the implemented
+foundation and the target contracts.
 
 ---
 

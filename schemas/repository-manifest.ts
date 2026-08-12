@@ -7,6 +7,7 @@ import {
 } from "./shared.js";
 import { coverageEnvelopeSchema } from "./shared.js";
 import { snapshotIdentitySchema } from "./snapshot-identity.js";
+import { MANIFEST_ARTIFACT_KINDS } from "../src/types.js";
 
 export const repositoryManifestSchema = {
   $id: "https://skia.dev/schemas/repository-manifest.schema.json",
@@ -37,6 +38,15 @@ export const repositoryManifestSchema = {
     artifacts: {
       type: "array",
       items: artifactDescriptorSchema,
+      allOf: MANIFEST_ARTIFACT_KINDS.map((kind) => ({
+        contains: {
+          type: "object",
+          required: ["kind"],
+          properties: {
+            kind: { const: kind },
+          },
+        },
+      })),
     },
     coverage_file: runArtifactPathSchema,
     cards_file: runArtifactPathSchema,
