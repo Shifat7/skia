@@ -25,7 +25,7 @@ export const RUN_ID_PATTERN = "^[0-9]{8}T[0-9]{6}Z(?:-[0-9]{2})?$";
 export const SESSION_ID_PATTERN = "^[a-z0-9]{8,32}$";
 export const MAX_SAFE_JSON_INTEGER = Number.MAX_SAFE_INTEGER;
 export const RELATIVE_PATH_PATTERN =
-  "^(?!/)(?![A-Za-z]:[\\\\/])(?!.*\\\\)(?!.*[\\u0000-\\u001f\\u007f])(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[^\\u0000-\\u001f\\u007f]+$";
+  "^(?!/)(?![A-Za-z]:[\\\\/])(?!.*\\\\)(?!.*[\\u0000-\\u001f\\u007f])(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)(?!.*\\/$)[^\\u0000-\\u001f\\u007f]+$";
 export const GIT_MODE_PATTERN = "^[0-7]{6}$";
 
 export const gitObjectIdSchema = {

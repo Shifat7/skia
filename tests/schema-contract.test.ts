@@ -68,6 +68,19 @@ test("schema snapshot identity rejects Windows absolute and control-character pa
   expectInvalid(validateSnapshotIdentity(fixture), "pattern");
 });
 
+test("schema snapshot identity rejects paths with trailing separators", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-snapshot-identity.json");
+  const snapshot = fixture as {
+    readonly entries: Array<Record<string, unknown>>;
+  };
+  snapshot.entries[0] = {
+    ...snapshot.entries[0],
+    path: "src/example.ts/",
+  };
+
+  expectInvalid(validateSnapshotIdentity(fixture), "pattern");
+});
+
 test("schema coverage accepts internally consistent event arithmetic", () => {
   const fixture = readFixture<unknown>("valid-coverage.json");
   const validation = validateCoverageEnvelope(fixture);
