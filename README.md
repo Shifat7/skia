@@ -50,6 +50,127 @@ to copy into your project. The original source and exact Git snapshot remain
 authoritative. See [ADR-001](docs/decisions/ADR-001-simplified-code-as-evidence.md)
 for this decision.
 
+## When would I use Skia?
+
+Use Skia when an AI has changed code and you want to understand the behavior
+before you approve, merge, or build on top of it. The future workflow is always
+the same:
+
+```text
+1. Read the simplified view.
+2. Predict one result yourself.
+3. Compare your answer with the source-backed evidence.
+4. Open the original code anywhere the coverage is incomplete.
+```
+
+### Use case: an authorization change
+
+AI-generated change in `src/deleteAccount.ts`:
+
+```ts
+if (!session) throw new Error("Not signed in");
+if (!session.isAdmin) throw new Error("Forbidden");
+await deleteAccount(accountId);
+```
+
+Intended simplified view:
+
+```text
+SIMPLIFIED VIEW — not executable
+src/deleteAccount.ts:8-12
+
+no session       -> reject
+signed-in user
+  not an admin   -> reject
+  admin          -> delete the account
+```
+
+Prediction question:
+
+```text
+Given: signed-in user, isAdmin=false
+What happens?  > the account is not deleted
+```
+
+This helps a junior developer notice that “signed in” is not the same as
+“allowed to delete.”
+
+### Use case: a TSX loading-state change
+
+AI-generated change in `src/Dashboard.tsx`:
+
+```tsx
+if (loading) return <Spinner />;
+if (error) return <ErrorMessage message={error.message} />;
+return <DashboardContent data={data} />;
+```
+
+Intended simplified view:
+
+```text
+SIMPLIFIED VIEW — not executable
+src/Dashboard.tsx:20-23
+
+loading -> show spinner
+error   -> show error message
+ready   -> show dashboard data
+```
+
+Prediction question:
+
+```text
+Given: loading=false, error=null, data={tasks: []}
+What does the user see?  > an empty dashboard, not a spinner
+```
+
+This is useful when the change is small but the UI behavior has several
+branches that are easy to miss in a diff.
+
+### Use case: a Python data-cleanup change
+
+AI-generated change in `scripts/send_reminders.py`:
+
+```python
+def send_reminder(user):
+    if not user["email"] or user["unsubscribed"]:
+        return
+    send_email(user["email"], "You have a reminder")
+```
+
+Intended simplified view:
+
+```text
+SIMPLIFIED VIEW — not executable
+scripts/send_reminders.py:4-7
+
+no email OR unsubscribed -> send nothing
+otherwise                -> send one reminder email
+```
+
+Prediction question:
+
+```text
+Given: email="", unsubscribed=false
+What happens?  > no email is sent
+```
+
+This makes an important negative behavior visible: the function deliberately
+does nothing for users without an email address.
+
+### Use case: Skia cannot safely summarize the change
+
+Sometimes the right output is a warning, not simplified code:
+
+```text
+src/parser.ts       partial      syntax error near lines 31-34
+docs/example.md     unsupported  unsupported_language
+scripts/job.py      failed       invalid_source_encoding
+src/generated.ts    unchecked    not analyzed in this run
+```
+
+The next action is to inspect those files. Skia must not invent a clean-looking
+summary for a branch it could not analyze.
+
 ## What works today
 
 The Phase 1 TypeScript foundation is implemented:
