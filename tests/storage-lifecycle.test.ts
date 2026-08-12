@@ -32,6 +32,8 @@ import {
   deriveRepositoryArtifactPath,
   deriveRepositoryManifestPath,
   deriveRepositoryRunDirectory,
+  deriveStagedArtifactPath,
+  deriveStagedReceiptPath,
   validateRelativePath,
   validateSessionId,
 } from "../src/paths.js";
@@ -201,7 +203,7 @@ function createStagedReceipt(
       ...extraArtifactHashes,
       {
         kind: "receipt",
-        path: brand<RunArtifactPath>(`receipts/${runId}-${validatedSessionId}-session.json`),
+        path: deriveStagedReceiptPath(runId, validatedSessionId),
         sha256: brand<Sha256Hex>(receiptHash),
       },
     ],
@@ -834,9 +836,13 @@ test("staged receipt lookup rejects a filename whose envelope identity differs",
 test("receipt deletion fails closed on symlinked artifact ancestors", () => {
   const repositoryRoot = createTempRepository();
   const runId = brand<RunId>("20260810T030407Z");
-  const artifactPath = brand<RunArtifactPath>(`linked/${runId}-hld.md`);
+  const artifactPath = deriveStagedArtifactPath(
+    runId,
+    validateSessionId("8f5d1a2c"),
+    "hld",
+  );
   const externalRoot = fs.mkdtempSync(TEMP_PREFIX);
-  const linkedPath = absoluteSkiaPath(repositoryRoot, "linked");
+  const linkedPath = absoluteSkiaPath(repositoryRoot, "artifacts");
   const artifactAbsolutePath = absoluteSkiaPath(repositoryRoot, artifactPath);
   fs.mkdirSync(path.dirname(artifactAbsolutePath), { recursive: true });
   fs.writeFileSync(artifactAbsolutePath, "# hld\n", "utf8");
@@ -944,7 +950,7 @@ test("deleteRun removes receipt-owned artifacts before receipt and claim, and re
 test("staged receipt writes verify stored artifact hashes and use a non-self-referential receipt hash", () => {
   const repositoryRoot = createTempRepository();
   const runId = brand<RunId>("20260810T030405Z");
-  const artifactPath = brand<RunArtifactPath>(`artifacts/${runId}-hld.md`);
+  const artifactPath = deriveStagedArtifactPath(runId, validateSessionId("8f5d1a2c"), "hld");
   const artifactContents = "# hld\n";
   const artifactAbsolutePath = absoluteSkiaPath(repositoryRoot, artifactPath);
   fs.mkdirSync(path.dirname(artifactAbsolutePath), { recursive: true });

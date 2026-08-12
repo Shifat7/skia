@@ -12,16 +12,22 @@ import {
   coverageEnvelopeSchema,
   RFC3339_UTC_PATTERN,
 } from "../schemas/shared.js";
-import { deriveRepositoryArtifactPath } from "./paths.js";
+import {
+  deriveRepositoryArtifactPath,
+  deriveStagedArtifactPath,
+  deriveStagedReceiptPath,
+} from "./paths.js";
 import type {
   ArtifactDescriptor,
   ArtifactHashRecord,
   CoverageEnvelope,
   CoverageEvent,
   CoverageState,
+  GitObjectId,
   RepositoryManifest,
   SnapshotEntry,
   SnapshotIdentity,
+  SessionId,
   ManifestArtifactKind,
   SourceAnchor,
   StagedReceipt,
@@ -307,6 +313,22 @@ function snapshotIdentityInvariants(
   const errors: SchemaValidationError[] = [...validateSnapshotEntries(value.entries)];
 
   if (value.kind === "staged") {
+    if (
+      (value.checkout.state === "branch" && value.checkout.branch_name === null) ||
+      (value.checkout.state === "detached" && value.checkout.branch_name !== null)
+    ) {
+      errors.push({
+        instance_path: "/checkout",
+        keyword: "checkout_identity",
+        message:
+          value.checkout.state === "branch"
+            ? "branch checkout must include a branch_name"
+            : "detached checkout must have a null branch_name",
+      });
+    }
+  }
+
+  if (value.kind === "staged") {
     if (value.base_state === "present" && value.base_commit === null) {
       errors.push({
         instance_path: "/base_commit",
@@ -322,6 +344,32 @@ function snapshotIdentityInvariants(
         message: "base_commit must be null when base_state is unborn",
       });
     }
+  }
+
+  const objectIds: GitObjectId[] = [];
+  if (value.kind === "repository") {
+    objectIds.push(value.commit_oid);
+  } else if (value.base_commit !== null) {
+    objectIds.push(value.base_commit);
+  }
+
+  for (const entry of value.entries) {
+    if (entry.base_blob_oid !== null) {
+      objectIds.push(entry.base_blob_oid);
+    }
+    if (entry.snapshot_blob_oid !== null) {
+      objectIds.push(entry.snapshot_blob_oid);
+    }
+  }
+
+  const objectIdLengths = objectIds.map((oid) => oid.length);
+
+  if (new Set(objectIdLengths).size > 1) {
+    errors.push({
+      instance_path: "/entries",
+      keyword: "object_format",
+      message: "snapshot Git object IDs must use one object format",
+    });
   }
 
   return errors;
@@ -395,6 +443,7 @@ function coverageEnvelopeInvariants(
 function validateArtifactHashes(
   artifactHashes: readonly ArtifactHashRecord[],
   runId: string,
+  sessionId: SessionId,
 ): readonly SchemaValidationError[] {
   const errors: SchemaValidationError[] = [];
   const duplicatePaths = duplicateValues(artifactHashes.map((artifact) => artifact.path));
@@ -408,11 +457,20 @@ function validateArtifactHashes(
   }
 
   for (const [index, artifact] of artifactHashes.entries()) {
-    if (!artifact.path.includes(runId)) {
+    const expectedPath = artifact.kind === "receipt"
+      ? deriveStagedReceiptPath(runId as StagedReceipt["run_id"], sessionId)
+      : deriveStagedArtifactPath(
+        runId as StagedReceipt["run_id"],
+        sessionId,
+        artifact.kind,
+      );
+
+    if (artifact.path !== expectedPath) {
       errors.push({
         instance_path: `/artifact_hashes/${index}/path`,
-        keyword: "run_id_path_match",
-        message: "artifact hash paths must include the receipt run_id",
+        keyword: "canonical_staged_artifact_path",
+        message:
+          "staged artifact hash paths must use the canonical staged artifact path for the run_id, session_id, and kind",
       });
     }
   }
@@ -438,7 +496,7 @@ function stagedReceiptInvariants(
     ...runIdCalendarErrors(value.run_id),
     ...completionTimestampErrors(value),
     ...validateStagedCoverageAnchors(value.snapshot.entries, value.coverage),
-    ...validateArtifactHashes(value.artifact_hashes, value.run_id),
+    ...validateArtifactHashes(value.artifact_hashes, value.run_id, value.session_id),
   ];
 }
 

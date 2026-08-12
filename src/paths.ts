@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import path from "node:path";
 
 import type {
+  HashedArtifactKind,
   ManifestArtifactKind,
   RepositoryRelativePath,
   RunArtifactPath,
@@ -212,4 +213,16 @@ export function deriveStagedReceiptPath(
   sessionId: SessionId,
 ): RunArtifactPath {
   return validateRunArtifactPath(`receipts/${runId}-${sessionId}-session.json`);
+}
+
+export function deriveStagedArtifactPath(
+  runId: RunId,
+  sessionId: SessionId,
+  kind: Exclude<HashedArtifactKind, "receipt">,
+): RunArtifactPath {
+  const extension = kind === "hld" || kind === "lld" || kind === "collapsed_evidence"
+    ? "md"
+    : "json";
+
+  return validateRunArtifactPath(`artifacts/${runId}-${sessionId}-${kind}.${extension}`);
 }

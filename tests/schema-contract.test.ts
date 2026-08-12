@@ -204,7 +204,54 @@ test("schema staged receipt rejects artifact hashes whose paths do not include t
   const fixture = readFixture<unknown>("invalid-staged-receipt-artifact-hash-path.json");
   const validation = validateStagedReceipt(fixture);
 
-  expectInvalid(validation, "artifact hash paths must include the receipt run_id");
+  expectInvalid(validation, "canonical staged artifact path");
+});
+
+test("schema staged receipt rejects artifact paths outside its canonical run/session namespace", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-staged-receipt.json");
+  fixture.artifact_hashes = [
+    ...(fixture.artifact_hashes as readonly Record<string, unknown>[]),
+    {
+      kind: "hld",
+      path: "dist/20260810T010203Z-01/run-metadata.json",
+      sha256: "e".repeat(64),
+    },
+  ];
+
+  expectInvalid(
+    validateStagedReceipt(fixture),
+    "canonical staged artifact path",
+  );
+});
+
+test("schema snapshot rejects inconsistent checkout identity", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-snapshot-identity.json");
+  fixture.checkout = {
+    state: "branch",
+    branch_name: null,
+  };
+
+  expectInvalid(
+    validateSnapshotIdentity(fixture),
+    "branch checkout must include a branch_name",
+  );
+});
+
+test("schema snapshot rejects mixed Git object ID formats", () => {
+  const fixture = readFixture<Record<string, unknown>>("valid-staged-receipt.json");
+  const snapshot = fixture.snapshot as {
+    base_commit: string;
+    entries: Array<Record<string, unknown>>;
+  };
+  snapshot.entries[0] = {
+    ...snapshot.entries[0],
+    snapshot_blob_oid: "e".repeat(64),
+  };
+
+  expectInvalid(
+    validateSnapshotIdentity(snapshot),
+    "snapshot Git object IDs must use one object format",
+  );
 });
 
 test("schema staged receipt binds coverage anchors to staged snapshot entries", () => {
