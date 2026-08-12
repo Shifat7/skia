@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -989,6 +990,36 @@ test("staged receipt writes verify stored artifact hashes and use a non-self-ref
         ],
       }),
     /non-self-referential|receipt artifact hash/i,
+  );
+});
+
+test("listRuns includes validated receipt-owned artifact bytes", () => {
+  const repositoryRoot = createTempRepository();
+  const runId = brand<RunId>("20260810T030408Z");
+  const sessionId = validateSessionId("8f5d1a2c");
+  const artifactPath = deriveStagedArtifactPath(runId, sessionId, "hld");
+  const artifactContents = "# staged hld\n";
+  const artifactAbsolutePath = absoluteSkiaPath(repositoryRoot, artifactPath);
+  fs.mkdirSync(path.dirname(artifactAbsolutePath), { recursive: true });
+  fs.writeFileSync(artifactAbsolutePath, artifactContents, "utf8");
+  const artifactSha = createHash("sha256").update(artifactContents).digest("hex");
+
+  const receiptWrite = writeStagedReceipt(
+    repositoryRoot,
+    createStagedReceipt(runId, sessionId, [
+      {
+        kind: "hld",
+        path: artifactPath,
+        sha256: brand<Sha256Hex>(artifactSha),
+      },
+    ]),
+  );
+
+  const listedRun = listRuns(repositoryRoot).find((entry) => entry.run_id === runId);
+
+  assert.strictEqual(
+    listedRun?.artifact_bytes,
+    receiptWrite.bytes + Buffer.from(artifactContents, "utf8").length,
   );
 });
 

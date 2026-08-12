@@ -862,6 +862,25 @@ function validateStagedArtifactHashes(
   }
 }
 
+function receiptOwnedArtifactBytes(
+  skiaRootPath: string,
+  receipt: StagedReceipt,
+): number {
+  let totalBytes = 0;
+
+  for (const artifact of receipt.artifact_hashes) {
+    if (artifact.kind === "receipt") {
+      continue;
+    }
+
+    const absolutePath = validateContainedPath(skiaRootPath, artifact.path);
+    assertRegularStorageFile(skiaRootPath, absolutePath, "staged artifact");
+    totalBytes += fs.lstatSync(absolutePath).size;
+  }
+
+  return totalBytes;
+}
+
 function validateCompleteArtifactPath(
   allocation: RepositoryRunAllocation,
   artifactPath: RunArtifactPath,
@@ -1197,6 +1216,7 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
 
       const receipt = validateStagedReceiptFile(repositoryReceiptsRoots.skiaRootPath, receiptPath);
       assertReceiptFileBinding(entryName, receipt);
+      validateStagedArtifactHashes(repositoryReceiptsRoots.skiaRootPath, receipt);
       runs.push({
         run_id: receipt.run_id,
         mode: "review",
@@ -1204,7 +1224,8 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
         created_at: createdAtFromRunId(receipt.run_id),
         completed_at: receipt.completed_at,
         snapshot_identifier: receipt.snapshot.diff_sha256,
-        artifact_bytes: stats.size,
+        artifact_bytes:
+          stats.size + receiptOwnedArtifactBytes(repositoryReceiptsRoots.skiaRootPath, receipt),
       });
     }
   }
