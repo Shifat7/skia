@@ -1,42 +1,51 @@
 # Skia
 
-> **Read less code. Predict the behavior that matters.**
+> **AI wrote the code. Skia helps you understand it before you trust it.**
 
-Skia is a proposed local comprehension checkpoint for developers working with
-AI-generated code. It compresses supported `typescript | tsx | python`
-behavior into a short, source-anchored view, asks one concrete prediction, and
-reveals feedback only after the developer answers.
+Skia is intended to be a local checkpoint between an AI-generated change and
+your decision to keep it. Give it a staged Git change; get a short,
+source-backed explanation of the behavior that matters, one concrete question
+to answer, and an honest account of what was not covered.
 
-Intended workflow — the product promise in one screen:
+## What Skia is for
 
 ```text
-AI writes a change
+AI-generated change
         |
         v
-Skia captures the exact Git snapshot
+Skia shows: “what behavior changed?”
         |
         v
-12 changed lines become 4 evidence lines
+You answer: “what should happen for this input?”
         |
         v
-Developer predicts one outcome
+Skia shows source-backed evidence and coverage limits
         |
         v
-Source-derived feedback + original code on demand
+You decide whether to trust it, inspect it, or ask for a change
 ```
 
-> **Current status: Phase 1 TypeScript foundation plus intended CLI examples.**
-> The repository now contains the implemented snapshot, schema, language-analysis,
-> coverage, and local-storage seams for the future product. The `skia review`
-> and `skia repo review` transcripts below are intended workflows, not commands
-> you can run successfully today. Deferred surfaces remain visible: staged
-> semantic reduction, repository scanning, agent transport, HLD/LLD generation,
-> and behavioral validation are not implemented yet.
->
-> **Name decision:** The project and command retain the `Skia`/`skia` name for
-> now. Publication and distribution risks from the existing Google Skia
-> project remain an open release decision. See
-> [open decisions](docs/OPEN_DECISIONS.md).
+Intended workflow — the experience in one small example:
+
+```text
+Change: active members receive a 10% discount
+
+Skia asks: total=100, active member, promotion=10 — what should return?
+You answer: 80
+Skia shows: the matching source path, supporting evidence, and anything unmapped
+```
+
+**Current status:** The repository contains the implemented Phase 1 TypeScript
+foundation for exact Git snapshots, schema validation, TypeScript/TSX/Python
+analysis, coverage states, and local storage. The user-facing `skia review` and
+`skia repo review` workflows below are intended product examples, not commands
+you can run successfully today. Staged semantic reduction, repository
+scanning, agent transport, HLD/LLD generation, and behavioral validation remain
+deferred.
+
+The project and command retain the `Skia`/`skia` name for now. Publication and
+distribution risks from the existing Google Skia project remain an open release
+decision; see [open decisions](docs/OPEN_DECISIONS.md).
 
 ---
 
@@ -413,7 +422,8 @@ manifest completion:
 ```ts
 const pending = allocateRepositoryRun(repositoryRoot, repository.identity);
 
-listRuns(repositoryRoot)[0]?.status; // "incomplete"
+inspectRun(repositoryRoot, pending.runId).status; // "incomplete"
+// The new run is addressed by its exact allocated ID, not listRuns()[0].
 inspectRun(repositoryRoot, pending.runId); // metadata visible, manifest still null
 
 completeRepositoryRun(pending, manifest);
