@@ -9,6 +9,7 @@ import { resolveLanguageRegistration } from "./languages/registry.js";
 import {
   DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
   DEFAULT_GIT_TIMEOUT_MS,
+  MAX_GIT_INDEX_BYTES,
   OWNER_DIRECTORY_MODE,
   OWNER_FILE_MODE,
   SKIA_DIRECTORY_NAME,
@@ -119,6 +120,13 @@ function ensureProtectedDirectory(directoryPath: string, label: string): void {
 
   if (!stats.isDirectory()) {
     throw new GitSnapshotError("write_error", `${label} must be a directory`);
+  }
+
+  if (process.platform !== "win32" && (stats.mode & 0o022) !== 0) {
+    throw new GitSnapshotError(
+      "unsafe_permissions",
+      `${label} unsafe_permissions: directory must not be group/world writable`,
+    );
   }
 }
 
@@ -549,7 +557,24 @@ function absoluteGitDirectory(commandOptions: GitCommandOptions): string {
 }
 
 function readLiveIndexBytes(indexPath: string): Uint8Array {
-  return fs.existsSync(indexPath) ? fs.readFileSync(indexPath) : Buffer.alloc(0);
+  if (!fs.existsSync(indexPath)) {
+    return Buffer.alloc(0);
+  }
+
+  const stats = fs.lstatSync(indexPath);
+
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw new GitSnapshotError("git_process_failed", "Git index must be a regular file");
+  }
+
+  if (stats.size > MAX_GIT_INDEX_BYTES) {
+    throw new GitSnapshotError(
+      "git_index_limit_exceeded",
+      `Git index is ${stats.size} bytes; limit is ${MAX_GIT_INDEX_BYTES} bytes`,
+    );
+  }
+
+  return fs.readFileSync(indexPath);
 }
 
 function liveIndexExists(indexPath: string): boolean {

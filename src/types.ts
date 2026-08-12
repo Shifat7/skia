@@ -65,6 +65,7 @@ export const STABLE_ERROR_REASONS = [
   "binary_source",
   "generated_path",
   "git_output_limit_exceeded",
+  "git_index_limit_exceeded",
   "git_process_failed",
   "git_timeout",
   "index_changed",

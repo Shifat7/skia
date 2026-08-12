@@ -3,12 +3,14 @@ import { Buffer } from "node:buffer";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import test from "node:test";
 
 import {
   captureStagedSnapshot,
   GitSnapshotError,
 } from "../../src/git.js";
+import { MAX_GIT_INDEX_BYTES } from "../../src/limits.js";
 import {
   commitAll,
   createTempGitRepository,
@@ -255,4 +257,41 @@ test("git security snapshot capture does not write the live index or any git int
     fs.existsSync(path.join(repositoryRoot, ".git", "index.lock")),
     false,
   );
+});
+
+test("git security rejects group or world writable Git temporary roots", () => {
+  if (process.platform === "win32") {
+    return;
+  }
+
+  const repositoryRoot = createTempGitRepository();
+  const skiaRoot = path.join(repositoryRoot, ".skia");
+  fs.mkdirSync(skiaRoot, 0o777);
+  fs.chmodSync(skiaRoot, 0o777);
+
+  let thrown: unknown = null;
+  try {
+    captureStagedSnapshot(repositoryRoot);
+  } catch (error) {
+    thrown = error;
+  }
+
+  assert.ok(thrown instanceof GitSnapshotError);
+  assert.strictEqual((thrown as GitSnapshotError).reason, "unsafe_permissions");
+});
+
+test("git security rejects an oversized live index before reading it", () => {
+  const repositoryRoot = createTempGitRepository();
+  const indexPath = path.join(repositoryRoot, ".git", "index");
+  fs.writeFileSync(indexPath, Buffer.alloc(MAX_GIT_INDEX_BYTES + 1));
+
+  let thrown: unknown = null;
+  try {
+    captureStagedSnapshot(repositoryRoot);
+  } catch (error) {
+    thrown = error;
+  }
+
+  assert.ok(thrown instanceof GitSnapshotError);
+  assert.strictEqual((thrown as GitSnapshotError).reason, "git_index_limit_exceeded");
 });
