@@ -620,8 +620,26 @@ function gitObjectIdLength(format: GitObjectFormat): number {
   return format === "sha1" ? 40 : 64;
 }
 
-function maybeObjectId(value: string, objectIdLength: number): GitObjectId | null {
-  return value === "0".repeat(objectIdLength) ? null : (value as GitObjectId);
+function maybeObjectId(
+  value: string,
+  objectIdLength: number,
+  context: string,
+): GitObjectId | null {
+  if (value === "0".repeat(objectIdLength)) {
+    return null;
+  }
+
+  if (
+    value.length !== objectIdLength ||
+    !/^[0-9a-f]+$/.test(value)
+  ) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      `invalid git object id for ${context}`,
+    );
+  }
+
+  return value as GitObjectId;
 }
 
 function assertValidGitObjectId(
@@ -801,8 +819,8 @@ function parseRawRecordHeader(
     previousPathBytes: null,
     previousMode,
     mode,
-    baseBlobOid: maybeObjectId(baseBlob, objectIdLength),
-    stagedBlobOid: maybeObjectId(stagedBlob, objectIdLength),
+    baseBlobOid: maybeObjectId(baseBlob, objectIdLength, "raw record base blob"),
+    stagedBlobOid: maybeObjectId(stagedBlob, objectIdLength, "raw record staged blob"),
   };
 }
 

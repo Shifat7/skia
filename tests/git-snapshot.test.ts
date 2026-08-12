@@ -110,6 +110,42 @@ test("git snapshot uses the repository object format for unborn SHA-256 snapshot
   assert.match(snapshot.raw_records[0]?.staged_blob_oid ?? "", /^[0-9a-f]{64}$/);
 });
 
+test("staged snapshot rejects raw records with a mixed object-id format", () => {
+  const repositoryRoot = createTempGitRepository();
+  const realGit = resolveGitExecutable();
+
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, "src/example.ts");
+
+  const wrapper = createWrapperScript(`#!/bin/sh
+while [ "$1" = "-c" ]; do
+  shift 2
+done
+if [ "$1" = "diff-index" ] && [ "$2" = "--cached" ] && [ "$3" = "--raw" ]; then
+  "${realGit}" "$@" | perl -0pe 's/ ([0-9a-f]*[1-9a-f][0-9a-f]{39}) / " " . $1 . ("0" x 24) . " "/e'
+  exit 0
+fi
+exec "${realGit}" "$@"
+`);
+
+  try {
+    captureStagedSnapshot(repositoryRoot, {
+      git_executable: wrapper,
+      process_env: setExecutableEnvironment({}),
+    });
+  } catch (error) {
+    if (error instanceof GitSnapshotError) {
+      assert.strictEqual(error.reason, "git_process_failed");
+      assert.match(error.detail ?? "", /invalid git object id for raw record/);
+      return;
+    }
+
+    throw error;
+  }
+
+  throw new Error("expected mixed-format raw records to be rejected");
+});
+
 test("git snapshot resolves a nested invocation to the actual repository root", () => {
   const repositoryRoot = createTempGitRepository();
   const nestedRoot = path.join(repositoryRoot, "packages", "example");
