@@ -4,9 +4,10 @@ This page is for the first hour in the repository.
 
 ## The one-sentence version
 
-Skia is designed to help a developer understand an AI-generated code change
-before trusting it by showing a small, source-backed behavior view and asking
-one concrete prediction question.
+Skia is designed as the missing step between AI generation and commit. It helps
+an individual developer understand and own an AI-generated code change before
+the PR by showing a small, source-backed behavior view, asking one concrete
+prediction question, and making uncertainty visible.
 
 ## What exists today
 
@@ -46,8 +47,14 @@ storage lifecycle, and security boundaries.
 Start with the concrete example in the [README](../README.md):
 
 ```text
-AI diff -> simplified code view -> one prediction -> source-backed check
+AI tool -> generated diff -> Skia reading aid -> one prediction -> source-backed check -> commit/PR
 ```
+
+Skia is the developer's checkpoint between "the agent wrote this" and "I am
+comfortable owning this." It is aimed at individual developers before the PR,
+not at replacing team review after the PR. The intended output answers three
+questions: what changed behaviorally, what could not be analyzed, and what you
+should verify next.
 
 The simplified code is a labeled reading aid, not code to copy or execute. The
 original source and exact Git snapshot remain authoritative. See

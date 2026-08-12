@@ -2,14 +2,51 @@
 
 > **AI wrote the code. Skia helps you understand it before you trust it.**
 
-Skia is designed to turn an AI-generated change into a small, source-backed
-behavior check. It shows a simplified code view, asks you to predict one
-result, and keeps anything it could not analyze visible.
+Skia is designed as the missing step between AI generation and commit. It is a
+local, pre-PR comprehension checkpoint for the individual developer: it turns
+an AI-generated change into a small, source-backed behavior check, asks you to
+predict one result, and keeps anything it could not analyze visible.
 
 ## Start here
 
 If you are new to the repository, follow [Getting Started](docs/GETTING_STARTED.md).
 This README gives you the shortest useful explanation.
+
+## The problem Skia solves
+
+AI coding tools can produce a working-looking diff faster than you can build a
+reliable mental model of it. The hard part is often not finding another syntax
+error. It is noticing:
+
+- an abstraction, helper, or dependency that was not actually necessary;
+- a branch or error path hidden inside a large generated diff;
+- code that compiles and passes tests but is still unfamiliar; or
+- missing production details such as retries, idempotency, error handling, or
+  observability.
+
+Skia is intended to help you read and own the change before it becomes someone
+else's review problem. It should make three things easy to see:
+
+1. what the changed code appears to do;
+2. what Skia could not safely analyze; and
+3. what you should inspect or verify before committing.
+
+## Where Skia fits
+
+```text
+AI coding tool -> generated diff -> Skia: understand + predict -> tests -> commit/PR
+```
+
+| Skia is intended to be... | Skia is not intended to be... |
+|---|---|
+| A pre-PR checkpoint for one developer. | A team PR review bot. |
+| Local-first and source-backed. | A service that silently uploads your code. |
+| A reading aid for behavior and uncertainty. | A code generator or source rewriter. |
+| A prompt to form your own prediction. | Proof of runtime correctness or semantic equivalence. |
+
+The future workflow is designed to fit alongside Cursor, Claude Code, Codex,
+or another AI coding tool. Those integrations are product plans, not runnable
+features in the current repository.
 
 ## The idea in one example
 
@@ -53,8 +90,7 @@ for this decision.
 ## When would I use Skia?
 
 Use Skia when an AI has changed code and you want to understand the behavior
-before you approve, merge, or build on top of it. The future workflow is always
-the same:
+before you approve, merge, or build on top of it. The intended workflow is:
 
 ```text
 1. Read the simplified view.
@@ -63,99 +99,180 @@ the same:
 4. Open the original code anywhere the coverage is incomplete.
 ```
 
-### Use case: an authorization change
+### Use case: a TypeScript authorization change with side effects
 
-AI-generated change in `src/deleteAccount.ts`:
+An AI agent adds an archive endpoint. The diff looks reasonable, but it mixes
+authorization, state mutation, auditing, and notifications:
 
-```ts
-if (!session) throw new Error("Not signed in");
-if (!session.isAdmin) throw new Error("Forbidden");
-await deleteAccount(accountId);
+```diff
+ export async function archiveProject(
+   input: ArchiveProjectInput,
+   deps: Dependencies,
+ ): Promise<ArchiveResult> {
+   const project = await deps.projects.findById(input.projectId);
+   if (!project) return { ok: false, reason: "not_found" };
++  const isOwner = project.ownerId === input.userId;
++  const isAdmin = input.roles.includes("admin");
++  if (!isOwner && !isAdmin) {
++    return { ok: false, reason: "forbidden" };
++  }
++  if (project.status === "archived") {
++    return { ok: true, reason: "already_archived" };
++  }
++  await deps.projects.updateStatus(project.id, "archived");
++  await deps.audit.write({
++    actorId: input.userId,
++    action: "project.archived",
++    projectId: project.id,
++  });
++  await deps.notifications.enqueue("project-archived", {
++    projectId: project.id,
++    ownerId: project.ownerId,
++  });
+   return { ok: true, reason: "archived" };
+ }
 ```
 
-Intended simplified view:
+The intended simplified view is shorter, but it keeps the behavior-changing
+branches and the side effects visible:
 
 ```text
 SIMPLIFIED VIEW — not executable
-src/deleteAccount.ts:8-12
+src/projects/archiveProject.ts:8-31
 
-no session       -> reject
-signed-in user
-  not an admin   -> reject
-  admin          -> delete the account
+project missing                    -> not_found; no writes
+caller is not owner AND not admin  -> forbidden; no writes
+project already archived            -> already_archived; no writes
+otherwise:
+  update project status             -> archived
+  write audit event                 -> project.archived
+  enqueue owner notification        -> project-archived
+  return                            -> archived
+
+coverage note: status, audit, and notification calls are ordered side effects;
+failure behavior after the status update must be checked in the source.
 ```
 
 Prediction question:
 
 ```text
-Given: signed-in user, isAdmin=false
-What happens?  > the account is not deleted
+Given: project exists, caller is an admin, project.status="active"
+What happens before the function returns?  > status update, audit write, and notification enqueue
 ```
 
-This helps a junior developer notice that “signed in” is not the same as
-“allowed to delete.”
+This is the kind of question that catches a junior developer's hidden
+assumption: “authorized” does not mean “the whole operation is atomic.” If the
+audit write fails after the database update, the project may already be
+archived. Skia should surface that path for source inspection; it should not
+claim that the simplified view proves rollback or transaction behavior.
 
-### Use case: a TSX loading-state change
+### Use case: a Python sync job with retries and partial failure
 
-AI-generated change in `src/Dashboard.tsx`:
-
-```tsx
-if (loading) return <Spinner />;
-if (error) return <ErrorMessage message={error.message} />;
-return <DashboardContent data={data} />;
-```
-
-Intended simplified view:
-
-```text
-SIMPLIFIED VIEW — not executable
-src/Dashboard.tsx:20-23
-
-loading -> show spinner
-error   -> show error message
-ready   -> show dashboard data
-```
-
-Prediction question:
-
-```text
-Given: loading=false, error=null, data={tasks: []}
-What does the user see?  > an empty dashboard, not a spinner
-```
-
-This is useful when the change is small but the UI behavior has several
-branches that are easy to miss in a diff.
-
-### Use case: a Python data-cleanup change
-
-AI-generated change in `scripts/send_reminders.py`:
+An AI agent changes a customer sync job to retry timeouts. The important detail
+is that not every failure is retryable, and the third timeout has a different
+outcome from the first two:
 
 ```python
-def send_reminder(user):
-    if not user["email"] or user["unsubscribed"]:
-        return
-    send_email(user["email"], "You have a reminder")
+def sync_customer(customer_id, api, db, clock):
+    customer = db.get_customer(customer_id)
+    if customer is None:
+        return "missing"
+
+    for attempt in range(1, 4):
+        try:
+            response = api.fetch_customer(customer.external_id)
+            if response.status_code == 404:
+                db.mark_deleted(customer_id)
+                return "deleted"
+
+            response.raise_for_status()
+            db.upsert_customer(customer_id, response.json())
+            return "updated"
+        except TimeoutError:
+            if attempt == 3:
+                db.mark_retry_later(customer_id, attempts=attempt)
+                return "retry_later"
+            clock.sleep(2 ** attempt)
 ```
 
 Intended simplified view:
 
 ```text
 SIMPLIFIED VIEW — not executable
-scripts/send_reminders.py:4-7
+scripts/sync_customer.py:1-22
 
-no email OR unsubscribed -> send nothing
-otherwise                -> send one reminder email
+local customer missing             -> missing; no API call
+API returns 404                    -> mark deleted; return deleted
+API returns 2xx                    -> upsert response; return updated
+API times out on attempts 1 or 2  -> sleep 2s or 4s; retry
+API times out on attempt 3         -> mark retry_later; return retry_later
+other HTTP error                  -> raise; no retry path shown
+
+coverage note: API, database, and clock behavior is represented only through
+their calls; inspect those boundaries before treating this as operationally safe.
 ```
 
 Prediction question:
 
 ```text
-Given: email="", unsubscribed=false
-What happens?  > no email is sent
+Given: the API returns HTTP 500 on the first attempt
+What does this function do?  > raises from raise_for_status; it does not retry the 500
 ```
 
-This makes an important negative behavior visible: the function deliberately
-does nothing for users without an email address.
+That answer is easy to miss when reading a generated diff that advertises
+“retries.” The code retries `TimeoutError`, not every failed request. A follow-up
+source check should ask whether that distinction matches the production API's
+failure contract and whether `mark_retry_later` is idempotent.
+
+### Use case: a TypeScript batch change with an incomplete path
+
+Not every useful result is a clean behavior summary. Suppose an AI agent adds a
+batch processor that calls a third-party SDK and includes a callback Skia cannot
+safely reduce:
+
+```ts
+export async function processInvoices(invoices, billing, audit) {
+  const results = [];
+  for (const invoice of invoices) {
+    if (invoice.total <= 0) {
+      results.push({ id: invoice.id, status: "skipped" });
+      continue;
+    }
+
+    const result = await billing.charge(invoice.customerId, invoice.total);
+    await audit.record("invoice.charged", invoice.id, result, (event) => {
+      return event.metadata?.region ?? "unknown";
+    });
+    results.push({ id: invoice.id, status: result.status });
+  }
+  return results;
+}
+```
+
+Possible output:
+
+```text
+SIMPLIFIED VIEW — partial, not executable
+src/billing/processInvoices.ts:1-18
+
+invoice.total <= 0                 -> skipped; no charge
+invoice.total > 0                  -> charge customer; record audit; append result
+audit callback                     -> unmapped: callback metadata path
+billing.charge failure             -> not_checkable: SDK exception behavior
+```
+
+Prediction question:
+
+```text
+Given: invoices=[{id:"a", total:0}, {id:"b", total:25}]
+What can be predicted safely?  > "a" is skipped; "b" attempts a charge, but its final status depends on the SDK
+```
+
+The honest answer is not “the batch succeeds.” It is a supported prediction for
+the first invoice plus an explicit boundary around the second. This is where
+Skia is most useful for a junior developer: it points to the exact source and
+dependency behavior that still needs human verification instead of hiding it
+behind a polished summary.
 
 ### Use case: Skia cannot safely summarize the change
 

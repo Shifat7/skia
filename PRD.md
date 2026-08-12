@@ -28,6 +28,22 @@ The common primitive is **predict after evidence, before feedback**. Raw source
 remains authoritative. Generated views are allowed to reduce reading only when
 they expose their source anchors, derivation, coverage, and uncertainty.
 
+### The missing step between generation and commit
+
+Skia is deliberately not another code generator and not primarily a team PR
+review service. Its wedge is the individual developer's pre-PR checkpoint:
+
+```text
+AI generated code -> understand it -> predict one result -> verify the evidence -> commit/PR
+```
+
+The product helps a developer read and own code they did not write line by
+line. It should fit into an existing Cursor, Claude Code, Codex, or similar AI
+coding workflow with low switching cost. The experience must make the useful
+path and the unknown path equally visible: what the change does, what Skia could
+not represent, and what still needs inspection. Integrations are future product
+surfaces; they are not part of the current foundation.
+
 ### 1.1 Reduced reading, not summary replacement
 
 The default surface should be materially shorter than the source it represents.

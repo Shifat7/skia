@@ -28,6 +28,22 @@ to a deterministic fact.
 
 ---
 
+### 1.1 Product wedge and workflow boundary
+
+Skia sits between AI generation and commit. The primary user is an individual
+developer who needs to understand and own an AI-generated change before it
+becomes a PR review problem for someone else. The intended sequence is:
+
+```text
+AI coding tool -> generated diff -> Skia comprehension checkpoint -> tests -> commit/PR
+```
+
+This makes Skia a pre-PR, local-first comprehension tool rather than a team PR
+review bot, code generator, or runtime-correctness oracle. Future adapters for
+Cursor, Claude Code, Codex, and GitHub Actions must preserve that boundary and
+must not imply that an integration is implemented before its acceptance tests
+exist.
+
 ## 2. Package structure
 
 One synchronous TypeScript CLI running on a pinned Node.js runtime is

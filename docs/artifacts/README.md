@@ -70,6 +70,56 @@ The reducer stores each displayed relation with source anchors and coverage:
 `relation` is a compact review representation. It is not executable code or
 semantic-equivalence proof.
 
+### Complex behavior example
+
+For a change that combines authorization with multiple side effects, the
+collapsed view must preserve order and uncertainty instead of flattening the
+whole function into one optimistic sentence:
+
+```text
+archiveProject(projectId, userId)
+
+project missing                    -> not_found; no writes
+caller is not owner AND not admin  -> forbidden; no writes
+project already archived            -> already_archived; no writes
+otherwise:
+  update project status             -> archived
+  write audit event                 -> project.archived
+  enqueue owner notification        -> project-archived
+
+Coverage: supported for the shown branch conditions and call order.
+Boundary: failure after the status update is not a rollback guarantee;
+inspect the transaction and dependency contracts in the original source.
+```
+
+The associated behavior card should ask about a concrete branch while keeping
+the side-effect boundary visible:
+
+```text
+Given: project exists, caller is an admin, status="active"
+When:  archiveProject(projectId, userId)
+Expected: status update, audit write, and notification enqueue, in that order
+> _________________________________________________
+```
+
+For a Python retry loop, the same output shape distinguishes retryable and
+non-retryable failures:
+
+```text
+sync_customer(customer_id)
+
+local customer missing             -> missing; no API call
+API returns 404                    -> mark deleted; return deleted
+API returns 2xx                    -> upsert response; return updated
+timeout on attempt 1 or 2         -> sleep 2s or 4s; retry
+timeout on attempt 3               -> mark retry_later; return retry_later
+other HTTP error                   -> raise; no retry path shown
+```
+
+The prediction for `HTTP 500 on attempt 1` is therefore “raise; do not retry,”
+not “retry three times.” That distinction is exactly the kind of behavior a
+large AI-generated diff can hide.
+
 ### Unmapped output
 
 ```text

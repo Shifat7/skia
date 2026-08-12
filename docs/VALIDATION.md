@@ -6,6 +6,22 @@
 
 ---
 
+## Product wedge under test
+
+Skia is testing a narrower job than "AI code review." It is the missing step
+between generation and commit: a local, pre-PR checkpoint that helps an
+individual developer understand and own AI-generated code before it becomes a
+team review problem. The intended experience must answer three questions:
+
+1. What does this change appear to do?
+2. What could Skia not safely analyze?
+3. What should the developer inspect or verify next?
+
+Cursor, Claude Code, Codex, and GitHub Actions are possible future adapters,
+not evidence that those integrations or the review workflow are implemented.
+
+---
+
 ## 1. Problem evidence
 
 ### 1.1 Explanation Gate / VibeCheck (2026)
