@@ -2,13 +2,14 @@
 
 ## Current status
 
-- This repository has a private TypeScript package shell, a side-effect-free
-  CLI bootstrap entry point, and `node:test` bootstrap harnesses.
-- There is still no implemented review/repository workflow, schema
-  implementation, or generated artifact.
-- The proposed product has two workflows: `skia review` for staged TypeScript
-  or Python changes and `skia repo review` for committed repositories whose
-  supported source languages are TypeScript and Python.
+- This repository has an implemented Phase 1 TypeScript foundation: exact Git
+  snapshots, schema and coverage validation, TS/TSX/Python analysis, and local
+  path-safe storage.
+- There is still no runnable `skia review` or `skia repo review` workflow and
+  no generated HLD/LLD artifact.
+- The proposed product has two workflows: `skia review` for staged changes and
+  `skia repo review` for committed repositories. Supported source languages are
+  exactly `typescript | tsx | python`.
 - Keep the project and command name `Skia`/`skia` per the current maintainer
   decision. Existing canonical documents still describe the naming conflict as
   a release blocker; treat that wording as a known documentation discrepancy
@@ -17,10 +18,12 @@
 ## Repository map
 
 - `README.md`: one-screen product overview and document map.
+- `docs/GETTING_STARTED.md`: junior-developer setup and first-contribution path.
 - `PRD.md`: product behavior, truth boundaries, coverage, privacy, and
   validation requirements.
 - `ARCHITECTURE.md`: proposed TypeScript CLI, immutable Git snapshots,
-  TypeScript/Python scanning, storage, agent boundary, and testing architecture.
+  TypeScript/TSX/Python scanning, storage, agent boundary, and testing
+  architecture.
 - `IMPLEMENTATION_PLAN.md`: acceptance criteria and implementation order.
 - `docs/artifacts/README.md`: proposed terminal and JSON artifact contracts.
 - `docs/VALIDATION.md`: evidence, hypotheses, experiments, and prohibited
@@ -28,6 +31,7 @@
 - `docs/OPEN_DECISIONS.md`: unresolved design choices.
 - `CONTRIBUTING.md`, `GOVERNANCE.md`, and `SECURITY.md`: contribution,
   decision, privacy, and threat-model boundaries.
+- `docs/decisions/`: accepted architectural decisions and their rationale.
 - `scripts/check_docs.py`: documentation contract checker.
 
 The product contracts are intentionally cross-referenced. For a feature or
@@ -61,7 +65,7 @@ python3 scripts/check_docs.py
 git diff --check
 ```
 
-Additional placeholder harness commands:
+Additional focused harness commands:
 
 ```sh
 npm run test:golden
@@ -69,7 +73,8 @@ npm run test:security
 ```
 
 Do not describe the proposed `skia review` / `skia repo review` behavior as
-implemented.
+implemented. Do not describe a simplified code view as executable or as proof
+of semantic equivalence.
 
 ## Documentation conventions
 

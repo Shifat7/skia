@@ -1,11 +1,11 @@
 # Contributing to Skia
 
-> **Bootstrap shell stage.** The repository now contains a private package
-> shell, build scripts, and bootstrap tests. It still has no implemented
-> review/repository workflows, generated HLD/LLD, or release. Current
-> contributions remain design, evidence, synthetic fixtures, schemas,
-> documentation, implementation slices, and documentation automation
-> proposals.
+> **Phase 1 foundation stage.** The repository contains exact Git snapshots,
+> schema and coverage validation, TypeScript/TSX/Python analysis, local storage,
+> build scripts, and tests. It still has no runnable review/repository
+> workflows, generated HLD/LLD, or release. Current contributions remain
+> documentation, evidence, synthetic fixtures, contracts, and bounded
+> implementation slices.
 
 ---
 
@@ -13,12 +13,13 @@
 
 The product now has two proposed modes:
 
-- staged collapsed equivalence evidence plus a minimal Behavior Card; and
-- an agent-assisted TypeScript/Python repository snapshot with timestamped local
-  HLD/LLD and architecture/selected-subsystem checks.
+- staged simplified evidence plus a minimal Behavior Card; and
+- an agent-assisted TypeScript/TSX/Python repository snapshot with timestamped
+  local HLD/LLD and architecture/selected-subsystem checks.
 
 Before opening a contribution, read the documents you affect and their direct
-references. The canonical contracts are:
+references. Start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) if
+you are new to the repository. The canonical contracts are:
 
 - [PRD.md](PRD.md) for product behavior and truth boundaries;
 - [ARCHITECTURE.md](ARCHITECTURE.md) for technical design;
@@ -26,7 +27,8 @@ references. The canonical contracts are:
 - [docs/artifacts/README.md](docs/artifacts/README.md) for output examples;
 - [docs/VALIDATION.md](docs/VALIDATION.md) for evidence and prohibited claims;
   and
-- [docs/OPEN_DECISIONS.md](docs/OPEN_DECISIONS.md) for unresolved choices.
+- [docs/OPEN_DECISIONS.md](docs/OPEN_DECISIONS.md) for unresolved choices; and
+- [docs/decisions/](docs/decisions/) for accepted architectural rationale.
 
 ---
 
@@ -68,7 +70,7 @@ A documentation change must not claim:
 - privacy without disclosing any external-agent boundary; or
 - professional comprehension benefit before a valid experiment.
 
-### 3.2 Staged collapsed-evidence fixtures
+### 3.2 Staged simplified-evidence fixtures
 
 Use the benchmark fixture issue form. A useful fixture is synthetic, generally
 10 to 50 changed lines, and provides:
