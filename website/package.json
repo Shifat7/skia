@@ -1,0 +1,22 @@
+{
+  "name": "skia-website",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Astro Starlight marketing site for Skia. Not the CLI package and not published to npm.",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.2",
+    "astro": "^7.2.10",
+    "sharp": "^0.35.3"
+  },
+  "allowScripts": {
+    "esbuild": true
+  }
+}

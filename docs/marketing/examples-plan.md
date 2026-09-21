@@ -6,12 +6,12 @@ model output.
 
 ## What is checked in now
 
-Two Markdown reports, both marked **INTENDED OUTPUT**:
+Two Markdown transcripts under [`examples/illustrative/`](../../examples/illustrative/), both marked **Illustrative / intended UX — not a live CLI session**:
 
 | File | Mirrors |
 |---|---|
-| [pricing-simplified-view.md](../../examples/pricing-simplified-view.md) | README pricing diff, simplified view, one prediction |
-| [archive-project-prediction.md](../../examples/archive-project-prediction.md) | README archive endpoint, side effects, coverage note |
+| [pricing-happy-path.md](../../examples/illustrative/pricing-happy-path.md) | README pricing diff, simplified view, one prediction |
+| [partial-unmapped.md](../../examples/illustrative/partial-unmapped.md) | A partial simplified view plus an unmapped callback and file-level gaps |
 
 They are hand-written. No `skia` command produced them. The simplified view
 in each file is labeled not executable.
@@ -30,8 +30,8 @@ After Gate A (a runnable review on a synthetic fixture):
    or private paths.
 
 A mock report is allowed after Gate A only when the header still says
-**INTENDED OUTPUT** and the body was not passed through a model and then
-described as a CLI result.
+**Illustrative / intended UX — not a live CLI session** and the body was not
+passed through a model and then described as a CLI result.
 
 ## Labeling rules
 

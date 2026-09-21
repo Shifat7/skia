@@ -12,8 +12,8 @@ live post, a release note, or evidence that `skia review` runs.
 | npm package | Private, `0.0.0`. Not published |
 | This pack | Draft. Launch posts stay on HOLD |
 
-The marketing site source is [`site/`](../../site/README.md). The public URL,
-after GitHub Pages uses the Actions workflow, is
+The marketing site source is [`website/`](../../website/README.md). The public
+URL, after GitHub Pages uses the Actions workflow, is
 <https://shifat7.github.io/skia/>.
 
 ## Contents

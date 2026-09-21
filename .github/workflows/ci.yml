@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  ASTRO_TELEMETRY_DISABLED: "1"
+
 jobs:
   foundation:
     name: Foundation checks
@@ -52,10 +55,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: site/package-lock.json
+          cache-dependency-path: website/package-lock.json
 
       - name: Install and build site
-        working-directory: site
+        working-directory: website
         run: |
           npm ci
           npm run build

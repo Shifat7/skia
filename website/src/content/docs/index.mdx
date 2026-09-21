@@ -1,0 +1,178 @@
+---
+title: Skia
+description: Alpha local pre-PR checkpoint. The foundation ships in the repository. The product CLI is not released.
+template: splash
+sidebar:
+  hidden: true
+prev: false
+next: false
+banner:
+  content: |
+    <a href="/skia/status/">Alpha · foundation shipping · product CLI not released</a>
+hero:
+  title: AI wrote the code.
+  tagline: Skia helps you understand it before you trust it.
+  actions:
+    - text: View on GitHub
+      link: https://github.com/Shifat7/skia
+      icon: external
+      variant: primary
+    - text: What's real vs planned
+      link: /skia/status/
+      icon: right-arrow
+      variant: secondary
+---
+
+import { LinkButton, Steps } from '@astrojs/starlight/components';
+
+<ul class="trust-strip" aria-label="Trust strip">
+	<li>MIT license</li>
+	<li>Node.js 24.x engine floor</li>
+	<li>No product telemetry</li>
+	<li>No Skia review backend</li>
+	<li>Package private at 0.0.0</li>
+</ul>
+
+## Problem
+
+AI coding tools can produce a working-looking diff faster than a reliable mental model forms. The hard part is often noticing:
+
+- an abstraction, helper, or dependency the change did not need;
+- a branch or error path hidden in a large generated diff;
+- code that compiles and passes tests while the behavior is still unfamiliar;
+- missing production detail such as retries, idempotency, error handling, or observability.
+
+Skia is the intended checkpoint for one developer before that gap becomes a reviewer's problem.
+
+## How it works
+
+`skia review` is a documented command name. The shell in `src/main.ts` is unimplemented. The intended reading loop has four steps.
+
+<Steps>
+
+1. Read the simplified view. It is a map, and it is not executable.
+
+2. Predict one result yourself, before any feedback.
+
+3. Compare that answer with the source-backed evidence.
+
+4. Open the original code wherever coverage is `partial`, `unmapped`, `unsupported`, `failed`, or `unchecked`.
+
+</Steps>
+
+## Capabilities
+
+Solid badges are in the repository today. Outline badges are intended product behavior, not a released command. Outline badges are never a green check.
+
+<div class="bento">
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Exact Git snapshots</h3>
+		<p>Staged and committed-HEAD snapshots, with path-safe local storage.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Parsers and schemas</h3>
+		<p>TypeScript, TSX, and Python analysis, plus schema and coverage validation.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Uncertainty stays visible</h3>
+		<p><code>partial</code> and <code>unmapped</code> are useful results. A gap is part of the output, not a failure to hide.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--planned">Planned</span></p>
+		<h3>Simplified view and one prediction</h3>
+		<p>A short behavior reading, then a <code>developer_supplied</code> answer. Not proof of intent or runtime correctness.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--planned">Planned</span></p>
+		<h3>Review commands</h3>
+		<p><code>skia review</code> and <code>skia repo review</code> are named on the shell and do not run a review.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--planned">Planned</span></p>
+		<h3>Editor and CI adapters</h3>
+		<p>Cursor, Claude Code, Codex, and GitHub Actions are job descriptions. No install snippet is published for them.</p>
+	</article>
+</div>
+
+<p>The full matrix, including what is not planned, is on <a href="/skia/status/">Status</a>.</p>
+
+## Demo
+
+<figure class="demo-mock">
+	<figcaption>Illustrative / intended UX — not a live CLI session</figcaption>
+	<pre><code>{`SIMPLIFIED VIEW — not executable
+src/pricing.ts:12-18
+
+if (member)        total = total * 0.90
+if (promotion > 0)  total = total - promotion
+return round(max(total, 0))
+
+total=100, member=true, promotion=10
+What should calculateFinalPrice(...) return?
+example answer (developer_supplied): 80`}</code></pre>
+</figure>
+
+<figure class="demo-mock">
+	<figcaption>Illustrative / intended UX — not a live CLI session</figcaption>
+	<pre><code>{`SIMPLIFIED VIEW — partial, not executable
+src/billing/processInvoices.ts:1-18
+
+invoice.total <= 0     -> skipped; no charge
+invoice.total > 0      -> charge customer; record audit
+audit callback         -> unmapped: callback metadata path
+billing.charge failure -> not_checkable: SDK exception behavior`}</code></pre>
+</figure>
+
+<p>
+	Hand-written transcripts live in
+	<a href="https://github.com/Shifat7/skia/tree/main/examples/illustrative">examples/illustrative</a>.
+	An example answer is not a test result.
+</p>
+
+## What ships today
+
+<div class="bento">
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Phase 1 foundation</h3>
+		<p>Git snapshots, coverage and schema validation, TypeScript / TSX / Python analysis, and local path-safe storage. Verified by the repository test suite.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--planned">Planned</span></p>
+		<h3>Product CLI</h3>
+		<p>Not released. <code>implemented: false</code>. Version <code>0.0.0</code>, <code>private: true</code>. npm is the first channel when publication is allowed. No global install command is shown here.</p>
+	</article>
+</div>
+
+## FAQ
+
+<div class="faq">
+	<details>
+		<summary>Is Skia installable as a review CLI yet?</summary>
+		<p>No. The package is private at 0.0.0, and the shell does not run <code>skia review</code>. There is no working global npm install, Homebrew formula, or curl installer. Foundation checks for contributors are on <a href="/skia/contribute/">Contribute</a>.</p>
+	</details>
+	<details>
+		<summary>Is it local-first?</summary>
+		<p>The foundation keeps snapshot and parse artifacts local. Skia does not operate a review backend and does not send product telemetry. A future repository mode may send bounded context only to a model endpoint you configure, after consent. <a href="/skia/privacy/">Privacy</a> has the egress matrix.</p>
+	</details>
+	<details>
+		<summary>Which languages can it read?</summary>
+		<p>Supported source languages are exactly TypeScript, TSX, and Python. Anything else stays <code>unsupported</code> rather than being summarized as if it had been analyzed.</p>
+	</details>
+	<details>
+		<summary>Is this Google's Skia?</summary>
+		<p>No. This repository is a comprehension checkpoint. It is a different project from Google's Skia graphics library. The shared name is an open release risk (<a href="https://github.com/Shifat7/skia/blob/main/docs/OPEN_DECISIONS.md">OD-1</a>), not an affiliation.</p>
+	</details>
+</div>
+
+## Start from the repository
+
+<p>Start from the repository. The marketing drafts in the repo stay unpublished until a stranger can run a real review.</p>
+
+<div class="cta-row">
+	<LinkButton href="https://github.com/Shifat7/skia" variant="primary" icon="external">View on GitHub</LinkButton>
+	<LinkButton href="/skia/status/" variant="secondary" icon="right-arrow">What's real vs planned</LinkButton>
+</div>
