@@ -1,11 +1,79 @@
 # Skia
 
+[![Status: early preview](https://img.shields.io/badge/status-early_preview-yellow)](https://github.com/Shifat7/skia)
+[![Node.js 24.x](https://img.shields.io/badge/node-24.x-brightgreen)](package.json)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Install: npm first, unpublished](https://img.shields.io/badge/install-npm_first_unpublished-blue)](#quick-start)
+[![Telemetry: none](https://img.shields.io/badge/telemetry-none-success)](SECURITY.md)
+
 > **AI wrote the code. Skia helps you understand it before you trust it.**
 
 Skia is designed as the missing step between AI generation and commit. It is a
 local, pre-PR comprehension checkpoint for the individual developer: it turns
 an AI-generated change into a small, source-backed behavior check, asks you to
 predict one result, and keeps anything it could not analyze visible.
+
+**Early preview.** The Phase 1 foundation is in this repository. The review
+CLI is still the unimplemented shell in [`src/main.ts`](src/main.ts)
+(`implemented: false`). The package is private at `0.0.0`.
+
+Marketing site, published when GitHub Pages uses the Actions workflow:
+<https://shifat7.github.io/skia/>
+
+## Quick start
+
+npm is the first install channel Skia will ship. The package is not published,
+so there is no global install command on this page. Homebrew and a curl
+installer are later channels; their commands will be added only when they
+work. The engine floor is Node.js 24.x (`>=24.0.0 <25` in `package.json`).
+
+### Verify this repository
+
+```sh
+git clone https://github.com/Shifat7/skia.git
+cd skia
+npm ci
+npm test
+```
+
+`npm test` checks Git snapshots, parsers, schemas, and storage. It does not
+run `skia review` or `skia repo review`.
+
+### npm, when a package exists
+
+Publication waits on two gates: a real review command, and the name decision
+in [OD-1](docs/OPEN_DECISIONS.md). The registry already has an unrelated
+`skia` package. This document will show an npm command only after a clean
+machine has run the published package. That command will require Node.js 24.x.
+
+### Also planned
+
+A Homebrew tap, and a curl or binary installer after a signed release. No
+commands until then.
+
+`npm: first, unpublished` · `brew: soon` · `curl: soon` · `Cursor / Claude / Codex / Actions: planned` · `telemetry: none` · `Node: 24.x`
+
+## Limitations
+
+Skia is an early local checkpoint. Read this before treating it like a hosted
+PR platform. A longer page lives on the marketing site:
+<https://shifat7.github.io/skia/#limitations>
+
+- The review commands are product examples. The shell sets `implemented: false`.
+- The intended job is a diff- and snapshot-oriented reading for one developer.
+  It is not a whole-repo indexer and not a GitHub App. CodeRabbit, Greptile,
+  and Copilot Review remain hosted PR tools. This README states no catch rate
+  against them.
+- A future finding is advisory. The implementation plan excludes CI review
+  comments.
+- Quality of any later model draft follows the provider you configure.
+  `model_derived` text is not deterministic proof.
+- "Local" describes where artifacts sit. Phase 0 has no product telemetry and
+  no Skia review backend. A future repository mode can send bounded context
+  only to an endpoint you configure, after consent. A cloud model means the
+  prompt leaves the machine.
+- Public stars are not a quality signal. Use the foundation tests and the
+  labeled samples in [`examples/`](examples/).
 
 ## Start here
 
@@ -85,7 +153,8 @@ You answer first. Then you can inspect the original source and the evidence
 behind the simplified view. The simplified view is a map for reading, not code
 to copy into your project. The original source and exact Git snapshot remain
 authoritative. See [ADR-001](docs/decisions/ADR-001-simplified-code-as-evidence.md)
-for this decision.
+for this decision. Labeled intended-output samples of this flow are in
+[`examples/`](examples/).
 
 ## When would I use Skia?
 
@@ -306,22 +375,17 @@ HLD/LLD generation, and behavioral validation remain deferred.
 
 ## Run the repository today
 
-Requirements: Node.js and npm.
+Use the commands in [Quick start](#quick-start). They need Node.js 24.x and
+npm. `npm test` builds first and runs the foundation suite.
+
+Optional checks for a documentation or foundation change:
 
 ```sh
-npm ci
 npm run typecheck
-npm run build
-npm test
-python3 scripts/check_docs.py
-git diff --check
-```
-
-Optional focused harnesses:
-
-```sh
 npm run test:golden
 npm run test:security
+python3 scripts/check_docs.py
+git diff --check
 ```
 
 These commands verify the implemented foundation. They do not run the future
@@ -394,6 +458,9 @@ work is explicitly scoped by a maintainer. Read
 | Need | Document |
 |---|---|
 | Junior developer path | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) |
+| Marketing site | <https://shifat7.github.io/skia/> |
+| Launch drafts (do not post) | [docs/marketing/README.md](docs/marketing/README.md) |
+| Intended UX samples | [examples/](examples/) |
 | Product requirements | [PRD.md](PRD.md) |
 | Technical architecture | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Implementation order and acceptance criteria | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) |

@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  foundation:
+    name: Foundation checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Use main as Git's default init branch
+        run: git config --global init.defaultBranch main
+
+      - name: Install, typecheck, and test
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+      - name: Install documentation checker dependency
+        run: python3 -m pip install --break-system-packages PyYAML
+
+      - name: Check documentation
+        run: python3 scripts/check_docs.py
+
+      - name: Check diff whitespace
+        run: git diff --check
+
+  site:
+    name: Marketing site build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install and build site
+        working-directory: site
+        run: |
+          npm ci
+          npm run build
