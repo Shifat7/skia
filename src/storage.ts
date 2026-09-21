@@ -6,6 +6,7 @@ import process from "node:process";
 import { isDeepStrictEqual } from "node:util";
 
 import {
+  ARTIFACTS_DIRECTORY_NAME,
   DIST_DIRECTORY_NAME,
   LOCAL_DURABILITY_CAVEAT,
   LOCAL_RETENTION_CAVEAT,
@@ -23,6 +24,7 @@ import {
   deriveRepositoryArtifactPath,
   deriveRepositoryManifestPath,
   deriveRepositoryRunDirectory,
+  deriveStagedArtifactPath,
   deriveStagedReceiptPath,
   formatRunIdAtUtc,
   validateRelativePath,
@@ -36,11 +38,13 @@ import {
   validateStagedReceipt,
 } from "./schema.js";
 import type {
+  HashedArtifactKind,
   RepositoryManifest,
   RepositorySnapshotIdentity,
   RunArtifactPath,
   RunId,
   RunState,
+  SessionId,
   Sha256Hex,
   CoverageEnvelope,
   StagedReceipt,
@@ -98,7 +102,17 @@ export interface InspectedReceiptRun {
   readonly receipt: StagedReceipt;
 }
 
-export type InspectedRun = InspectedRepositoryRun | InspectedReceiptRun;
+export interface InspectedIncompleteStagedRun {
+  readonly kind: "review_incomplete";
+  readonly run_id: RunId;
+  readonly status: "incomplete";
+  readonly receipt_path: RunArtifactPath;
+}
+
+export type InspectedRun =
+  | InspectedRepositoryRun
+  | InspectedReceiptRun
+  | InspectedIncompleteStagedRun;
 
 export interface DeleteRunResult {
   readonly deleted: boolean;
@@ -109,6 +123,18 @@ export interface ArtifactWriteResult {
   readonly absolutePath: string;
   readonly bytes: number;
   readonly sha256: Sha256Hex;
+}
+
+export interface StagedRunAllocation {
+  readonly repositoryRoot: string;
+  readonly runId: RunId;
+  readonly sessionId: SessionId;
+  readonly skiaRootPath: string;
+  readonly artifactsRootPath: string;
+}
+
+export interface StagedArtifactWriteResult extends ArtifactWriteResult {
+  readonly artifactPath: RunArtifactPath;
 }
 
 export interface StorageTestHooks {
@@ -815,6 +841,20 @@ function stagedReceiptHashWithoutSelf(receipt: StagedReceipt): Sha256Hex {
   return sha256Hex(`${JSON.stringify(receiptWithoutSelf, null, 2)}\n`);
 }
 
+function serializeStagedReceipt(receipt: StagedReceipt): string {
+  const serialized = `${JSON.stringify(receipt, null, 2)}\n`;
+  const roundTrip = JSON.parse(serialized) as unknown;
+  const validation = validateStagedReceipt(roundTrip);
+
+  if (!validation.valid || !isDeepStrictEqual(validation.value, receipt)) {
+    throw createStorageError(
+      "staged receipt must remain valid and identical after JSON serialization",
+    );
+  }
+
+  return serialized;
+}
+
 function validateStagedArtifactHashes(
   skiaRootPath: string,
   receipt: StagedReceipt,
@@ -862,6 +902,65 @@ function validateStagedArtifactHashes(
   }
 }
 
+function validateStagedBehaviorCardArtifact(
+  skiaRootPath: string,
+  receipt: StagedReceipt,
+): void {
+  if (receipt.review === undefined) {
+    return;
+  }
+
+  const artifact = receipt.artifact_hashes.find(
+    (candidate) => candidate.kind === "behavior_cards",
+  );
+
+  if (artifact === undefined) {
+    throw createStorageError(
+      "staged review receipt is missing its behavior-card artifact",
+    );
+  }
+
+  const card = parseRegularJson<unknown>(
+    skiaRootPath,
+    validateContainedPath(skiaRootPath, artifact.path),
+    "staged behavior-card artifact",
+  );
+
+  if (receipt.review.card_status === "complete") {
+    if (!isDeepStrictEqual(card, receipt.review.entity.prediction)) {
+      throw createStorageError(
+        "behavior-card artifact does not match the persisted prediction in the receipt",
+      );
+    }
+    return;
+  }
+
+  if (card === null || typeof card !== "object") {
+    throw createStorageError(
+      "behavior-card artifact does not match the persisted skip in the receipt",
+    );
+  }
+
+  const skip = card as Readonly<Record<string, unknown>>;
+  const keys = Object.keys(skip).sort();
+  const validSealedAt =
+    typeof skip.sealed_at === "string" &&
+    /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/.test(
+      skip.sealed_at,
+    );
+
+  if (
+    !isDeepStrictEqual(keys, ["action", "scenario", "sealed_at"]) ||
+    skip.action !== "skip" ||
+    !isDeepStrictEqual(skip.scenario, receipt.review.entity.scenario) ||
+    !validSealedAt
+  ) {
+    throw createStorageError(
+      "behavior-card artifact does not match the persisted skip in the receipt",
+    );
+  }
+}
+
 function receiptOwnedArtifactBytes(
   skiaRootPath: string,
   receipt: StagedReceipt,
@@ -876,6 +975,37 @@ function receiptOwnedArtifactBytes(
     const absolutePath = validateContainedPath(skiaRootPath, artifact.path);
     assertRegularStorageFile(skiaRootPath, absolutePath, "staged artifact");
     totalBytes += fs.lstatSync(absolutePath).size;
+  }
+
+  return totalBytes;
+}
+
+function incompleteStagedArtifactBytes(
+  repositoryRoot: string,
+  runId: RunId,
+  sessionId: SessionId,
+): number {
+  const roots = readStorageRoots(repositoryRoot, ARTIFACTS_DIRECTORY_NAME);
+
+  if (roots === null) {
+    return 0;
+  }
+
+  const prefix = `${runId}-${sessionId}-`;
+  let totalBytes = 0;
+
+  for (const entryName of fs.readdirSync(roots.leafRootPath)) {
+    if (!entryName.startsWith(prefix)) {
+      continue;
+    }
+
+    const entryPath = path.join(roots.leafRootPath, entryName);
+    assertRegularStorageFile(
+      roots.skiaRootPath,
+      entryPath,
+      "incomplete staged artifact",
+    );
+    totalBytes += fs.lstatSync(entryPath).size;
   }
 
   return totalBytes;
@@ -1087,6 +1217,240 @@ export function completeRepositoryRun(
   };
 }
 
+export function allocateStagedRun(
+  repositoryRoot: string,
+  sessionId: SessionId,
+  createdAt: Date = new Date(),
+): StagedRunAllocation {
+  const validatedSessionId = validateSessionId(sessionId);
+  const { skiaRootPath, leafRootPath: artifactsRootPath } =
+    ensureStorageRoots(repositoryRoot, ARTIFACTS_DIRECTORY_NAME);
+  const baseRunId = formatRunIdAtUtc(createdAt);
+
+  for (let suffix = 0; suffix <= MAX_RUN_ID_COLLISION_SUFFIX; suffix += 1) {
+    const runId =
+      suffix === 0 ? baseRunId : formatRunIdAtUtc(createdAt, suffix);
+    let claimPath: string;
+
+    try {
+      claimPath = writeRunIdClaim(
+        repositoryRoot,
+        runId,
+        "review",
+        validatedSessionId,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (/exist/i.test(message)) {
+        continue;
+      }
+
+      throw error;
+    }
+
+    try {
+      const targets = existingRunTargets(repositoryRoot, runId, runId);
+
+      if (
+        targets.repositoryRunDirectoryPath !== null ||
+        targets.receiptName !== null
+      ) {
+        releaseRunIdClaim(claimPath);
+        continue;
+      }
+
+      return {
+        repositoryRoot: path.resolve(repositoryRoot),
+        runId,
+        sessionId: validatedSessionId,
+        skiaRootPath,
+        artifactsRootPath,
+      };
+    } catch (error) {
+      releaseRunIdClaim(claimPath);
+      throw error;
+    }
+  }
+
+  throw createStorageError("run_id_exhausted");
+}
+
+export function writeStagedArtifactFile(
+  allocation: StagedRunAllocation,
+  kind: Exclude<HashedArtifactKind, "receipt">,
+  contents: string | Uint8Array,
+): StagedArtifactWriteResult {
+  const artifactPath = deriveStagedArtifactPath(
+    allocation.runId,
+    allocation.sessionId,
+    kind,
+  );
+  const absolutePath = validateContainedPath(
+    allocation.skiaRootPath,
+    artifactPath,
+  );
+  assertNoSymlinkInPath(allocation.skiaRootPath, absolutePath);
+  const bytes = asBytes(contents);
+
+  writeNewFile(absolutePath, bytes);
+
+  return {
+    absolutePath,
+    artifactPath,
+    bytes: bytes.byteLength,
+    sha256: sha256Hex(bytes),
+  };
+}
+
+function removeIncompleteStagedArtifacts(
+  repositoryRoot: string,
+  runId: RunId,
+  sessionId: SessionId,
+): DeleteRunResult {
+  const roots = readStorageRoots(repositoryRoot, ARTIFACTS_DIRECTORY_NAME);
+
+  if (roots === null) {
+    return {
+      deleted: true,
+      remaining_paths: [],
+    };
+  }
+
+  const kinds: readonly Exclude<HashedArtifactKind, "receipt">[] = [
+    "hld",
+    "lld",
+    "collapsed_evidence",
+    "behavior_cards",
+    "coverage",
+    "manifest",
+  ];
+  const failures: string[] = [];
+
+  for (const kind of kinds) {
+    const artifactPath = validateContainedPath(
+      roots.skiaRootPath,
+      deriveStagedArtifactPath(runId, sessionId, kind),
+    );
+
+    if (!fs.existsSync(artifactPath)) {
+      continue;
+    }
+
+    const result = deleteTree(roots.skiaRootPath, artifactPath);
+    failures.push(...result.remaining_paths);
+  }
+
+  return {
+    deleted: failures.length === 0,
+    remaining_paths: [...new Set(failures)].sort(),
+  };
+}
+
+export function abortStagedRun(allocation: StagedRunAllocation): void {
+  const targets = existingRunTargets(
+    allocation.repositoryRoot,
+    allocation.runId,
+    allocation.runId,
+  );
+
+  if (targets.receiptName !== null) {
+    throw createStorageError("cannot abort a completed staged run");
+  }
+
+  const artifactResult = removeIncompleteStagedArtifacts(
+    allocation.repositoryRoot,
+    allocation.runId,
+    allocation.sessionId,
+  );
+
+  if (!artifactResult.deleted) {
+    throw createStorageError(
+      `could not abort staged run; remaining paths: ${artifactResult.remaining_paths.join(", ")}`,
+    );
+  }
+
+  const claimResult = removeRunIdClaim(
+    allocation.repositoryRoot,
+    allocation.runId,
+  );
+
+  if (!claimResult.deleted) {
+    throw createStorageError(
+      `could not abort staged run; remaining paths: ${claimResult.remaining_paths.join(", ")}`,
+    );
+  }
+}
+
+export function completeStagedRun(
+  allocation: StagedRunAllocation,
+  receipt: StagedReceipt,
+): { readonly receiptPath: string; readonly artifactBytes: number } {
+  if (
+    receipt.run_id !== allocation.runId ||
+    receipt.session_id !== allocation.sessionId
+  ) {
+    throw createStorageError(
+      "staged receipt identity does not match the allocated run",
+    );
+  }
+
+  const validation = validateStagedReceipt(receipt);
+
+  if (!validation.valid) {
+    throw createStorageError(
+      `staged receipt validation failed: ${validation.errors
+        .map((error) => error.message)
+        .join("; ")}`,
+    );
+  }
+
+  const claimPath = runIdClaimFilePath(
+    allocation.repositoryRoot,
+    allocation.runId,
+  );
+
+  if (!fs.existsSync(claimPath)) {
+    throw createStorageError("staged run allocation claim is missing");
+  }
+
+  const claim = parseRegularJson<RunIdClaimRecord>(
+    allocation.skiaRootPath,
+    claimPath,
+    "staged run allocation claim",
+  );
+
+  if (
+    claim.run_id !== allocation.runId ||
+    claim.mode !== "review" ||
+    claim.storage_path !==
+      deriveStagedReceiptPath(allocation.runId, allocation.sessionId)
+  ) {
+    throw createStorageError(
+      "staged run allocation claim does not match the receipt identity",
+    );
+  }
+
+  validateStagedArtifactHashes(allocation.skiaRootPath, validation.value);
+  validateStagedBehaviorCardArtifact(
+    allocation.skiaRootPath,
+    validation.value,
+  );
+  const absolutePath = receiptFilePath(
+    allocation.repositoryRoot,
+    validation.value,
+  );
+  const serializedReceipt = serializeStagedReceipt(validation.value);
+  writeNewFile(absolutePath, serializedReceipt);
+
+  return {
+    receiptPath: absolutePath,
+    artifactBytes:
+      asBytes(serializedReceipt).byteLength +
+      receiptOwnedArtifactBytes(allocation.skiaRootPath, validation.value),
+  };
+}
+
 export function writeStagedReceipt(
   repositoryRoot: string,
   receipt: StagedReceipt,
@@ -1103,6 +1467,7 @@ export function writeStagedReceipt(
 
   const { skiaRootPath } = ensureStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
   validateStagedArtifactHashes(skiaRootPath, validation.value);
+  validateStagedBehaviorCardArtifact(skiaRootPath, validation.value);
 
   let claimPath: string;
   try {
@@ -1144,7 +1509,7 @@ export function writeStagedReceipt(
     }
 
     const absolutePath = receiptFilePath(repositoryRoot, validation.value);
-    const serializedReceipt = `${JSON.stringify(validation.value, null, 2)}\n`;
+    const serializedReceipt = serializeStagedReceipt(validation.value);
     writeNewFile(absolutePath, serializedReceipt);
 
     return {
@@ -1217,6 +1582,10 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
       const receipt = validateStagedReceiptFile(repositoryReceiptsRoots.skiaRootPath, receiptPath);
       assertReceiptFileBinding(entryName, receipt);
       validateStagedArtifactHashes(repositoryReceiptsRoots.skiaRootPath, receipt);
+      validateStagedBehaviorCardArtifact(
+        repositoryReceiptsRoots.skiaRootPath,
+        receipt,
+      );
       runs.push({
         run_id: receipt.run_id,
         mode: "review",
@@ -1226,6 +1595,68 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
         snapshot_identifier: receipt.snapshot.diff_sha256,
         artifact_bytes:
           stats.size + receiptOwnedArtifactBytes(repositoryReceiptsRoots.skiaRootPath, receipt),
+      });
+    }
+  }
+
+  const claimRoots = readStorageRoots(
+    repositoryRoot,
+    RUN_ID_CLAIMS_DIRECTORY_NAME,
+  );
+  const listedRunIds = new Set(runs.map((run) => run.run_id));
+
+  if (claimRoots !== null) {
+    for (const entryName of [...fs.readdirSync(claimRoots.leafRootPath)].sort()) {
+      if (!entryName.endsWith(".json")) {
+        continue;
+      }
+
+      let runId: RunId;
+
+      try {
+        runId = validateRunId(entryName.slice(0, -5));
+      } catch {
+        continue;
+      }
+
+      if (listedRunIds.has(runId)) {
+        continue;
+      }
+
+      const claim = parseRegularJson<RunIdClaimRecord>(
+        claimRoots.skiaRootPath,
+        path.join(claimRoots.leafRootPath, entryName),
+        "run-id claim",
+      );
+
+      if (claim.run_id !== runId || claim.mode !== "review") {
+        continue;
+      }
+
+      const receiptName = claim.storage_path.split("/").at(-1);
+      const parsedReceipt =
+        receiptName === undefined
+          ? null
+          : parseStagedReceiptFileName(receiptName);
+
+      if (parsedReceipt === null || parsedReceipt.runId !== runId) {
+        throw createStorageError(
+          `staged run claim ${entryName} has an invalid storage path`,
+        );
+      }
+
+      runs.push({
+        run_id: runId,
+        mode: "review",
+        status: "incomplete",
+        created_at: createdAtFromRunId(runId),
+        completed_at: null,
+        snapshot_identifier: "not_available",
+        artifact_bytes: incompleteStagedArtifactBytes(
+          repositoryRoot,
+          runId,
+          parsedReceipt.sessionId,
+        ),
       });
     }
   }
@@ -1265,6 +1696,8 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
     const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, targets.receiptName);
     const receipt = validateStagedReceiptFile(receiptsRoots.skiaRootPath, absoluteReceiptPath);
     assertReceiptFileBinding(targets.receiptName, receipt);
+    validateStagedArtifactHashes(receiptsRoots.skiaRootPath, receipt);
+    validateStagedBehaviorCardArtifact(receiptsRoots.skiaRootPath, receipt);
 
     return {
       kind: "review",
@@ -1272,6 +1705,32 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
       receipt_path: validateRunArtifactPath(`receipts/${targets.receiptName}`),
       receipt,
     };
+  }
+
+  if (targets.claimPath !== null) {
+    const claimRoots = readStorageRoots(
+      repositoryRoot,
+      RUN_ID_CLAIMS_DIRECTORY_NAME,
+    );
+
+    if (claimRoots === null) {
+      throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
+    }
+
+    const claim = parseRegularJson<RunIdClaimRecord>(
+      claimRoots.skiaRootPath,
+      targets.claimPath,
+      "run-id claim",
+    );
+
+    if (claim.mode === "review" && claim.run_id === runId) {
+      return {
+        kind: "review_incomplete",
+        run_id: runId,
+        status: "incomplete",
+        receipt_path: claim.storage_path,
+      };
+    }
   }
 
   throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
@@ -1341,6 +1800,49 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
   }
 
   if (targets.claimPath !== null) {
+    const claimRoots = readStorageRoots(
+      repositoryRoot,
+      RUN_ID_CLAIMS_DIRECTORY_NAME,
+    );
+
+    if (claimRoots === null) {
+      throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
+    }
+
+    const claim = parseRegularJson<RunIdClaimRecord>(
+      claimRoots.skiaRootPath,
+      targets.claimPath,
+      "run-id claim",
+    );
+
+    if (claim.mode === "review") {
+      const receiptName = claim.storage_path.split("/").at(-1);
+      const parsedReceipt =
+        receiptName === undefined
+          ? null
+          : parseStagedReceiptFileName(receiptName);
+
+      if (
+        claim.run_id !== runId ||
+        parsedReceipt === null ||
+        parsedReceipt.runId !== runId
+      ) {
+        throw createStorageError(
+          `staged run claim for ${runIdInput} has an invalid storage path`,
+        );
+      }
+
+      const artifactResult = removeIncompleteStagedArtifacts(
+        repositoryRoot,
+        runId,
+        parsedReceipt.sessionId,
+      );
+
+      if (!artifactResult.deleted) {
+        return artifactResult;
+      }
+    }
+
     return removeRunIdClaim(repositoryRoot, runId);
   }
 

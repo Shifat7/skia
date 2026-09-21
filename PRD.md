@@ -1,7 +1,9 @@
 # Skia -- Product Requirements Document
 
-**Status:** Documentation-only. No runnable CLI, package, generated HLD, or
-LLD exists.
+**Status:** Foundation plus a narrow staged-review pilot. `skia review`
+supports one staged `.ts` file containing one named literal guard-return
+function. Broader staged behavior, repository review, generated HLD, and LLD
+remain proposed.
 
 **Version:** PRD v4 -- reduced-reading collapsed evidence plus an
 agent-assisted TypeScript/Python repository comprehension mode.

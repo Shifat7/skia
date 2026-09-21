@@ -25,17 +25,23 @@ test("bootstrap shell exposes the frozen command surfaces without side effects",
       "runs inspect",
       "runs delete",
     ],
-    implemented: false,
+    implemented: "partial",
+    implementedCommandSurfaces: ["review"],
   });
 });
 
-test("runCli returns an unimplemented shell result and copies argv", () => {
+test("runCli rejects unimplemented command surfaces and copies argv", () => {
   const argv = ["review", "--repo", "/tmp/example"];
   const result = runCli(argv);
 
   assert.deepStrictEqual(result, {
     argv,
+    exit_code: 2,
     kind: "unimplemented_shell",
+    output: "Command is not implemented: review --repo /tmp/example\n",
   });
+  if (result.kind !== "unimplemented_shell") {
+    throw new Error("expected unimplemented shell result");
+  }
   assert.notStrictEqual(result.argv, argv);
 });

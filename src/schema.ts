@@ -4,6 +4,7 @@ import {
   type ErrorObject,
   type ValidateFunction,
 } from "ajv/dist/2020.js";
+import { isDeepStrictEqual } from "node:util";
 
 import { repositoryManifestSchema } from "../schemas/repository-manifest.js";
 import { snapshotIdentitySchema } from "../schemas/snapshot-identity.js";
@@ -498,7 +499,153 @@ function stagedReceiptInvariants(
     ...coverageEnvelopeInvariants(value.coverage),
     ...validateStagedCoverageAnchors(value.snapshot.entries, value.coverage),
     ...validateArtifactHashes(value.artifact_hashes, value.run_id, value.session_id),
+    ...validateStagedReview(value),
   ];
+}
+
+function stagedAnchorBound(
+  entries: readonly SnapshotEntry[],
+  anchor: SourceAnchor,
+): boolean {
+  const entry = entries.find((candidate) => candidate.path === anchor.path);
+  const expectedBlob =
+    anchor.side === "base"
+      ? entry?.base_blob_oid
+      : anchor.side === "staged"
+        ? entry?.snapshot_blob_oid
+        : null;
+
+  return (
+    entry !== undefined &&
+    anchor.side !== "repository" &&
+    entry.language === anchor.language &&
+    expectedBlob !== null &&
+    expectedBlob === anchor.blob_oid
+  );
+}
+
+function validateStagedReview(
+  value: StagedReceipt,
+): readonly SchemaValidationError[] {
+  const review = value.review;
+
+  if (review === undefined) {
+    return [];
+  }
+
+  const errors: SchemaValidationError[] = [];
+  const prediction = review.entity.prediction;
+  const sourceCheck = review.entity.source_check;
+
+  if (review.card_status === "complete") {
+    if (prediction === null || sourceCheck === null) {
+      errors.push({
+        instance_path: "/review/entity",
+        keyword: "completed_card",
+        message:
+          "complete staged review cards require a persisted prediction and source check",
+      });
+    }
+
+    if (
+      review.session_counts.predictions_completed !== 1 ||
+      review.session_counts.skips !== 0
+    ) {
+      errors.push({
+        instance_path: "/review/session_counts",
+        keyword: "completed_card_counts",
+        message:
+          "complete staged review cards require one completed prediction and zero skips",
+      });
+    }
+  } else if (
+    prediction !== null ||
+    sourceCheck !== null ||
+    review.session_counts.predictions_completed !== 0 ||
+    review.session_counts.skips !== 1
+  ) {
+    errors.push({
+      instance_path: "/review",
+      keyword: "skipped_card",
+      message:
+        "skipped staged review cards require no prediction or source check and exactly one skip",
+    });
+  }
+
+  if (
+    prediction !== null &&
+    !isDeepStrictEqual(prediction.scenario, review.entity.scenario)
+  ) {
+    errors.push({
+      instance_path: "/review/entity/prediction/scenario",
+      keyword: "scenario_identity",
+      message:
+        "persisted prediction scenario must match the staged review entity scenario",
+    });
+  }
+
+  if (
+    prediction !== null &&
+    sourceCheck !== null &&
+    !isDeepStrictEqual(sourceCheck.predicted, prediction.prediction.value)
+  ) {
+    errors.push({
+      instance_path: "/review/entity/source_check/predicted",
+      keyword: "prediction_identity",
+      message:
+        "source check predicted value must match the persisted prediction value",
+    });
+  }
+
+  if (sourceCheck !== null) {
+    const valuesMatch = isDeepStrictEqual(
+      sourceCheck.expected,
+      sourceCheck.predicted,
+    );
+    const statusMatches =
+      (valuesMatch && sourceCheck.status === "source_derived_match") ||
+      (!valuesMatch && sourceCheck.status === "source_derived_mismatch");
+
+    if (!statusMatches) {
+      errors.push({
+        instance_path: "/review/entity/source_check/status",
+        keyword: "source_check_status",
+        message:
+          "source check status must reflect equality of expected and predicted values",
+      });
+    }
+  }
+
+  const reviewAnchors = [
+    review.entity.anchor,
+    ...review.entity.evidence.anchors,
+  ];
+
+  for (const [index, anchor] of reviewAnchors.entries()) {
+    if (!stagedAnchorBound(value.snapshot.entries, anchor)) {
+      errors.push({
+        instance_path: `/review/entity/anchors/${index}`,
+        keyword: "staged_anchor_binding",
+        message:
+          "staged review anchors must match a staged snapshot entry by path, language, side, and blob_oid",
+      });
+    }
+  }
+
+  const behaviorCardArtifacts = value.artifact_hashes.filter(
+    (artifact) => artifact.kind === "behavior_cards",
+  );
+
+  if (behaviorCardArtifacts.length !== 1) {
+    errors.push({
+      instance_path: "/artifact_hashes",
+      keyword: "review_artifacts",
+      message:
+        "staged review receipts require exactly one behavior_cards artifact hash",
+    });
+  }
+
+  return errors;
 }
 
 function validateStagedCoverageAnchors(

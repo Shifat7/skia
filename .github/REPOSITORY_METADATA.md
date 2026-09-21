@@ -3,11 +3,12 @@
 GitHub repository metadata is outside normal file review, but it is part of the
 project's public truth boundary. Keep it synchronized with the documentation.
 
-## Current documentation-only stage
+## Current foundation-and-pilot stage
 
 **Proposed About description:**
 
-> Documentation-only proposal for a local reduced-reading comprehension checkpoint: collapsed TypeScript evidence, minimal behavior predictions, and opt-in repository HLD/LLD drafts.
+> Local code-comprehension research project with a narrow staged TypeScript
+> guard-return pilot; broader staged and repository workflows remain proposed.
 
 **Proposed topics:**
 
@@ -18,9 +19,10 @@ project's public truth boundary. Keep it synchronized with the documentation.
 - `local-first`
 - `human-in-the-loop`
 
-Do not advertise generated dependency graphs, type drift, DRY analysis, error
-coverage, support for any codebase, a working CLI, or a released package. Those
-claims are not present capabilities and several are explicit non-goals.
+Do not advertise generated dependency graphs, type drift, DRY analysis, broad
+language or syntax support, repository review, HLD/LLD generation, or a
+released package. Only the strict one-file TypeScript guard-return CLI path has
+direct product-flow evidence.
 
 ## Rename gate
 

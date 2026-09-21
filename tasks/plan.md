@@ -8,10 +8,11 @@ source-language set is explicitly:
 typescript | tsx | python
 ```
 
-Phase 1 establishes language-neutral foundations plus parser loading and
-coverage reporting for those three source dialects. Collapsed behavior
-reduction, Behavior Cards, repository subsystem discovery, agent transport,
-HLD/LLD generation, and behavioral validation remain deferred.
+Phase 1 established language-neutral foundations plus parser loading and
+coverage reporting for those three source dialects. A later narrow pilot now
+implements one TypeScript literal guard-return Behavior Card path; broader
+reduction, repository subsystem discovery, agent transport, HLD/LLD generation,
+and behavioral validation remain deferred.
 
 ## Contract and environment gate
 
@@ -41,7 +42,7 @@ python3 scripts/check_docs.py
 git diff --check
 ```
 
-**Status:** contract work in progress; no package has been created yet.
+**Status:** complete; the package and Phase 1 foundation are implemented.
 
 ### Task 1: Bootstrap the TypeScript package and test harness
 

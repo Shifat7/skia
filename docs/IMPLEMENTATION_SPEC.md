@@ -1,15 +1,15 @@
 # Spec: Skia Implementation
 
-**Status:** Draft for review. This document completes the specification phase
-for the implementation described in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
-It does not authorize implementation until the contract-freeze gates are
-approved.
+**Status:** Active implementation contract. Phase 1 foundations and one narrow
+staged-review pilot have been implemented; later phases remain gated by this
+specification and the open decisions.
 
 **Product name:** Skia
 
-**Product state:** Documentation-only. There is currently no CLI, TypeScript package,
-schema implementation, fixture corpus, generated artifact, or product test
-suite.
+**Product state:** The TypeScript package, schemas, fixtures, tests, Git/storage
+foundation, and one literal guard-return `skia review` path exist. Repository
+review, broad semantic reduction, agent transport, and HLD/LLD generation do
+not.
 
 **Implementation boundary:** The next implementation target is Phase 1
 Foundations only: the hardened Git boundary, the selected snapshot strategy,
@@ -622,6 +622,12 @@ Implement one supported named function/method path end to end: changed-entity
 ownership, collapsed evidence, one literal-derived scenario, prediction
 persistence, narrow source check, optional unexecuted probe, receipt, and
 golden terminal output. Expand syntax only through new failing fixtures.
+
+**Pilot checkpoint:** The named TypeScript function literal guard-return path
+is implemented with line coverage, prediction/skip persistence, source-derived
+feedback, receipts, golden output, and executable no-target-execution tests.
+Methods, TSX/Python reduction, probes, source-view menu actions, and the full
+AC-4 through AC-6 gate remain open.
 
 #### Phase 4: Repository deterministic slice
 

@@ -71,6 +71,13 @@ declare module "node:fs" {
   export function renameSync(oldPath: string, newPath: string): void;
   export function closeSync(fd: number): void;
   export function fsyncSync(fd: number): void;
+  export function readSync(
+    fd: number,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number | null,
+  ): number;
   export function writeSync(
     fd: number,
     data: string | Uint8Array,
@@ -109,6 +116,7 @@ declare module "node:fs" {
     renameSync: typeof renameSync;
     closeSync: typeof closeSync;
     fsyncSync: typeof fsyncSync;
+    readSync: typeof readSync;
     writeSync: typeof writeSync;
     readFileSync: typeof readFileSync;
     readdirSync: typeof readdirSync;
@@ -138,14 +146,18 @@ declare module "node:path" {
 
   export function join(...parts: readonly string[]): string;
   export function dirname(path: string): string;
+  export function relative(from: string, to: string): string;
   export function resolve(...parts: readonly string[]): string;
+  export const sep: string;
   export const posix: PathPlatform;
   export const win32: PathPlatform;
 
   const path: {
     join: typeof join;
     dirname: typeof dirname;
+    relative: typeof relative;
     resolve: typeof resolve;
+    sep: typeof sep;
     posix: typeof posix;
     win32: typeof win32;
   };

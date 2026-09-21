@@ -1,8 +1,9 @@
-# Proposed Output Reference
+# Output Reference
 
-> **No outputs exist.** This document defines proposed Phase 0 staged and
-> repository artifacts. Examples are contracts to be converted into canonical
-> schema fixtures before implementation.
+> **Pilot output exists.** The literal guard-return staged pilot writes a
+> behavior-card sidecar and validated receipt under `.skia/`. The broader
+> staged examples and every repository artifact below remain proposed
+> contracts, not current behavior.
 
 ---
 
@@ -24,6 +25,27 @@ for example `20260805T001500Z`, in the directory and every filename.
 ---
 
 ## 2. Staged terminal surface
+
+The implemented pilot surface is intentionally smaller:
+
+```text
+Skia staged review
+Evidence: code === "ready" -> return "ok"
+Coverage: supported=2 partial=0 unmapped=5 unsupported=0 failed=0
+GIVEN code = "ready"
+WHEN gateStatus("ready")
+Predict THEN as JSON, or type "skip":
+Source check: source_derived_match
+Expected source-derived return: "ok"
+Receipt: .skia/receipts/<run>-<session>-session.json
+```
+
+Only the strict one-file TypeScript literal guard-return shape produces this
+surface today. Prediction input is bounded to 4,096 UTF-8 bytes. Pilot evidence
+sets `details_available` to `false` because source/evidence expansion actions
+are not implemented. Interrupted allocated runs remain visible as `incomplete`
+through the run lifecycle until deletion or successful cleanup. The richer
+multi-relation interaction below remains proposed.
 
 The default surface is collapsed evidence, not the full diff:
 

@@ -1,0 +1,272 @@
+import { createRequire } from "node:module";
+import fs from "node:fs";
+import process from "node:process";
+
+import { TYPESCRIPT_LANGUAGE_REGISTRATIONS } from "../languages/typescript.js";
+import { MAX_STAGED_TEXT_CHARACTERS } from "../limits.js";
+import type {
+  JsonScalar,
+  PilotParserNodeRange,
+  PilotParserResponse,
+} from "./types.js";
+import { jsonScalarFromUnknown } from "./json-scalar.js";
+
+interface ParserNode {
+  readonly type: string;
+  readonly text: string;
+  readonly isNamed: boolean;
+  readonly hasError: boolean;
+  readonly startPosition: { readonly row: number; readonly column: number };
+  readonly endPosition: { readonly row: number; readonly column: number };
+  readonly children: readonly ParserNode[];
+  readonly namedChildren: readonly ParserNode[];
+  childForFieldName(name: string): ParserNode | null;
+}
+
+interface ParserTree {
+  readonly rootNode: ParserNode;
+}
+
+interface Parser {
+  setLanguage(language: unknown): void;
+  parse(source: string): ParserTree;
+}
+
+type ParserConstructor = new () => Parser;
+
+interface ParserInput {
+  readonly source: string;
+}
+
+const require = createRequire(import.meta.url);
+const TreeSitterParser = require("tree-sitter") as ParserConstructor;
+const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+function range(node: ParserNode): PilotParserNodeRange {
+  return {
+    start_line: node.startPosition.row + 1,
+    start_column: node.startPosition.column,
+    end_line: node.endPosition.row + 1,
+    end_column: node.endPosition.column,
+  };
+}
+
+function topLevelFunctions(root: ParserNode): readonly ParserNode[] {
+  const matches: ParserNode[] = [];
+
+  for (const node of root.namedChildren) {
+    if (node.type === "function_declaration") {
+      matches.push(node);
+      continue;
+    }
+
+    if (node.type === "export_statement") {
+      for (const child of node.namedChildren) {
+        if (child.type === "function_declaration") {
+          matches.push(child);
+        }
+      }
+    }
+  }
+
+  return matches;
+}
+
+function jsonScalar(text: string): JsonScalar | undefined {
+  try {
+    const value = JSON.parse(text) as unknown;
+    const scalar = jsonScalarFromUnknown(value);
+
+    return typeof scalar === "string" &&
+      scalar.length > MAX_STAGED_TEXT_CHARACTERS
+      ? undefined
+      : scalar;
+  } catch {
+    // Unsupported TypeScript literals, such as single-quoted strings, fail closed.
+  }
+
+  return undefined;
+}
+
+function unwrapParentheses(text: string): string {
+  let value = text.trim();
+
+  while (value.startsWith("(") && value.endsWith(")")) {
+    value = value.slice(1, -1).trim();
+  }
+
+  return value;
+}
+
+function parseGuard(
+  node: ParserNode,
+  parameterName: string,
+): { readonly text: string; readonly value: JsonScalar } | null {
+  const text = unwrapParentheses(node.text);
+  const match = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*===\s*(.+)$/.exec(text);
+
+  if (match === null || match[1] !== parameterName || match[2] === undefined) {
+    return null;
+  }
+
+  const value = jsonScalar(match[2].trim());
+  return value === undefined
+    ? null
+    : {
+      text: `${parameterName} === ${JSON.stringify(value)}`,
+      value,
+    };
+}
+
+function returnExpression(
+  statement: ParserNode,
+): { readonly text: string; readonly value: JsonScalar } | null {
+  if (statement.type !== "return_statement" || statement.namedChildren.length !== 1) {
+    return null;
+  }
+
+  const expression = statement.namedChildren[0];
+
+  if (expression === undefined) {
+    return null;
+  }
+
+  const value = jsonScalar(expression.text.trim());
+  return value === undefined
+    ? null
+    : {
+      text: expression.text.trim(),
+      value,
+    };
+}
+
+function singleReturn(statement: ParserNode): ParserNode | null {
+  if (statement.type === "return_statement") {
+    return statement;
+  }
+
+  if (statement.type !== "statement_block" || statement.namedChildren.length !== 1) {
+    return null;
+  }
+
+  return statement.namedChildren[0]?.type === "return_statement"
+    ? statement.namedChildren[0] ?? null
+    : null;
+}
+
+function parseFunction(functionNode: ParserNode): PilotParserResponse {
+  if (
+    functionNode.text.trimStart().startsWith("async ") ||
+    functionNode.children.some((child) => child.type === "async")
+  ) {
+    return { kind: "unsupported" };
+  }
+
+  const nameNode = functionNode.childForFieldName("name");
+  const parametersNode = functionNode.childForFieldName("parameters");
+  const bodyNode = functionNode.childForFieldName("body");
+
+  if (nameNode === null || parametersNode === null || bodyNode === null) {
+    return { kind: "unsupported" };
+  }
+
+  const entityName = nameNode.text.trim();
+  const parameterMatch =
+    /^\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::[^=,)]+)?\s*\)$/.exec(
+      parametersNode.text,
+    );
+
+  if (!IDENTIFIER_PATTERN.test(entityName) || parameterMatch?.[1] === undefined) {
+    return { kind: "unsupported" };
+  }
+
+  const parameterName = parameterMatch[1];
+  const statements = bodyNode.namedChildren;
+
+  if (statements.length !== 2) {
+    return { kind: "unsupported" };
+  }
+
+  const ifNode = statements[0];
+  const fallbackReturnNode = statements[1];
+
+  if (
+    ifNode?.type !== "if_statement" ||
+    fallbackReturnNode?.type !== "return_statement" ||
+    ifNode.childForFieldName("alternative") !== null
+  ) {
+    return { kind: "unsupported" };
+  }
+
+  const conditionNode = ifNode.childForFieldName("condition");
+  const consequenceNode = ifNode.childForFieldName("consequence");
+
+  if (conditionNode === null || consequenceNode === null) {
+    return { kind: "unsupported" };
+  }
+
+  const guardedReturnNode = singleReturn(consequenceNode);
+  const guard = parseGuard(conditionNode, parameterName);
+  const guardedReturn =
+    guardedReturnNode === null ? null : returnExpression(guardedReturnNode);
+  const fallbackReturn = returnExpression(fallbackReturnNode);
+
+  if (
+    guardedReturnNode === null ||
+    guard === null ||
+    guardedReturn === null ||
+    fallbackReturn === null
+  ) {
+    return { kind: "unsupported" };
+  }
+
+  return {
+    kind: "supported",
+    entity_name: entityName,
+    parameter_name: parameterName,
+    guard_text: guard.text,
+    guard_value: guard.value,
+    return_text: guardedReturn.text,
+    return_value: guardedReturn.value,
+    invocation: `${entityName}(${JSON.stringify(guard.value)})`,
+    entity_range: range(functionNode),
+    guard_range: range(conditionNode),
+    return_range: range(guardedReturnNode),
+  };
+}
+
+function parse(input: ParserInput): PilotParserResponse {
+  const registration = TYPESCRIPT_LANGUAGE_REGISTRATIONS[0];
+
+  if (registration === undefined) {
+    return { kind: "unsupported" };
+  }
+
+  const parser = new TreeSitterParser();
+  parser.setLanguage(registration.load_language());
+  const tree = parser.parse(input.source);
+
+  if (tree.rootNode.type !== "program" || tree.rootNode.hasError === true) {
+    return { kind: "unsupported" };
+  }
+
+  const functions = topLevelFunctions(tree.rootNode);
+  return functions.length === 1 && functions[0] !== undefined
+    ? parseFunction(functions[0])
+    : { kind: "unsupported" };
+}
+
+function main(): void {
+  try {
+    const input = JSON.parse(fs.readFileSync(0, "utf8")) as ParserInput;
+    const response =
+      typeof input.source === "string"
+        ? parse(input)
+        : ({ kind: "unsupported" } as const);
+    process.stdout.write(`${JSON.stringify(response)}\n`);
+  } catch {
+    process.stdout.write(`${JSON.stringify({ kind: "unsupported" })}\n`);
+  }
+}
+
+main();

@@ -1,11 +1,11 @@
 # Contributing to Skia
 
-> **Phase 1 foundation stage.** The repository contains exact Git snapshots,
-> schema and coverage validation, TypeScript/TSX/Python analysis, local storage,
-> build scripts, and tests. It still has no runnable review/repository
-> workflows, generated HLD/LLD, or release. Current contributions remain
-> documentation, evidence, synthetic fixtures, contracts, and bounded
-> implementation slices.
+> **Foundation plus staged pilot.** The repository contains exact Git
+> snapshots, schema and coverage validation, TypeScript/TSX/Python analysis,
+> local storage, and a narrow literal guard-return `skia review` path. It has no
+> runnable repository-review workflow, generated HLD/LLD, or release. Current
+> contributions remain documentation, evidence, synthetic fixtures, contracts,
+> and bounded implementation slices.
 
 ---
 
@@ -63,7 +63,8 @@ examples, schema mismatch, unsafe claims, and source citations.
 
 A documentation change must not claim:
 
-- a working CLI, package, generated artifact, release, or adoption;
+- staged behavior beyond the implemented literal guard-return pilot, a working
+  repository-review command, generated HLD/LLD, release, or adoption;
 - semantic/runtime equivalence or complete coverage;
 - a correct, verified, passed, or understood Behavior Card;
 - authoritative HLD/LLD;
