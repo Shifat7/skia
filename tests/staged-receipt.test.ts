@@ -3,7 +3,10 @@ import fs from "node:fs";
 import test from "node:test";
 
 import { captureStagedSnapshot } from "../src/git.js";
-import { validateSessionId } from "../src/paths.js";
+import {
+  deriveStagedReceiptPath,
+  validateSessionId,
+} from "../src/paths.js";
 import { validateStagedReceipt } from "../src/schema.js";
 import {
   abortStagedRun,
@@ -12,6 +15,7 @@ import {
   deleteRun,
   inspectRun,
   listRuns,
+  setStorageTestHooks,
   writeStagedArtifactFile,
 } from "../src/storage.js";
 import { createPredictionSession } from "../src/staged/card.js";
@@ -259,5 +263,80 @@ test("staged completion rejects a behavior-card artifact that differs from the r
   assert.throws(
     () => completeStagedRun(allocation, receipt),
     /behavior-card artifact.*persisted prediction/i,
+  );
+});
+
+test("staged receipt publication keeps the canonical path absent until atomic publish", () => {
+  const repositoryRoot = createSupportedRepository();
+  const pipeline = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+  assert.strictEqual(pipeline.kind, "supported");
+  if (pipeline.kind !== "supported") {
+    return;
+  }
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const session = createPredictionSession(pipeline.analysis);
+  const artifacts: ReturnType<typeof writeStagedArtifactFile>[] = [];
+  const sealed = session.persistPrediction(
+    { kind: "return_value", value: "ok" },
+    (record) => {
+      artifacts.push(
+        writeStagedArtifactFile(
+          allocation,
+          "behavior_cards",
+          `${JSON.stringify(record, null, 2)}\n`,
+        ),
+      );
+    },
+    new Date("2026-09-22T01:02:04Z"),
+  );
+  const artifact = artifacts[0];
+  if (artifact === undefined) {
+    throw new Error("expected behavior-card artifact");
+  }
+  const receipt = createStagedReviewReceipt({
+    allocation,
+    analysis: pipeline.analysis,
+    behavior_card_artifact: artifact,
+    completed_at: new Date("2026-09-22T01:02:05Z"),
+    coverage: pipeline.coverage,
+    sealed_prediction: sealed,
+    snapshot: pipeline.snapshot,
+    source_check: session.sourceCheck(),
+  });
+  let temporaryPath = "";
+  let canonicalPath = "";
+  setStorageTestHooks({
+    beforeStagedReceiptPublish: (paths) => {
+      temporaryPath = paths.temporaryPath;
+      canonicalPath = paths.receiptPath;
+      assert.strictEqual(fs.existsSync(temporaryPath), true);
+      assert.strictEqual(fs.existsSync(canonicalPath), false);
+      throw new Error("simulated interruption");
+    },
+  });
+
+  try {
+    assert.throws(
+      () => completeStagedRun(allocation, receipt),
+      /simulated interruption/,
+    );
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  assert.strictEqual(fs.existsSync(temporaryPath), false);
+  assert.strictEqual(fs.existsSync(canonicalPath), false);
+  assert.strictEqual(
+    canonicalPath.endsWith(deriveStagedReceiptPath(
+      allocation.runId,
+      allocation.sessionId,
+    )),
+    true,
   );
 });

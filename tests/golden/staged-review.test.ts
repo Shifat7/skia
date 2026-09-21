@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import { runCli } from "../../src/main.js";
+import { listRuns } from "../../src/storage.js";
 import {
   commitAll,
   createTempGitRepository,
@@ -69,6 +71,23 @@ test("skia review golden path shows evidence before prediction and feedback afte
     ),
     true,
   );
+});
+
+test("skia review invoked from a subdirectory stores output at the discovered root", () => {
+  const repositoryRoot = createSupportedRepository();
+  const nestedDirectory = path.join(repositoryRoot, "src/nested");
+  fs.mkdirSync(nestedDirectory, { recursive: true });
+  const result = runCli(["review"], {
+    input: '"ok"\n',
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    repository_root: nestedDirectory,
+    session_id: "8f5d1a2c",
+  });
+
+  assert.strictEqual(result.exit_code, 0);
+  assert.match(result.output, /Receipt: \.skia\/receipts\//);
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia/receipts")), true);
+  assert.strictEqual(fs.existsSync(path.join(nestedDirectory, ".skia")), false);
 });
 
 test("skia review skip writes a receipt without source-derived feedback", () => {
@@ -142,6 +161,7 @@ test("skia review rejects terminal input above the published limit", () => {
   assert.strictEqual(result.kind, "invalid_prediction");
   assert.match(result.output, /4096-byte input limit/);
   assert.strictEqual(fs.existsSync(`${repositoryRoot}/.skia/receipts`), false);
+  assert.deepStrictEqual(listRuns(repositoryRoot), []);
 });
 
 test("skia review rejects non-JSON predictions without writing a receipt", () => {
@@ -157,4 +177,108 @@ test("skia review rejects non-JSON predictions without writing a receipt", () =>
   assert.strictEqual(result.kind, "invalid_prediction");
   assert.match(result.output, /valid JSON scalar/);
   assert.strictEqual(fs.existsSync(`${repositoryRoot}/.skia/receipts`), false);
+  assert.deepStrictEqual(listRuns(repositoryRoot), []);
+});
+
+test("skia review reserves and then cleans the run around prediction input", () => {
+  const repositoryRoot = createSupportedRepository();
+  const result = runCli(["review"], {
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    read_input: () => {
+      assert.deepStrictEqual(
+        listRuns(repositoryRoot).map((run) => run.status),
+        ["incomplete"],
+      );
+      return "not-json\n";
+    },
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+
+  assert.strictEqual(result.kind, "invalid_prediction");
+  assert.deepStrictEqual(listRuns(repositoryRoot), []);
+});
+
+test("skia review escapes Unicode terminal formatting controls", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "\\u2028FORGED") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = runCli(["review"], {
+    input: '"ok"\n',
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+
+  assert.strictEqual(result.exit_code, 0);
+  assert.strictEqual(result.output.includes("\u2028"), false);
+  assert.match(result.output, /\\u2028FORGED/);
+});
+
+test("skia review escapes formatting controls in expected values and errors", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "\\u2060EXPECTED";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+  const completed = runCli(["review"], {
+    input: '"wrong"\n',
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+  const failed = runCli(["review"], {
+    input: '"wrong"\n',
+    now: () => new Date("2026-09-22T01:02:04Z"),
+    repository_root: repositoryRoot,
+    session_id: "abcd\u202eefgh",
+  });
+
+  assert.strictEqual(completed.output.includes("\u2060"), false);
+  assert.match(completed.output, /\\u2060EXPECTED/);
+  assert.strictEqual(failed.output.includes("\u202e"), false);
+  assert.match(failed.output, /\\u202e/);
+});
+
+test("default session IDs distinguish independent review sessions", () => {
+  const first = runCli(["review"], {
+    input: '"ok"\n',
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    repository_root: createSupportedRepository(),
+  });
+  const second = runCli(["review"], {
+    input: '"ok"\n',
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    repository_root: createSupportedRepository(),
+  });
+  const sessionPattern = /-([a-f0-9]{16})-session\.json/;
+  const firstSession = sessionPattern.exec(first.output)?.[1];
+  const secondSession = sessionPattern.exec(second.output)?.[1];
+
+  assert.notStrictEqual(firstSession, undefined);
+  assert.notStrictEqual(secondSession, undefined);
+  assert.notStrictEqual(firstSession, secondSession);
 });

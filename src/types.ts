@@ -169,6 +169,7 @@ export type SnapshotIdentity =
   | RepositorySnapshotIdentity;
 
 export interface StagedSnapshotCapture {
+  readonly repository_root: string;
   readonly checkout: SnapshotCheckout;
   readonly identity: StagedSnapshotIdentity;
   readonly status_entries: readonly GitStatusEntry[];

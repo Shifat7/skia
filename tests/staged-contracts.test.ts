@@ -21,6 +21,9 @@ import type {
 const FIXTURE_DIRECTORY = path.join(process.cwd(), "fixtures/staged");
 const PATH = "src/gate-status.ts" as RepositoryRelativePath;
 const BLOB_OID = "1111111111111111111111111111111111111111" as GitObjectId;
+const NODE_EXECUTABLE = (process as unknown as {
+  readonly execPath?: string;
+}).execPath ?? "node";
 
 function analyzeFixture(
   filename = "literal-guard.ts",
@@ -121,6 +124,65 @@ test("pilot analyzer rejects nested and async functions", () => {
     reason: "no_supported_staged_entity",
   });
   assert.deepStrictEqual(asyncFunction, {
+    kind: "unsupported",
+    reason: "no_supported_staged_entity",
+  });
+});
+
+test("pilot analyzer reports parser process failures as failed analysis", () => {
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1],
+    parser_command: {
+      command: NODE_EXECUTABLE,
+      args: ["-e", "process.exit(1)"],
+    },
+    path: PATH,
+    source: "export function gateStatus() {}\n",
+  });
+
+  assert.deepStrictEqual(result, {
+    kind: "failed",
+    reason: "parse_failed",
+  });
+});
+
+test("pilot analyzer preserves parser-child internal failures", () => {
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1],
+    parser_command: {
+      command: NODE_EXECUTABLE,
+      args: [
+        "-e",
+        'process.stdout.write(\'{"kind":"failed","reason":"parse_failed"}\\n\')',
+      ],
+    },
+    path: PATH,
+    source: "export function gateStatus() {}\n",
+  });
+
+  assert.deepStrictEqual(result, {
+    kind: "failed",
+    reason: "parse_failed",
+  });
+});
+
+test("pilot analyzer rejects sources whose derived fields exceed receipt limits", () => {
+  const literal = "x".repeat(4_096);
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1, 2, 3, 4],
+    path: PATH,
+    source: [
+      "export function gateStatus(code: string): string {",
+      `  if (code === ${JSON.stringify(literal)}) return "ok";`,
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  });
+
+  assert.deepStrictEqual(result, {
     kind: "unsupported",
     reason: "no_supported_staged_entity",
   });

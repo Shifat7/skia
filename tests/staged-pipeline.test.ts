@@ -150,8 +150,10 @@ test("captured staged snapshot supports a modified guard line", () => {
     return;
   }
   assert.deepStrictEqual(result.changed_lines, [2]);
+  assert.deepStrictEqual(result.deleted_lines, [2]);
+  assert.strictEqual(result.coverage.summary.total_units, 2);
   assert.strictEqual(result.coverage.summary.supported_units, 1);
-  assert.strictEqual(result.coverage.summary.unmapped_units, 0);
+  assert.strictEqual(result.coverage.summary.unmapped_units, 1);
 });
 
 test("captured staged snapshot refuses a function when only unrelated lines changed", () => {
@@ -175,6 +177,38 @@ test("captured staged snapshot refuses a function when only unrelated lines chan
     repositoryRoot,
     "src/gate-status.ts",
     initial.replace('"old"', '"new"'),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.deepStrictEqual(result, {
+    kind: "unsupported",
+    reason: "unmapped_region",
+  });
+});
+
+test("deleted comments do not select an unchanged guard for review", () => {
+  const repositoryRoot = createRepository();
+  const initial = [
+    "export function gateStatus(code: string): string {",
+    "  // Remove this comment.",
+    '  if (code === "ready") {',
+    '    return "ok";',
+    "  }",
+    '  return "hold";',
+    "}",
+    "",
+  ].join("\n");
+  writeRepoTextFile(repositoryRoot, "src/gate-status.ts", initial);
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+  commitAll(repositoryRoot, "add gate");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    initial.replace("  // Remove this comment.\n", ""),
   );
   stagePaths(repositoryRoot, "src/gate-status.ts");
 

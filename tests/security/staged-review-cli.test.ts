@@ -138,3 +138,32 @@ test("executable staged review succeeds for exactly one supported staged file", 
     1,
   );
 });
+
+test("executable runs when Node receives an installed-bin style symlink path", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+  const binPath = path.join(repositoryRoot, "skia-bin");
+  fs.symlinkSync(path.join(process.cwd(), "dist/src/main.js"), binPath);
+
+  const result = spawnSync(NODE_EXECUTABLE, [binPath, "review"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    input: '"ok"\n',
+  });
+
+  assert.strictEqual(result.status, 0);
+  assert.match(String(result.stdout), /Source check: source_derived_match/);
+});

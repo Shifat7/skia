@@ -47,11 +47,22 @@ export interface PilotUnsupportedAnalysis {
   readonly kind: "unsupported";
   readonly reason: Extract<
     StableErrorReason,
-    "no_supported_staged_entity" | "unmapped_region" | "parse_failed" | "parse_timeout"
+    "no_supported_staged_entity" | "unmapped_region"
   >;
 }
 
-export type PilotAnalysis = PilotSupportedAnalysis | PilotUnsupportedAnalysis;
+export interface PilotFailedAnalysis {
+  readonly kind: "failed";
+  readonly reason: Extract<
+    StableErrorReason,
+    "parse_failed" | "parse_timeout"
+  >;
+}
+
+export type PilotAnalysis =
+  | PilotSupportedAnalysis
+  | PilotUnsupportedAnalysis
+  | PilotFailedAnalysis;
 
 export interface AnalyzeLiteralGuardFunctionOptions {
   readonly blob_oid: GitObjectId;
@@ -122,13 +133,22 @@ export interface PilotParserUnsupported {
   readonly kind: "unsupported";
 }
 
-export type PilotParserResponse = PilotParserSuccess | PilotParserUnsupported;
+export interface PilotParserFailed {
+  readonly kind: "failed";
+  readonly reason: "parse_failed";
+}
+
+export type PilotParserResponse =
+  | PilotParserSuccess
+  | PilotParserUnsupported
+  | PilotParserFailed;
 
 export interface SupportedStagedPipelineResult {
   readonly kind: "supported";
   readonly snapshot: StagedSnapshotIdentity;
   readonly analysis: PilotSupportedAnalysis;
   readonly changed_lines: readonly number[];
+  readonly deleted_lines: readonly number[];
   readonly coverage: CoverageEnvelope;
 }
 
@@ -137,6 +157,16 @@ export interface UnsupportedStagedPipelineResult {
   readonly reason: StableErrorReason;
 }
 
+export interface FailedStagedPipelineResult {
+  readonly kind: "failed";
+  readonly reason: Extract<
+    StableErrorReason,
+    "parse_failed" | "parse_timeout"
+  >;
+  readonly coverage: CoverageEnvelope;
+}
+
 export type StagedPipelineResult =
   | SupportedStagedPipelineResult
-  | UnsupportedStagedPipelineResult;
+  | UnsupportedStagedPipelineResult
+  | FailedStagedPipelineResult;

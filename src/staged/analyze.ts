@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { MAX_STAGED_TEXT_CHARACTERS } from "../limits.js";
 import type { SourceAnchor } from "../types.js";
 import type {
   AnalyzeLiteralGuardFunctionOptions,
@@ -75,6 +76,18 @@ function parseResponse(stdout: string): PilotParserResponse | null {
 
     if (isParserSuccess(value)) {
       return value;
+    }
+
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      (value as { readonly kind?: unknown }).kind === "failed" &&
+      (value as { readonly reason?: unknown }).reason === "parse_failed"
+    ) {
+      return {
+        kind: "failed",
+        reason: "parse_failed",
+      };
     }
 
     if (
@@ -167,9 +180,13 @@ export function analyzeLiteralGuardFunction(
 
   if (parsed === "parse_failed" || parsed === "parse_timeout") {
     return {
-      kind: "unsupported",
+      kind: "failed",
       reason: parsed,
     };
+  }
+
+  if (parsed.kind === "failed") {
+    return parsed;
   }
 
   if (parsed.kind === "unsupported") {
@@ -193,19 +210,34 @@ export function analyzeLiteralGuardFunction(
 
   const guardAnchor = anchor(options, parsed.guard_range);
   const returnAnchor = anchor(options, parsed.return_range);
+  const entityId =
+    `${options.path}:${parsed.entity_name}:${parsed.entity_range.start_line}`;
+  const evidenceId = `${options.path}:${parsed.entity_name}:guard`;
+  const relation =
+    `${parsed.guard_text} -> return ${JSON.stringify(parsed.return_value)}`;
+
+  if (
+    [entityId, evidenceId, relation].some(
+      (value) => value.length > MAX_STAGED_TEXT_CHARACTERS,
+    )
+  ) {
+    return {
+      kind: "unsupported",
+      reason: "no_supported_staged_entity",
+    };
+  }
 
   return {
     kind: "supported",
     entity: {
-      id: `${options.path}:${parsed.entity_name}:${parsed.entity_range.start_line}`,
+      id: entityId,
       name: parsed.entity_name,
       anchor: anchor(options, parsed.entity_range),
     },
     evidence: {
-      id: `${options.path}:${parsed.entity_name}:guard`,
+      id: evidenceId,
       kind: "guard",
-      relation:
-        `${parsed.guard_text} -> return ${JSON.stringify(parsed.return_value)}`,
+      relation,
       anchors: [guardAnchor, returnAnchor],
       derivation: "deterministic",
       coverage: "supported",

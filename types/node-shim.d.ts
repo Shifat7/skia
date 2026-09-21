@@ -65,6 +65,7 @@ declare module "node:fs" {
   export function chmodSync(path: string, mode: number): void;
   export function existsSync(path: string): boolean;
   export function lstatSync(path: string): Stats;
+  export function linkSync(existingPath: string, newPath: string): void;
   export function mkdirSync(path: string, options?: number | MakeDirectoryOptions): string | undefined;
   export function mkdtempSync(prefix: string): string;
   export function openSync(path: string, flags: string, mode?: number): number;
@@ -110,6 +111,7 @@ declare module "node:fs" {
     chmodSync: typeof chmodSync;
     existsSync: typeof existsSync;
     lstatSync: typeof lstatSync;
+    linkSync: typeof linkSync;
     mkdirSync: typeof mkdirSync;
     mkdtempSync: typeof mkdtempSync;
     openSync: typeof openSync;
@@ -182,7 +184,7 @@ declare module "node:buffer" {
     static from(value: string, encoding?: "utf8"): Buffer;
     static from(value: readonly number[]): Buffer;
     static from(value: Uint8Array): Buffer;
-    toString(encoding?: "utf8"): string;
+    toString(encoding?: "utf8" | "hex"): string;
   }
 }
 
@@ -193,6 +195,7 @@ declare module "node:crypto" {
   }
 
   export function createHash(algorithm: "sha256"): Hash;
+  export function randomBytes(size: number): import("node:buffer").Buffer;
 }
 
 declare module "node:util" {

@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
@@ -46,6 +47,21 @@ type ParsedPrediction =
   | { readonly kind: "skip" }
   | { readonly kind: "invalid"; readonly reason: "format" | "limit" };
 
+const TERMINAL_FORMATTING_PATTERN =
+  /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+
+function escapeTerminalText(value: string): string {
+  return value.replace(
+    TERMINAL_FORMATTING_PATTERN,
+    (character) =>
+      `\\u${character.codePointAt(0)?.toString(16).padStart(4, "0") ?? "fffd"}`,
+  );
+}
+
+function createSessionId() {
+  return validateSessionId(randomBytes(8).toString("hex"));
+}
+
 function parsePrediction(input: string): ParsedPrediction {
   if (Buffer.from(input, "utf8").byteLength > MAX_TERMINAL_INPUT_BYTES) {
     return { kind: "invalid", reason: "limit" };
@@ -77,16 +93,18 @@ function promptOutput(
 
   return [
     "Skia staged review",
-    `Evidence: ${analysis.analysis.evidence.relation}`,
+    `Evidence: ${escapeTerminalText(analysis.analysis.evidence.relation)}`,
     "Coverage: " +
       `supported=${summary.supported_units} ` +
       `partial=${summary.partial_units} ` +
       `unmapped=${summary.unmapped_units} ` +
       `unsupported=${summary.unsupported_units} ` +
       `failed=${summary.failed_units}`,
-    `GIVEN ${analysis.analysis.scenario.given.parameter} = ` +
-      JSON.stringify(analysis.analysis.scenario.given.value),
-    `WHEN ${analysis.analysis.scenario.when}`,
+    `GIVEN ${escapeTerminalText(analysis.analysis.scenario.given.parameter)} = ` +
+      escapeTerminalText(
+        JSON.stringify(analysis.analysis.scenario.given.value),
+      ),
+    `WHEN ${escapeTerminalText(analysis.analysis.scenario.when)}`,
     'Predict THEN as JSON, or type "skip":',
     "",
   ].join("\n");
@@ -119,15 +137,25 @@ function relativeReceiptPath(
 export function runStagedReview(
   options: StagedReviewRunOptions = {},
 ): StagedReviewRunResult {
-  const repositoryRoot = options.repository_root ?? process.cwd();
+  const requestedRoot = options.repository_root ?? process.cwd();
   const now = options.now ?? (() => new Date());
   let allocation: StagedRunAllocation | null = null;
   let completed = false;
 
   try {
-    const pipeline = analyzeCapturedStagedSnapshot(
-      captureStagedSnapshot(repositoryRoot),
-    );
+    const capture = captureStagedSnapshot(requestedRoot);
+    const repositoryRoot = capture.repository_root;
+    const pipeline = analyzeCapturedStagedSnapshot(capture);
+
+    if (pipeline.kind === "failed") {
+      return {
+        exit_code: 1,
+        kind: "review_failed",
+        output:
+          `Skia staged review failed: ${pipeline.reason}\n` +
+          `Coverage: failed=${pipeline.coverage.summary.failed_units}\n`,
+      };
+    }
 
     if (pipeline.kind !== "supported") {
       return {
@@ -137,11 +165,18 @@ export function runStagedReview(
       };
     }
 
+    const sessionId = options.session_id === undefined
+      ? createSessionId()
+      : validateSessionId(options.session_id);
+    const activeAllocation = allocateStagedRun(repositoryRoot, sessionId, now());
+    allocation = activeAllocation;
     const prompt = promptOutput(pipeline);
     const input = readPredictionInput(options, prompt);
     const prediction = parsePrediction(input.input);
 
     if (prediction.kind === "invalid") {
+      abortStagedRun(activeAllocation);
+      allocation = null;
       return {
         exit_code: 2,
         kind: "invalid_prediction",
@@ -154,10 +189,6 @@ export function runStagedReview(
           ),
       };
     }
-
-    const sessionId = validateSessionId(options.session_id ?? "localsession");
-    const activeAllocation = allocateStagedRun(repositoryRoot, sessionId, now());
-    allocation = activeAllocation;
 
     if (prediction.kind === "skip") {
       const behaviorCard = writeStagedArtifactFile(
@@ -231,7 +262,8 @@ export function runStagedReview(
     completed = true;
     const suffix = [
       `Source check: ${sourceCheck.status}`,
-      `Expected source-derived return: ${JSON.stringify(sourceCheck.expected)}`,
+      "Expected source-derived return: " +
+        escapeTerminalText(JSON.stringify(sourceCheck.expected)),
       `Receipt: ${relativeReceiptPath(completedRun.receiptPath, repositoryRoot)}`,
       "",
     ].join("\n");
@@ -261,7 +293,9 @@ export function runStagedReview(
     return {
       exit_code: 1,
       kind: "review_failed",
-      output: `Skia staged review failed: ${message}${cleanupMessage}\n`,
+      output:
+        `Skia staged review failed: ${escapeTerminalText(message)}` +
+        `${escapeTerminalText(cleanupMessage)}\n`,
     };
   }
 }

@@ -97,9 +97,20 @@ const runtimeProcess = process as unknown as {
 };
 const executablePath = runtimeProcess.argv?.[1];
 
+function resolvesToCliEntry(candidate: string): boolean {
+  try {
+    return (
+      fs.realpathSync(path.resolve(candidate)) ===
+      fs.realpathSync(path.resolve(fileURLToPath(import.meta.url)))
+    );
+  } catch {
+    return false;
+  }
+}
+
 if (
   executablePath !== undefined &&
-  path.resolve(executablePath) === path.resolve(fileURLToPath(import.meta.url))
+  resolvesToCliEntry(executablePath)
 ) {
   const result = runCli(runtimeProcess.argv?.slice(2) ?? [], {
     read_input: (prompt) => {

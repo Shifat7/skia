@@ -142,6 +142,10 @@ export interface StorageTestHooks {
     readonly mode: RunMode;
     readonly runId: RunId;
   }) => void;
+  readonly beforeStagedReceiptPublish?: (paths: {
+    readonly temporaryPath: string;
+    readonly receiptPath: string;
+  }) => void;
 }
 
 interface RunIdClaimRecord {
@@ -163,6 +167,7 @@ interface ParsedReceiptFileName {
 }
 
 let storageTestHooks: StorageTestHooks | null = null;
+let stagedReceiptTemporaryCounter = 0;
 
 function createStorageError(message: string): Error {
   return new Error(message);
@@ -383,6 +388,32 @@ function writeNewFile(filePath: string, data: string | Uint8Array): void {
     fs.fsyncSync(fileDescriptor);
   } finally {
     fs.closeSync(fileDescriptor);
+  }
+}
+
+function writeNewFileAtomically(
+  filePath: string,
+  data: string | Uint8Array,
+): void {
+  const directoryPath = path.dirname(filePath);
+  const filename = filePath.slice(directoryPath.length + 1);
+  stagedReceiptTemporaryCounter += 1;
+  const temporaryPath = path.join(
+    directoryPath,
+    `.${filename}.tmp-${process.pid}-${stagedReceiptTemporaryCounter}`,
+  );
+
+  try {
+    writeNewFile(temporaryPath, data);
+    storageTestHooks?.beforeStagedReceiptPublish?.({
+      temporaryPath,
+      receiptPath: filePath,
+    });
+    fs.linkSync(temporaryPath, filePath);
+  } finally {
+    if (fs.existsSync(temporaryPath)) {
+      fs.unlinkSync(temporaryPath);
+    }
   }
 }
 
@@ -1441,7 +1472,7 @@ export function completeStagedRun(
     validation.value,
   );
   const serializedReceipt = serializeStagedReceipt(validation.value);
-  writeNewFile(absolutePath, serializedReceipt);
+  writeNewFileAtomically(absolutePath, serializedReceipt);
 
   return {
     receiptPath: absolutePath,
@@ -1510,7 +1541,7 @@ export function writeStagedReceipt(
 
     const absolutePath = receiptFilePath(repositoryRoot, validation.value);
     const serializedReceipt = serializeStagedReceipt(validation.value);
-    writeNewFile(absolutePath, serializedReceipt);
+    writeNewFileAtomically(absolutePath, serializedReceipt);
 
     return {
       path: absolutePath,

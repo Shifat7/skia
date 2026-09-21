@@ -1046,6 +1046,7 @@ function captureStagedAttempt(
     }
 
     return {
+      repository_root: repositoryRoot,
       checkout: headState.checkout,
       identity: {
         kind: "staged",

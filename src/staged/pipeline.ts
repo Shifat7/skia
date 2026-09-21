@@ -16,7 +16,17 @@ import type {
 
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const HUNK_HEADER_PATTERN =
-  /^@@ -[0-9]+(?:,[0-9]+)? \+([0-9]+)(?:,[0-9]+)? @@/;
+  /^@@ -([0-9]+)(?:,[0-9]+)? \+([0-9]+)(?:,[0-9]+)? @@/;
+
+interface PatchLineChanges {
+  readonly stagedLines: readonly number[];
+  readonly deletedLines: readonly number[];
+}
+
+interface MutablePatchLineChanges {
+  readonly stagedLines: number[];
+  readonly deletedLines: number[];
+}
 
 function patchPath(line: string): string | null {
   const value = line.slice(4);
@@ -98,6 +108,17 @@ function decodeGitQuotedPath(value: string): string | null {
 export function changedLinesFromPatch(
   patchBytes: Uint8Array,
 ): ReadonlyMap<string, readonly number[]> {
+  return new Map(
+    [...lineChangesFromPatch(patchBytes)].map(([path, changes]) => [
+      path,
+      changes.stagedLines,
+    ]),
+  );
+}
+
+function lineChangesFromPatch(
+  patchBytes: Uint8Array,
+): ReadonlyMap<string, PatchLineChanges> {
   let patch: string;
 
   try {
@@ -106,23 +127,32 @@ export function changedLinesFromPatch(
     return new Map();
   }
 
-  const changedByPath = new Map<string, number[]>();
+  const changedByPath = new Map<string, MutablePatchLineChanges>();
   let currentPath: string | null = null;
+  let nextBaseLine: number | null = null;
   let nextStagedLine: number | null = null;
 
   for (const line of patch.split("\n")) {
     if (currentPath !== null && nextStagedLine !== null) {
       if (line.startsWith("+")) {
-        changedByPath.get(currentPath)?.push(nextStagedLine);
+        changedByPath.get(currentPath)?.stagedLines.push(nextStagedLine);
         nextStagedLine += 1;
         continue;
       }
 
       if (line.startsWith("-")) {
+        if (nextBaseLine !== null) {
+          const changes = changedByPath.get(currentPath);
+          changes?.deletedLines.push(nextBaseLine);
+          nextBaseLine += 1;
+        }
         continue;
       }
 
       if (line.startsWith(" ")) {
+        if (nextBaseLine !== null) {
+          nextBaseLine += 1;
+        }
         nextStagedLine += 1;
         continue;
       }
@@ -136,25 +166,34 @@ export function changedLinesFromPatch(
 
     if (line.startsWith("diff --git ")) {
       currentPath = null;
+      nextBaseLine = null;
       nextStagedLine = null;
       continue;
     }
 
     if (line.startsWith("+++ ")) {
       currentPath = patchPath(line);
+      nextBaseLine = null;
       nextStagedLine = null;
 
       if (currentPath !== null && !changedByPath.has(currentPath)) {
-        changedByPath.set(currentPath, []);
+        changedByPath.set(currentPath, {
+          stagedLines: [],
+          deletedLines: [],
+        });
       }
       continue;
     }
 
     const hunk = HUNK_HEADER_PATTERN.exec(line);
     if (hunk !== null) {
-      nextStagedLine =
+      nextBaseLine =
         currentPath !== null && hunk[1] !== undefined
           ? Number.parseInt(hunk[1], 10)
+          : null;
+      nextStagedLine =
+        currentPath !== null && hunk[2] !== undefined
+          ? Number.parseInt(hunk[2], 10)
           : null;
       continue;
     }
@@ -163,8 +202,16 @@ export function changedLinesFromPatch(
 
   return new Map(
     [...changedByPath.entries()]
-      .filter(([, lines]) => lines.length > 0)
-      .map(([path, lines]) => [path, [...new Set(lines)].sort((a, b) => a - b)]),
+      .filter(([, changes]) =>
+        changes.stagedLines.length > 0 || changes.deletedLines.length > 0
+      )
+      .map(([path, changes]) => [
+        path,
+        {
+          stagedLines: [...new Set(changes.stagedLines)].sort((a, b) => a - b),
+          deletedLines: [...new Set(changes.deletedLines)].sort((a, b) => a - b),
+        },
+      ]),
   );
 }
 
@@ -184,6 +231,7 @@ function stagedBlob(
 function supportedCoverage(
   analysis: PilotSupportedAnalysis,
   changedLines: readonly number[],
+  deletedLines: readonly number[],
 ): CoverageEnvelope {
   const uniqueChangedLines = [...new Set(changedLines)];
   const mappedLines = uniqueChangedLines.filter((line) =>
@@ -191,9 +239,12 @@ function supportedCoverage(
       (anchor) => line >= anchor.start_line && line <= anchor.end_line,
     )
   );
-  const unmappedLines = uniqueChangedLines.length - mappedLines.length;
-  const events: CoverageEvent[] = [
-    {
+  const unmappedLines =
+    uniqueChangedLines.length - mappedLines.length + deletedLines.length;
+  const events: CoverageEvent[] = [];
+
+  if (mappedLines.length > 0) {
+    events.push({
       id: `staged:${analysis.entity.id}:supported` as CoverageEventId,
       coverage: "supported",
       units: mappedLines.length,
@@ -201,8 +252,8 @@ function supportedCoverage(
       path: analysis.entity.anchor.path,
       language: "typescript",
       anchors: analysis.evidence.anchors,
-    },
-  ];
+    });
+  }
 
   if (unmappedLines > 0) {
     events.push({
@@ -218,7 +269,7 @@ function supportedCoverage(
 
   return {
     summary: {
-      total_units: uniqueChangedLines.length,
+      total_units: uniqueChangedLines.length + deletedLines.length,
       supported_units: mappedLines.length,
       partial_units: 0,
       unmapped_units: unmappedLines,
@@ -228,6 +279,38 @@ function supportedCoverage(
       unchecked_units: 0,
     },
     events,
+  };
+}
+
+function failedCoverage(
+  entry: SnapshotEntry,
+  reason: "parse_failed" | "parse_timeout",
+  units: number,
+): CoverageEnvelope {
+  const failedUnits = Math.max(1, units);
+
+  return {
+    summary: {
+      total_units: failedUnits,
+      supported_units: 0,
+      partial_units: 0,
+      unmapped_units: 0,
+      unsupported_units: 0,
+      excluded_units: 0,
+      failed_units: failedUnits,
+      unchecked_units: 0,
+    },
+    events: [
+      {
+        id: `staged:${entry.path}:failed` as CoverageEventId,
+        coverage: "failed",
+        units: failedUnits,
+        reason,
+        path: entry.path,
+        language: "typescript",
+        anchors: [],
+      },
+    ],
   };
 }
 
@@ -278,14 +361,26 @@ export function analyzeCapturedStagedSnapshot(
     };
   }
 
-  const changedLines =
-    changedLinesFromPatch(capture.patch_bytes).get(entry.path) ?? [];
+  const lineChanges = lineChangesFromPatch(capture.patch_bytes).get(entry.path);
+  const changedLines = lineChanges?.stagedLines ?? [];
+  const deletedLines = lineChanges?.deletedLines ?? [];
   const analysis = analyzeLiteralGuardFunction({
     blob_oid: blob.oid,
     changed_lines: changedLines,
     path: entry.path,
     source,
   });
+
+  if (analysis.kind === "failed") {
+    return {
+      ...analysis,
+      coverage: failedCoverage(
+        entry,
+        analysis.reason,
+        changedLines.length + deletedLines.length,
+      ),
+    };
+  }
 
   if (analysis.kind !== "supported") {
     return analysis;
@@ -296,6 +391,7 @@ export function analyzeCapturedStagedSnapshot(
     snapshot: capture.identity,
     analysis,
     changed_lines: changedLines,
-    coverage: supportedCoverage(analysis, changedLines),
+    deleted_lines: deletedLines,
+    coverage: supportedCoverage(analysis, changedLines, deletedLines),
   };
 }

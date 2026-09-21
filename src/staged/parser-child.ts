@@ -220,6 +220,24 @@ function parseFunction(functionNode: ParserNode): PilotParserResponse {
     return { kind: "unsupported" };
   }
 
+  const invocation = `${entityName}(${JSON.stringify(guard.value)})`;
+  const derivedStrings = [
+    entityName,
+    parameterName,
+    guard.text,
+    guardedReturn.text,
+    invocation,
+    `${guard.text} -> return ${JSON.stringify(guardedReturn.value)}`,
+  ];
+
+  if (
+    derivedStrings.some(
+      (value) => value.length > MAX_STAGED_TEXT_CHARACTERS,
+    )
+  ) {
+    return { kind: "unsupported" };
+  }
+
   return {
     kind: "supported",
     entity_name: entityName,
@@ -228,7 +246,7 @@ function parseFunction(functionNode: ParserNode): PilotParserResponse {
     guard_value: guard.value,
     return_text: guardedReturn.text,
     return_value: guardedReturn.value,
-    invocation: `${entityName}(${JSON.stringify(guard.value)})`,
+    invocation,
     entity_range: range(functionNode),
     guard_range: range(conditionNode),
     return_range: range(guardedReturnNode),
@@ -265,7 +283,9 @@ function main(): void {
         : ({ kind: "unsupported" } as const);
     process.stdout.write(`${JSON.stringify(response)}\n`);
   } catch {
-    process.stdout.write(`${JSON.stringify({ kind: "unsupported" })}\n`);
+    process.stdout.write(
+      `${JSON.stringify({ kind: "failed", reason: "parse_failed" })}\n`,
+    );
   }
 }
 
