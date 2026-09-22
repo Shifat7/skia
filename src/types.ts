@@ -343,6 +343,7 @@ export interface StagedReviewEvidence {
   readonly anchors: readonly [SourceAnchor, SourceAnchor];
   readonly derivation: "deterministic";
   readonly coverage: "supported";
+  readonly claim_state: "observed";
   readonly details_available: false;
 }
 

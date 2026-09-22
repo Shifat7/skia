@@ -23,6 +23,7 @@ export interface PilotEvidence {
   readonly anchors: readonly [SourceAnchor, SourceAnchor];
   readonly derivation: "deterministic";
   readonly coverage: Extract<CoverageState, "supported">;
+  readonly claim_state: "observed";
   readonly details_available: false;
 }
 

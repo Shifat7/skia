@@ -635,6 +635,13 @@ function validateStagedReview(
   ];
 
   for (const [index, anchor] of reviewAnchors.entries()) {
+    for (const anchorError of validateSourceAnchor(anchor)) {
+      errors.push({
+        ...anchorError,
+        instance_path: `/review/entity/anchors/${index}`,
+      });
+    }
+
     if (!stagedAnchorBound(value.snapshot.entries, anchor)) {
       errors.push({
         instance_path: `/review/entity/anchors/${index}`,

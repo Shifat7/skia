@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { TOOL_VERSION } from "../src/limits.js";
 import { captureStagedSnapshot } from "../src/git.js";
 import {
+  deriveStagedArtifactPath,
   deriveStagedReceiptPath,
   validateSessionId,
 } from "../src/paths.js";
@@ -226,6 +227,41 @@ test("staged run persists prediction artifact before completing validated receip
       };
     };
   };
+  const missingClaim = JSON.parse(JSON.stringify(receipt)) as {
+    review: {
+      entity: {
+        evidence: {
+          claim_state?: string;
+        };
+      };
+    };
+  };
+  delete missingClaim.review.entity.evidence.claim_state;
+  assert.strictEqual(validateStagedReceipt(missingClaim).valid, false);
+
+  const reversedAnchor = JSON.parse(JSON.stringify(receipt)) as {
+    review: {
+      entity: {
+        anchor: {
+          start_line: number;
+          end_line: number;
+        };
+      };
+    };
+  };
+  const anchorStart = reversedAnchor.review.entity.anchor.start_line;
+  reversedAnchor.review.entity.anchor.start_line =
+    reversedAnchor.review.entity.anchor.end_line + 4;
+  reversedAnchor.review.entity.anchor.end_line = anchorStart;
+  const reversedAnchorValidation = validateStagedReceipt(reversedAnchor);
+  assert.strictEqual(reversedAnchorValidation.valid, false);
+  if (!reversedAnchorValidation.valid) {
+    assert.match(
+      reversedAnchorValidation.errors.map((error) => error.message).join("\n"),
+      /end_line must not be before start_line/,
+    );
+  }
+
   impossibleSeal.review.entity.prediction.sealed_at = "2026-99-99T99:99:99Z";
   const impossibleSealValidation = validateStagedReceipt(impossibleSeal);
   assert.strictEqual(impossibleSealValidation.valid, false);
@@ -308,6 +344,39 @@ test("staged run allocation resolves collisions before any interaction", () => {
       },
     ],
   );
+});
+
+test("aborting a staged run leaves an artifact it did not create", () => {
+  const repositoryRoot = createSupportedRepository();
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const absolutePath = path.join(
+    allocation.skiaRootPath,
+    deriveStagedArtifactPath(
+      allocation.runId,
+      allocation.sessionId,
+      "behavior_cards",
+    ),
+  );
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(absolutePath, "orphan\n");
+
+  let thrown: unknown;
+  try {
+    writeStagedArtifactFile(allocation, "behavior_cards", "{}\n");
+  } catch (error) {
+    thrown = error;
+  }
+  assert.ok(thrown instanceof Error);
+  assert.strictEqual(
+    (thrown as { readonly code?: string }).code,
+    "EEXIST",
+  );
+  abortStagedRun(allocation);
+  assert.strictEqual(fs.readFileSync(absolutePath, "utf8"), "orphan\n");
 });
 
 test("aborting a staged run removes its artifacts and run-id claim", () => {

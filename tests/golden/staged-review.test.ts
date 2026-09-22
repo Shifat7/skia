@@ -5,7 +5,11 @@ import path from "node:path";
 import process from "node:process";
 import test from "node:test";
 
-import { runCli, terminalPredictionPayload } from "../../src/main.js";
+import {
+  readBoundedTerminalLineFrom,
+  runCli,
+  terminalPredictionPayload,
+} from "../../src/main.js";
 import {
   listRuns,
   nextStagedReceiptTemporarySuffix,
@@ -393,6 +397,46 @@ test("skia review distinguishes the JSON string skip from the skip command", () 
   assert.strictEqual(result.kind, "review_complete");
   assert.match(result.output, /source_derived_mismatch/);
   assert.strictEqual(result.output.includes("Prediction skipped"), false);
+});
+
+test("terminal prediction input settles when the input stream errors", async () => {
+  const listeners: {
+    data?: (chunk: Uint8Array) => void;
+    end?: () => void;
+    error?: (error: Error) => void;
+  } = {};
+  const stream = {
+    on(
+      event: "data" | "end" | "error",
+      listener: ((chunk: Uint8Array) => void) | (() => void) | ((error: Error) => void),
+    ): void {
+      if (event === "data") {
+        listeners.data = listener as (chunk: Uint8Array) => void;
+      } else if (event === "end") {
+        listeners.end = listener as () => void;
+      } else {
+        listeners.error = listener as (error: Error) => void;
+      }
+    },
+    off(
+      event: "data" | "end" | "error",
+      _listener?: unknown,
+    ): void {
+      delete listeners[event];
+    },
+    pause(): void {},
+    resume(): void {},
+  };
+  const pending = readBoundedTerminalLineFrom(stream);
+  const error = new Error("EIO");
+  listeners.error?.(error);
+
+  try {
+    await pending;
+    throw new Error("expected the terminal read to reject");
+  } catch (caught) {
+    assert.strictEqual(caught, error);
+  }
 });
 
 test("skia review accepts a maximum-length prediction before its line terminator", () => {

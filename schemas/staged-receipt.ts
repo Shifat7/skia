@@ -112,6 +112,7 @@ const stagedReviewSchema = {
             "anchors",
             "derivation",
             "coverage",
+            "claim_state",
             "details_available",
           ],
           properties: {
@@ -134,6 +135,7 @@ const stagedReviewSchema = {
             },
             derivation: { const: "deterministic" },
             coverage: { const: "supported" },
+            claim_state: { const: "observed" },
             details_available: { const: false },
           },
         },

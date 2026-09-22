@@ -67,6 +67,7 @@ test("pilot analyzer derives one anchored relation and deterministic scenario", 
   );
   assert.strictEqual(analysis.evidence.derivation, "deterministic");
   assert.strictEqual(analysis.evidence.coverage, "supported");
+  assert.strictEqual(analysis.evidence.claim_state, "observed");
   assert.strictEqual(analysis.evidence.details_available, false);
   assert.strictEqual(analysis.evidence.anchors.length, 2);
 
@@ -215,6 +216,26 @@ test("pilot analyzer rejects reflective rebinding of the reviewed function", () 
       '  return "hold";',
       "}",
       'Object.defineProperty(globalThis, "gateStatus", { value: () => "evil" });',
+    ].join("\n"),
+  });
+
+  assert.deepStrictEqual(result, {
+    kind: "unsupported",
+    reason: "no_supported_staged_entity",
+  });
+});
+
+test("pilot analyzer rejects dotted global rebinding of the reviewed function", () => {
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1, 2, 3, 4, 5],
+    path: PATH,
+    source: [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      "(globalThis as any).gateStatus = (_code: string) => \"evil\";",
     ].join("\n"),
   });
 

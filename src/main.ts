@@ -95,26 +95,53 @@ export function terminalPredictionPayload(line: Uint8Array): Uint8Array {
   return line.subarray(0, end);
 }
 
-function readBoundedTerminalLine(): Promise<string> {
-  return new Promise((resolve) => {
+interface TerminalInputStream {
+  on(event: "data", listener: (chunk: Uint8Array) => void): void;
+  on(event: "end", listener: () => void): void;
+  on(event: "error", listener: (error: Error) => void): void;
+  off(event: "data", listener: (chunk: Uint8Array) => void): void;
+  off(event: "end", listener: () => void): void;
+  off(event: "error", listener: (error: Error) => void): void;
+  pause(): void;
+  resume(): void;
+}
+
+export function readBoundedTerminalLineFrom(
+  stream: TerminalInputStream,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let totalBytes = 0;
     let settled = false;
+
+    const stop = (): void => {
+      stream.off("data", onData);
+      stream.off("end", onEnd);
+      stream.off("error", onError);
+      stream.pause();
+    };
 
     const finish = (): void => {
       if (settled) {
         return;
       }
       settled = true;
-      process.stdin.off("data", onData);
-      process.stdin.off("end", onEnd);
-      process.stdin.pause();
+      stop();
 
       try {
         resolve(TERMINAL_INPUT_DECODER.decode(Buffer.concat(chunks)));
       } catch {
         resolve("");
       }
+    };
+
+    const onError = (error: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      stop();
+      reject(error);
     };
 
     const onData = (chunk: Uint8Array): void => {
@@ -136,10 +163,15 @@ function readBoundedTerminalLine(): Promise<string> {
       finish();
     };
 
-    process.stdin.on("data", onData);
-    process.stdin.on("end", onEnd);
-    process.stdin.resume();
+    stream.on("data", onData);
+    stream.on("end", onEnd);
+    stream.on("error", onError);
+    stream.resume();
   });
+}
+
+function readBoundedTerminalLine(): Promise<string> {
+  return readBoundedTerminalLineFrom(process.stdin);
 }
 
 const runtimeProcess = process as unknown as {

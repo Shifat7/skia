@@ -11,6 +11,7 @@ import {
   commitAll,
   createTempGitRepository,
   removeRepoPath,
+  runGit,
   stageAll,
   stagePaths,
   writeRepoTextFile,
@@ -322,6 +323,35 @@ test("captured staged snapshot rejects more than 150 changed lines before analys
   assert.strictEqual(result.reason, "staged_budget_exceeded");
   assert.strictEqual(result.coverage.summary.total_units, 155);
   assert.strictEqual(result.coverage.summary.unsupported_units, 155);
+});
+
+test("a deleted or renamed typescript file keeps coverage identity", () => {
+  const deletedRoot = createRepository();
+  writeRepoTextFile(deletedRoot, "src/removed.ts", "export const value = 1;\n");
+  stagePaths(deletedRoot, "src/removed.ts");
+  commitAll(deletedRoot, "add source");
+  removeRepoPath(deletedRoot, "src/removed.ts");
+  stageAll(deletedRoot);
+  const deleted = analyzeCapturedStagedSnapshot(captureStagedSnapshot(deletedRoot));
+  assert.strictEqual(deleted.kind, "unsupported");
+  if (deleted.kind === "unsupported") {
+    assert.strictEqual(deleted.reason, "no_supported_staged_entity");
+    assert.strictEqual(`${deleted.coverage.events[0]?.path}`, "src/removed.ts");
+    assert.strictEqual(`${deleted.coverage.events[0]?.language}`, "typescript");
+  }
+
+  const renamedRoot = createRepository();
+  writeRepoTextFile(renamedRoot, "src/old-gate.ts", "export const value = 1;\n");
+  stagePaths(renamedRoot, "src/old-gate.ts");
+  commitAll(renamedRoot, "add source");
+  runGit(renamedRoot, ["mv", "src/old-gate.ts", "src/new-gate.ts"]);
+  const renamed = analyzeCapturedStagedSnapshot(captureStagedSnapshot(renamedRoot));
+  assert.strictEqual(renamed.kind, "unsupported");
+  if (renamed.kind === "unsupported") {
+    assert.strictEqual(renamed.reason, "no_supported_staged_entity");
+    assert.strictEqual(`${renamed.coverage.events[0]?.path}`, "src/new-gate.ts");
+    assert.strictEqual(`${renamed.coverage.events[0]?.language}`, "typescript");
+  }
 });
 
 test("a sole supported-language file outside the TypeScript pilot keeps coverage identity", () => {

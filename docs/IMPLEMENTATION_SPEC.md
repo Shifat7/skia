@@ -138,6 +138,7 @@ Each collapsed relation contains:
 - one or more base/staged source anchors containing path, line/column range,
   and blob identity;
 - `derivation: deterministic`;
+- `claim_state: observed` when the relation is read from the staged source;
 - explicit coverage; and
 - `details_available` indicating whether expanded source/evidence is available.
 

@@ -243,6 +243,7 @@ export function analyzeLiteralGuardFunction(
       anchors: [guardAnchor, returnAnchor],
       derivation: "deterministic",
       coverage: "supported",
+      claim_state: "observed",
       details_available: false,
     },
     scenario: {

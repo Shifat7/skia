@@ -1330,6 +1330,49 @@ export function allocateStagedRun(
   throw createStorageError("run_id_exhausted");
 }
 
+const stagedArtifactsCreatedByAllocation = new WeakMap<
+  StagedRunAllocation,
+  Set<string>
+>();
+
+function rememberCreatedStagedArtifact(
+  allocation: StagedRunAllocation,
+  absolutePath: string,
+): void {
+  const created = stagedArtifactsCreatedByAllocation.get(allocation) ?? new Set();
+  created.add(absolutePath);
+  stagedArtifactsCreatedByAllocation.set(allocation, created);
+}
+
+function removeCreatedStagedArtifacts(
+  allocation: StagedRunAllocation,
+): DeleteRunResult {
+  const created = stagedArtifactsCreatedByAllocation.get(allocation);
+
+  if (created === undefined || created.size === 0) {
+    return {
+      deleted: true,
+      remaining_paths: [],
+    };
+  }
+
+  const failures: string[] = [];
+
+  for (const absolutePath of created) {
+    if (!fs.existsSync(absolutePath)) {
+      continue;
+    }
+
+    const result = deleteTree(allocation.skiaRootPath, absolutePath);
+    failures.push(...result.remaining_paths);
+  }
+
+  return {
+    deleted: failures.length === 0,
+    remaining_paths: [...new Set(failures)].sort(),
+  };
+}
+
 export function writeStagedArtifactFile(
   allocation: StagedRunAllocation,
   kind: Exclude<HashedArtifactKind, "receipt">,
@@ -1348,6 +1391,7 @@ export function writeStagedArtifactFile(
   const bytes = asBytes(contents);
 
   writeNewFile(absolutePath, bytes);
+  rememberCreatedStagedArtifact(allocation, absolutePath);
 
   return {
     absolutePath,
@@ -1412,11 +1456,7 @@ export function abortStagedRun(allocation: StagedRunAllocation): void {
     throw createStorageError("cannot abort a completed staged run");
   }
 
-  const artifactResult = removeIncompleteStagedArtifacts(
-    allocation.repositoryRoot,
-    allocation.runId,
-    allocation.sessionId,
-  );
+  const artifactResult = removeCreatedStagedArtifacts(allocation);
 
   if (!artifactResult.deleted) {
     throw createStorageError(

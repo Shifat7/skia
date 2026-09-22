@@ -214,8 +214,10 @@ declare module "node:process" {
     stdin: {
       on(event: "data", listener: (chunk: Uint8Array) => void): void;
       on(event: "end", listener: () => void): void;
+      on(event: "error", listener: (error: Error) => void): void;
       off(event: "data", listener: (chunk: Uint8Array) => void): void;
       off(event: "end", listener: () => void): void;
+      off(event: "error", listener: (error: Error) => void): void;
       pause(): void;
       resume(): void;
     };

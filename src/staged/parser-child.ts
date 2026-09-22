@@ -73,7 +73,10 @@ function topLevelFunctions(root: ParserNode): readonly ParserNode[] {
 }
 
 function mentionsIdentifier(node: ParserNode, name: string): boolean {
-  if (node.type === "identifier" && node.text === name) {
+  if (
+    (node.type === "identifier" || node.type === "property_identifier") &&
+    node.text === name
+  ) {
     return true;
   }
 

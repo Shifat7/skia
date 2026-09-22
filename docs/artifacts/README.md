@@ -42,8 +42,9 @@ Receipt: .skia/receipts/<run>-<session>-session.json
 
 Only the strict one-file TypeScript literal guard-return shape produces this
 surface today. Prediction input is bounded to 4,096 UTF-8 bytes. Pilot evidence
-sets `details_available` to `false` because source/evidence expansion actions
-are not implemented. Interrupted allocated runs remain visible as `incomplete`
+sets `claim_state` to `observed` and `details_available` to `false` because the
+relation is read from the staged source and expansion actions are not
+implemented. Interrupted allocated runs remain visible as `incomplete`
 through the run lifecycle until deletion or successful cleanup. The richer
 multi-relation interaction below remains proposed.
 
@@ -84,6 +85,7 @@ The reducer stores each displayed relation with source anchors and coverage:
     }
   ],
   "derivation": "deterministic",
+  "claim_state": "observed",
   "coverage": "supported",
   "details_available": true
 }

@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 
 import { resolveLanguageRegistration } from "../languages/registry.js";
 import { MAX_STAGED_CHANGED_LINES } from "../limits.js";
+import { validateRelativePath } from "../paths.js";
 import type {
   CoverageEnvelope,
   CoverageEvent,
@@ -342,7 +343,10 @@ function failedCoverage(
 function unsupportedCoverage(
   reason: StableErrorReason,
   units: number,
-  entry?: SnapshotEntry,
+  entry?: {
+    readonly path: SnapshotEntry["path"];
+    readonly language: SnapshotEntry["language"];
+  },
 ): CoverageEnvelope {
   const coverage =
     reason === "unmapped_region"
@@ -376,6 +380,37 @@ function unsupportedCoverage(
           },
         ],
   };
+}
+
+function rawRecordCoverageIdentity(
+  record: GitRawSnapshotRecord,
+): {
+  readonly path: SnapshotEntry["path"];
+  readonly language: SnapshotEntry["language"];
+} | undefined {
+  const candidates = [record.path_bytes, record.previous_path_bytes];
+
+  for (const candidate of candidates) {
+    if (candidate === null) {
+      continue;
+    }
+
+    try {
+      const relativePath = validateRelativePath(UTF8_DECODER.decode(candidate));
+      const language = resolveLanguageRegistration(relativePath)?.language ?? null;
+
+      if (language !== null) {
+        return {
+          path: relativePath,
+          language,
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
 }
 
 function isSupportedLanguageRecord(record: GitRawSnapshotRecord): boolean {
@@ -429,6 +464,13 @@ export function analyzeCapturedStagedSnapshot(
   const soleCapturedEntry = capture.identity.entries.length === 1
     ? capture.identity.entries[0]
     : undefined;
+  const soleRawRecord = capture.raw_records.length === 1
+    ? capture.raw_records[0]
+    : undefined;
+  const soleRecordIdentity = soleRawRecord === undefined
+    ? undefined
+    : rawRecordCoverageIdentity(soleRawRecord);
+  const soleCoverageIdentity = soleCapturedEntry ?? soleRecordIdentity;
 
   if (budgetUnits > MAX_STAGED_CHANGED_LINES) {
     return {
@@ -437,7 +479,7 @@ export function analyzeCapturedStagedSnapshot(
       coverage: unsupportedCoverage(
         "staged_budget_exceeded",
         capturedUnits,
-        entries[0] ?? soleCapturedEntry,
+        entries[0] ?? soleCoverageIdentity,
       ),
     };
   }
@@ -449,7 +491,7 @@ export function analyzeCapturedStagedSnapshot(
       coverage: unsupportedCoverage(
         "no_supported_staged_entity",
         capturedUnits,
-        capture.raw_records.length === 1 ? soleCapturedEntry : undefined,
+        capture.raw_records.length === 1 ? soleCoverageIdentity : undefined,
       ),
     };
   }
