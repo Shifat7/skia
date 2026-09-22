@@ -131,6 +131,45 @@ test("skia review probes a generated run id rather than a hexadecimal token", ()
   assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
 });
 
+test("skia review probes collision-suffixed run ids before writing", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(
+    repositoryRoot,
+    ".gitignore",
+    [
+      ".skia/*",
+      "!.skia/artifacts/",
+      ".skia/artifacts/????????T??????Z-????????????????-behavior_cards.json",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = runCli(["review"], {
+    input: '"ok"\n',
+    repository_root: repositoryRoot,
+  });
+
+  assert.strictEqual(result.kind, "review_failed");
+  assert.match(
+    result.output,
+    /\.skia\/artifacts\/[0-9]{8}T[0-9]{6}Z-01-[0-9a-f]{16}-behavior_cards\.json/,
+  );
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
+});
+
 test("skia review golden path shows evidence before prediction and feedback after persistence", () => {
   const repositoryRoot = createSupportedRepository();
   const result = runCli(["review"], {

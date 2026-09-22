@@ -117,7 +117,9 @@ function writesBinding(root: ParserNode, name: string): boolean {
       ? node.childForFieldName("left")
       : node.type === "update_expression"
         ? node
-        : null;
+        : node.type === "variable_declarator"
+          ? node.childForFieldName("name")
+          : null;
 
     if (target !== null && mentionsIdentifier(target, name)) {
       return true;

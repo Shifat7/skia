@@ -121,13 +121,25 @@ test("staged run persists prediction artifact before completing validated receip
   ) as { readonly version: string };
   assert.strictEqual(inspected.receipt.tool_version, TOOL_VERSION);
   assert.strictEqual(inspected.receipt.tool_version, packageVersion.version);
-  assert.strictEqual(inspected.receipt.review?.card_status, "complete");
-  assert.deepStrictEqual(inspected.receipt.review?.session_counts, {
-    prompts_presented: 1,
-    predictions_completed: 1,
-    skips: 0,
+  assert.deepStrictEqual(inspected.receipt.review, {
+    card_status: "complete",
+    session_counts: {
+      prompts_presented: 1,
+      predictions_completed: 1,
+      skips: 0,
+    },
   });
-  assert.strictEqual(inspected.receipt.review?.entity.source_check?.status, "source_derived_match");
+  const persisted = JSON.parse(fs.readFileSync(completed.receiptPath, "utf8")) as {
+    readonly review: {
+      readonly entity: {
+        readonly source_check: { readonly status: string };
+      };
+    };
+  };
+  assert.strictEqual(
+    persisted.review.entity.source_check.status,
+    "source_derived_match",
+  );
 
   const missingPrediction = JSON.parse(JSON.stringify(receipt)) as {
     review: {

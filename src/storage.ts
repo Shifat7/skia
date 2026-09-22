@@ -95,11 +95,33 @@ export interface InspectedRepositoryRun {
   readonly manifest: RepositoryManifest | null;
 }
 
+export interface InspectedStagedReceipt {
+  readonly schema_version: 1;
+  readonly tool_version: string;
+  readonly run_id: RunId;
+  readonly session_id: StagedReceipt["session_id"];
+  readonly status: RunState;
+  readonly completed_at: string | null;
+  readonly snapshot: StagedReceipt["snapshot"];
+  readonly coverage: CoverageEnvelope;
+  readonly artifact_hashes: StagedReceipt["artifact_hashes"];
+  readonly errors: StagedReceipt["errors"];
+  readonly privacy_caveat: string;
+  readonly review: {
+    readonly card_status: "complete" | "skipped";
+    readonly session_counts: {
+      readonly prompts_presented: number;
+      readonly predictions_completed: number;
+      readonly skips: number;
+    };
+  } | null;
+}
+
 export interface InspectedReceiptRun {
   readonly kind: "review";
   readonly run_id: RunId;
   readonly receipt_path: RunArtifactPath;
-  readonly receipt: StagedReceipt;
+  readonly receipt: InspectedStagedReceipt;
 }
 
 export interface InspectedIncompleteStagedRun {
@@ -1691,6 +1713,28 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
   return runs.sort((left, right) => left.run_id.localeCompare(right.run_id));
 }
 
+function redactStagedReceipt(receipt: StagedReceipt): InspectedStagedReceipt {
+  return {
+    schema_version: receipt.schema_version,
+    tool_version: receipt.tool_version,
+    run_id: receipt.run_id,
+    session_id: receipt.session_id,
+    status: receipt.status,
+    completed_at: receipt.completed_at,
+    snapshot: receipt.snapshot,
+    coverage: receipt.coverage,
+    artifact_hashes: receipt.artifact_hashes,
+    errors: receipt.errors,
+    privacy_caveat: receipt.privacy_caveat,
+    review: receipt.review === undefined
+      ? null
+      : {
+          card_status: receipt.review.card_status,
+          session_counts: receipt.review.session_counts,
+        },
+  };
+}
+
 export function inspectRun(repositoryRoot: string, runIdInput: string): InspectedRun {
   const runId = validateRunId(runIdInput);
   const targets = existingRunTargets(repositoryRoot, runIdInput, runId);
@@ -1730,7 +1774,7 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
       kind: "review",
       run_id: runId,
       receipt_path: validateRunArtifactPath(`receipts/${targets.receiptName}`),
-      receipt,
+      receipt: redactStagedReceipt(receipt),
     };
   }
 

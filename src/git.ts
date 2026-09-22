@@ -13,6 +13,7 @@ import {
   MAX_GIT_CAPTURED_BLOB_BYTES,
   MAX_GIT_CAPTURED_BLOB_COUNT,
   MAX_GIT_INDEX_BYTES,
+  MAX_RUN_ID_COLLISION_SUFFIX,
   OWNER_DIRECTORY_MODE,
   OWNER_FILE_MODE,
   RECEIPTS_DIRECTORY_NAME,
@@ -411,70 +412,91 @@ export function requireIgnoredSkiaOutputRoot(
   const resolvedRoot = resolveGitRepositoryRoot(repositoryRoot, options);
   const commandOptions = gitCommandOptions(resolvedRoot, options);
   const probes = stagedOutputProbePaths();
+  const result = spawnSync(
+    commandOptions.gitExecutable,
+    [
+      "-c",
+      "core.fsmonitor=false",
+      "check-ignore",
+      "--no-index",
+      "--",
+      ...probes,
+    ],
+    optionsWithOptionalEnv({
+      cwd: resolvedRoot,
+      env: buildGitEnvironment(commandOptions.processEnv),
+      maxBuffer: commandOptions.outputLimitBytes,
+      shell: false,
+      timeout: commandOptions.timeoutMs,
+    }),
+  );
 
-  for (const probe of probes) {
-    const result = spawnSync(
-      commandOptions.gitExecutable,
-      [
-        "-c",
-        "core.fsmonitor=false",
-        "check-ignore",
-        "--quiet",
-        "--no-index",
-        "--",
-        probe,
-      ],
-      optionsWithOptionalEnv({
-        cwd: resolvedRoot,
-        env: buildGitEnvironment(commandOptions.processEnv),
-        maxBuffer: commandOptions.outputLimitBytes,
-        shell: false,
-        timeout: commandOptions.timeoutMs,
-      }),
+  if (result.error !== undefined) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      gitSpawnFailureDetail(result.stderr, result.error),
     );
+  }
 
-    if (result.error !== undefined) {
-      throw new GitSnapshotError(
+  if (result.status !== 0 && result.status !== 1) {
+    throw new GitSnapshotError(
+      mapGitFailureReason(
+        asBuffer(result.stderr as Uint8Array),
         "git_process_failed",
-        gitSpawnFailureDetail(result.stderr, result.error),
-      );
-    }
+      ),
+      escapeDiagnosticBytes(asBuffer(result.stderr as Uint8Array)),
+    );
+  }
 
-    if (result.status === 1) {
-      throw new GitSnapshotError(
-        "output_root_not_ignored",
-        `${probe} is not ignored; add .skia/ to the repository .gitignore before running skia review`,
-      );
-    }
+  const ignored = new Set(
+    bytesToUtf8(asBuffer(result.stdout as Uint8Array))
+      .split("\n")
+      .filter((line) => line.length > 0),
+  );
+  const exposed = probes.find((probe) => !ignored.has(probe));
 
-    if (result.status !== 0) {
-      throw new GitSnapshotError(
-        mapGitFailureReason(
-          asBuffer(result.stderr as Uint8Array),
-          "git_process_failed",
-        ),
-        escapeDiagnosticBytes(asBuffer(result.stderr as Uint8Array)),
-      );
-    }
+  if (exposed !== undefined) {
+    throw new GitSnapshotError(
+      "output_root_not_ignored",
+      `${exposed} is not ignored; add .skia/ to the repository .gitignore before running skia review`,
+    );
   }
 
   return resolvedRoot;
 }
 
 function randomDecimalDigits(length: number): string {
-  const bytes = randomBytes(length);
   let digits = "";
 
-  for (const byte of bytes) {
-    digits += String(byte % 10);
+  while (digits.length < length) {
+    for (const byte of randomBytes(length)) {
+      if (byte < 250) {
+        digits += String(Math.floor(byte / 25));
+      }
+
+      if (digits.length === length) {
+        break;
+      }
+    }
   }
 
   return digits;
 }
 
+function pad2(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
 function stagedOutputProbePaths(): readonly string[] {
-  const runId = `${randomDecimalDigits(8)}T${randomDecimalDigits(6)}Z`;
+  const runBase = `${randomDecimalDigits(8)}T${randomDecimalDigits(6)}Z`;
   const sessionId = randomBytes(8).toString("hex");
+  const runIds = [
+    runBase,
+    ...Array.from(
+      { length: MAX_RUN_ID_COLLISION_SUFFIX },
+      (_, index) => `${runBase}-${pad2(index + 1)}`,
+    ),
+  ];
 
   return [
     [
@@ -482,9 +504,11 @@ function stagedOutputProbePaths(): readonly string[] {
       TMP_DIRECTORY_NAME,
       `copied-index-${randomDecimalDigits(6)}-${randomDecimalDigits(13)}-1.bin`,
     ].join("/"),
-    `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`,
-    `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${runId}-${sessionId}-behavior_cards.json`,
-    `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/${runId}-${sessionId}-session.json`,
+    ...runIds.flatMap((runId) => [
+      `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`,
+      `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${runId}-${sessionId}-behavior_cards.json`,
+      `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/${runId}-${sessionId}-session.json`,
+    ]),
   ];
 }
 
