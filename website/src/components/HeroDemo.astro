@@ -1,7 +1,7 @@
 ---
 /**
  * Illustrative reading-check island for the splash hero.
- * Simplified view, one prediction prompt, and coverage labels from the
+ * Stacked TUI cards: simplified view, one prediction, coverage labels.
  * README pricing example. Not a live CLI session. Not executable.
  */
 ---
@@ -13,23 +13,23 @@
 		<span class="hero-demo__badge">ILLUSTRATIVE</span>
 	</div>
 
-	<div class="hero-demo__body">
-		<p class="hero-demo__diff">
-			<span class="hd-k">diff</span>
-			<span class="hd-file">calculateFinalPrice</span>
-			<span class="hd-add">+3</span>
-			<span class="hd-del">−1</span>
-		</p>
-
-		<section class="hero-demo__block" aria-label="Simplified view">
-			<p class="hero-demo__kicker">SIMPLIFIED VIEW — not executable</p>
+	<div class="hero-demo__stack">
+		<section class="hero-demo__card" aria-label="Simplified view">
+			<p class="hero-demo__head">
+				<span class="hero-demo__kicker">SIMPLIFIED VIEW — not executable</span>
+				<span class="hero-demo__diff">
+					<span class="hd-file">calculateFinalPrice</span>
+					<span class="hd-add">+3</span>
+					<span class="hd-del">−1</span>
+				</span>
+			</p>
 			<p class="hero-demo__path">src/pricing.ts:12-18</p>
 			<pre class="hero-demo__code"><code>if (member)        total = total * 0.90
 if (promotion &gt; 0) total = total - promotion
 return round(max(total, 0))</code></pre>
 		</section>
 
-		<section class="hero-demo__block" aria-label="Prediction prompt">
+		<section class="hero-demo__card" aria-label="Prediction prompt">
 			<p class="hero-demo__kicker">PREDICT</p>
 			<p class="hero-demo__scenario">total=100, member=true, promotion=10</p>
 			<p class="hero-demo__prompt">What should calculateFinalPrice(...) return?</p>
@@ -40,10 +40,12 @@ return round(max(total, 0))</code></pre>
 			</p>
 		</section>
 
-		<ul class="hero-demo__chips" aria-label="Coverage and uncertainty">
-			<li><span class="hd-chip">supported</span> branches shown</li>
-			<li><span class="hd-chip hd-chip--warn">not_available</span> runtime result</li>
-		</ul>
+		<section class="hero-demo__card hero-demo__card--warn" aria-label="Coverage and uncertainty">
+			<ul class="hero-demo__chips">
+				<li><span class="hd-chip">supported</span> branches shown</li>
+				<li><span class="hd-chip hd-chip--warn">not_available</span> runtime result</li>
+			</ul>
+		</section>
 	</div>
 
 	<figcaption class="hero-demo__caption">Illustrative / not a live CLI session</figcaption>
@@ -52,7 +54,7 @@ return round(max(total, 0))</code></pre>
 <style>
 	.hero-demo {
 		--demo-bg: #07080a;
-		--demo-elev: #0c0d10;
+		--demo-elev: #101114;
 		--demo-border: rgb(255 255 255 / 10%);
 		--demo-fg: #f4f1ea;
 		--demo-muted: #8d897f;
@@ -60,20 +62,19 @@ return round(max(total, 0))</code></pre>
 		margin: 0;
 		width: 100%;
 		border: 1px solid var(--demo-border);
-		border-radius: 8px;
+		border-radius: 6px;
 		overflow: hidden;
 		background: var(--demo-bg);
 		color: var(--demo-fg);
-		box-shadow: 0 18px 50px rgb(0 0 0 / 45%);
 	}
 
 	.hero-demo__chrome {
 		display: flex;
 		align-items: center;
 		gap: 0.55rem;
-		padding: 0.5rem 0.8rem;
+		padding: 0.45rem 0.7rem;
 		border-bottom: 1px solid var(--demo-border);
-		background: var(--demo-elev);
+		background: #0c0d10;
 		font-family: var(--sl-font-mono);
 		font-size: 0.72rem;
 		color: var(--demo-muted);
@@ -82,7 +83,7 @@ return round(max(total, 0))</code></pre>
 	.hero-demo__mark {
 		width: 0.45rem;
 		height: 0.45rem;
-		border-radius: 2px;
+		border-radius: 1px;
 		background: var(--demo-accent);
 		flex: none;
 	}
@@ -97,19 +98,34 @@ return round(max(total, 0))</code></pre>
 
 	.hero-demo__badge {
 		border: 1px solid rgb(224 168 74 / 55%);
-		border-radius: 999px;
-		padding: 0.08rem 0.5rem;
+		border-radius: 2px;
+		padding: 0.06rem 0.4rem;
 		color: var(--demo-accent);
 		letter-spacing: 0.04em;
 		white-space: nowrap;
 	}
 
-	.hero-demo__body {
+	.hero-demo__stack {
 		display: flex;
 		flex-direction: column;
+		gap: 0.4rem;
+		padding: 0.45rem;
 	}
 
-	.hero-demo__diff,
+	.hero-demo__card {
+		border: 1px solid var(--demo-border);
+		border-radius: 4px;
+		background: var(--demo-elev);
+		padding: 0.5rem 0.65rem 0.55rem;
+	}
+
+	.hero-demo__card--warn {
+		border-color: rgb(224 168 74 / 45%);
+		background: #14110c;
+		padding-block: 0.4rem;
+	}
+
+	.hero-demo__head,
 	.hero-demo__kicker,
 	.hero-demo__path,
 	.hero-demo__scenario,
@@ -118,35 +134,35 @@ return round(max(total, 0))</code></pre>
 		margin: 0;
 	}
 
-	.hero-demo__diff {
+	.hero-demo__head {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: baseline;
-		gap: 0.55rem;
-		padding: 0.45rem 0.9rem;
-		border-bottom: 1px solid var(--demo-border);
-		font-family: var(--sl-font-mono);
-		font-size: 0.75rem;
-		color: var(--demo-muted);
-	}
-
-	.hero-demo__block {
-		padding: 0.55rem 0.85rem 0.6rem;
-		border-bottom: 1px solid var(--demo-border);
+		justify-content: space-between;
+		gap: 0.25rem 0.75rem;
 	}
 
 	.hero-demo__kicker {
 		font-family: var(--sl-font-mono);
-		font-size: 0.72rem;
-		letter-spacing: 0.03em;
+		font-size: 0.68rem;
+		letter-spacing: 0.04em;
 		color: var(--demo-accent);
+	}
+
+	.hero-demo__diff {
+		display: inline-flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		font-family: var(--sl-font-mono);
+		font-size: 0.68rem;
+		color: var(--demo-muted);
 	}
 
 	.hero-demo__path,
 	.hero-demo__scenario,
 	.hd-note {
 		font-family: var(--sl-font-mono);
-		font-size: 0.72rem;
+		font-size: 0.7rem;
 		color: var(--demo-muted);
 	}
 
@@ -156,16 +172,16 @@ return round(max(total, 0))</code></pre>
 	}
 
 	.hero-demo__code {
-		margin: 0.35rem 0 0;
+		margin: 0.3rem 0 0;
 		overflow-x: auto;
 		font-family: var(--sl-font-mono);
-		font-size: 0.78rem;
+		font-size: 0.76rem;
 		line-height: 1.45;
 		color: var(--demo-fg);
 	}
 
 	.hero-demo__prompt {
-		margin-top: 0.3rem;
+		margin-top: 0.28rem;
 		font-size: 0.9rem;
 		line-height: 1.35;
 		color: var(--demo-fg);
@@ -175,18 +191,14 @@ return round(max(total, 0))</code></pre>
 		display: flex;
 		flex-wrap: wrap;
 		align-items: baseline;
-		gap: 0.45rem;
-		margin-top: 0.3rem;
+		gap: 0.4rem;
+		margin-top: 0.28rem;
 		font-family: var(--sl-font-mono);
-		font-size: 0.92rem;
+		font-size: 0.9rem;
 	}
 
 	.hd-prompt {
 		color: var(--demo-accent);
-	}
-
-	.hd-k {
-		color: var(--demo-muted);
 	}
 
 	.hd-file {
@@ -204,25 +216,25 @@ return round(max(total, 0))</code></pre>
 	.hero-demo__chips {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.4rem 0.9rem;
+		gap: 0.35rem 0.8rem;
 		margin: 0;
-		padding: 0.4rem 0.85rem 0.5rem;
+		padding: 0;
 		list-style: none;
 		font-family: var(--sl-font-mono);
-		font-size: 0.72rem;
+		font-size: 0.7rem;
 		color: var(--demo-muted);
 	}
 
 	.hero-demo__chips li {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.4rem;
+		gap: 0.35rem;
 	}
 
 	.hd-chip {
 		border: 1px solid rgb(255 255 255 / 16%);
-		border-radius: 999px;
-		padding: 0.02rem 0.42rem;
+		border-radius: 2px;
+		padding: 0.02rem 0.38rem;
 		color: var(--demo-fg);
 	}
 
@@ -232,11 +244,11 @@ return round(max(total, 0))</code></pre>
 	}
 
 	.hero-demo__caption {
-		padding: 0.45rem 0.9rem 0.55rem;
+		padding: 0.4rem 0.75rem 0.45rem;
 		border-top: 1px solid var(--demo-border);
-		background: var(--demo-elev);
+		background: #0c0d10;
 		font-family: var(--sl-font-mono);
-		font-size: 0.7rem;
+		font-size: 0.68rem;
 		color: var(--demo-muted);
 		text-align: start;
 	}
@@ -245,24 +257,23 @@ return round(max(total, 0))</code></pre>
 		.hero-demo {
 			border-radius: 0;
 			border-inline: 0;
-			box-shadow: none;
 		}
 
-		.hero-demo__block {
-			padding-block: 0.45rem;
+		.hero-demo__stack {
+			gap: 0.28rem;
+			padding: 0.32rem;
+		}
+
+		.hero-demo__card {
+			padding-block: 0.4rem;
 		}
 
 		.hero-demo__code {
-			font-size: 0.74rem;
-		}
-
-		.hero-demo__chips {
-			gap: 0.3rem 0.65rem;
-			padding-block: 0.35rem;
+			font-size: 0.72rem;
 		}
 
 		.hero-demo__caption {
-			padding-block: 0.35rem;
+			padding-block: 0.32rem;
 		}
 	}
 </style>

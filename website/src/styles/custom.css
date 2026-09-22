@@ -210,6 +210,36 @@ header.header {
 	margin-block: 0.65rem 0.2rem;
 }
 
+/* Numbered loop rows, not a scenic timeline. */
+:root[data-has-hero] .sl-steps > li {
+	padding-block: 0.55rem 0.6rem;
+	border-bottom: 1px solid rgb(255 255 255 / 8%);
+}
+
+:root[data-has-hero] .sl-steps > li::before {
+	content: counter(steps-counter, decimal-leading-zero);
+	width: 1.75rem;
+	height: auto;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	color: var(--sl-color-accent);
+	font-family: var(--sl-font-mono);
+	font-size: 0.75rem;
+	font-weight: 500;
+	text-align: start;
+	line-height: 1.45;
+}
+
+:root[data-has-hero] .sl-steps > li::after {
+	display: none;
+}
+
+:root[data-has-hero] .sl-steps > li > :first-child {
+	transform: none;
+	margin-bottom: 0;
+}
+
 .trust-strip {
 	display: flex;
 	flex-wrap: wrap;
@@ -294,9 +324,14 @@ header.header {
 
 .bento article {
 	border: 1px solid rgb(255 255 255 / 10%);
-	border-radius: 0.5rem;
+	border-radius: 4px;
 	padding: 0.9rem 0.95rem 1rem;
 	background: #0c0d10;
+}
+
+.bento--ships article:last-child {
+	border-color: rgb(224 168 74 / 40%);
+	background: #14110c;
 }
 
 .bento h3 {

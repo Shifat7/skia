@@ -48,19 +48,6 @@ const { title = data.title, tagline, actions = [] } = data.hero || {};
 		text-align: start;
 	}
 
-	.splash-hero::before {
-		content: '';
-		position: absolute;
-		z-index: 0;
-		inset: -1.25rem 0 18%;
-		pointer-events: none;
-		background-image:
-			linear-gradient(rgb(255 255 255 / 4.5%) 1px, transparent 1px),
-			linear-gradient(90deg, rgb(255 255 255 / 4.5%) 1px, transparent 1px);
-		background-size: 22px 22px;
-		mask-image: radial-gradient(ellipse 75% 85% at 50% 0%, #000 10%, transparent 72%);
-	}
-
 	.splash-hero__copy,
 	.splash-hero__demo {
 		position: relative;
@@ -199,9 +186,4 @@ const { title = data.title, tagline, actions = [] } = data.hero || {};
 		}
 	}
 
-	@media (prefers-reduced-motion: reduce) {
-		.splash-hero::before {
-			display: none;
-		}
-	}
 </style>
