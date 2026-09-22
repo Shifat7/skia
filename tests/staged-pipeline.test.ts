@@ -184,10 +184,12 @@ test("captured staged snapshot refuses a function when only unrelated lines chan
     captureStagedSnapshot(repositoryRoot),
   );
 
-  assert.deepStrictEqual(result, {
-    kind: "unsupported",
-    reason: "unmapped_region",
-  });
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind !== "unsupported") {
+    return;
+  }
+  assert.strictEqual(result.reason, "unmapped_region");
+  assert.strictEqual(result.coverage.summary.unmapped_units, 2);
 });
 
 test("deleted comments do not select an unchanged guard for review", () => {
@@ -216,10 +218,12 @@ test("deleted comments do not select an unchanged guard for review", () => {
     captureStagedSnapshot(repositoryRoot),
   );
 
-  assert.deepStrictEqual(result, {
-    kind: "unsupported",
-    reason: "unmapped_region",
-  });
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind !== "unsupported") {
+    return;
+  }
+  assert.strictEqual(result.reason, "unmapped_region");
+  assert.strictEqual(result.coverage.summary.unmapped_units, 1);
 });
 
 test("captured staged snapshot rejects NUL-containing source as binary", () => {
@@ -235,10 +239,12 @@ test("captured staged snapshot rejects NUL-containing source as binary", () => {
     captureStagedSnapshot(repositoryRoot),
   );
 
-  assert.deepStrictEqual(result, {
-    kind: "unsupported",
-    reason: "binary_source",
-  });
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind !== "unsupported") {
+    return;
+  }
+  assert.strictEqual(result.reason, "binary_source");
+  assert.strictEqual(result.coverage.summary.unsupported_units, 1);
 });
 
 test("captured staged snapshot accepts an optional UTF-8 BOM", () => {
@@ -265,4 +271,36 @@ test("captured staged snapshot accepts an optional UTF-8 BOM", () => {
   );
 
   assert.strictEqual(result.kind, "supported");
+});
+
+test("captured staged snapshot rejects more than 150 changed lines before analysis", () => {
+  const repositoryRoot = createRepository();
+  const comments = Array.from(
+    { length: 151 },
+    (_, index) => `// changed line ${index + 1}`,
+  );
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      ...comments,
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind !== "unsupported") {
+    return;
+  }
+  assert.strictEqual(result.reason, "staged_budget_exceeded");
+  assert.strictEqual(result.coverage.summary.total_units, 155);
+  assert.strictEqual(result.coverage.summary.unsupported_units, 155);
 });

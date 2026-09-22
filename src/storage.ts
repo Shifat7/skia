@@ -1767,6 +1767,34 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
   throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
 }
 
+function removeStagedReceiptTemporaries(
+  roots: NonNullable<ReturnType<typeof readStorageRoots>>,
+  receiptName: string,
+): DeleteRunResult {
+  const temporaryPrefix = `.${receiptName}.tmp-`;
+  const failures: string[] = [];
+
+  for (const entryName of fs.readdirSync(roots.leafRootPath)) {
+    const suffix = entryName.slice(temporaryPrefix.length);
+
+    if (
+      entryName.startsWith(temporaryPrefix) &&
+      /^[0-9]+-[0-9]+$/.test(suffix)
+    ) {
+      const result = deleteTree(
+        roots.skiaRootPath,
+        path.join(roots.leafRootPath, entryName),
+      );
+      failures.push(...result.remaining_paths);
+    }
+  }
+
+  return {
+    deleted: failures.length === 0,
+    remaining_paths: [...new Set(failures)].sort(),
+  };
+}
+
 export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRunResult {
   const runId = validateRunId(runIdInput);
   const targets = existingRunTargets(repositoryRoot, runIdInput, runId);
@@ -1816,6 +1844,14 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
         deleted: false,
         remaining_paths: [...new Set(failures)].sort(),
       };
+    }
+
+    const temporaryResult = removeStagedReceiptTemporaries(
+      receiptsRoots,
+      targets.receiptName,
+    );
+    if (!temporaryResult.deleted) {
+      return temporaryResult;
     }
 
     const receiptDeleteResult = deleteTree(
@@ -1871,6 +1907,20 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
 
       if (!artifactResult.deleted) {
         return artifactResult;
+      }
+
+      const receiptsRoots = readStorageRoots(
+        repositoryRoot,
+        RECEIPTS_DIRECTORY_NAME,
+      );
+      if (receiptsRoots !== null && receiptName !== undefined) {
+        const temporaryResult = removeStagedReceiptTemporaries(
+          receiptsRoots,
+          receiptName,
+        );
+        if (!temporaryResult.deleted) {
+          return temporaryResult;
+        }
       }
     }
 

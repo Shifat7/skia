@@ -3,7 +3,10 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
-import { captureStagedSnapshot } from "../git.js";
+import {
+  captureStagedSnapshot,
+  requireIgnoredSkiaOutputRoot,
+} from "../git.js";
 import { MAX_TERMINAL_INPUT_BYTES } from "../limits.js";
 import { validateSessionId } from "../paths.js";
 import {
@@ -143,8 +146,8 @@ export function runStagedReview(
   let completed = false;
 
   try {
-    const capture = captureStagedSnapshot(requestedRoot);
-    const repositoryRoot = capture.repository_root;
+    const repositoryRoot = requireIgnoredSkiaOutputRoot(requestedRoot);
+    const capture = captureStagedSnapshot(repositoryRoot);
     const pipeline = analyzeCapturedStagedSnapshot(capture);
 
     if (pipeline.kind === "failed") {
@@ -158,10 +161,18 @@ export function runStagedReview(
     }
 
     if (pipeline.kind !== "supported") {
+      const summary = pipeline.coverage.summary;
       return {
-        exit_code: 2,
+        exit_code: pipeline.reason === "staged_budget_exceeded" ? 1 : 2,
         kind: "review_unsupported",
-        output: `Skia staged review unavailable: ${pipeline.reason}\n`,
+        output:
+          `Skia staged review unavailable: ${pipeline.reason}\n` +
+          "Coverage: " +
+          `supported=${summary.supported_units} ` +
+          `partial=${summary.partial_units} ` +
+          `unmapped=${summary.unmapped_units} ` +
+          `unsupported=${summary.unsupported_units} ` +
+          `failed=${summary.failed_units}\n`,
       };
     }
 

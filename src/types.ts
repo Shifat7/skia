@@ -78,6 +78,7 @@ export const STABLE_ERROR_REASONS = [
   "no_head_commit",
   "no_supported_staged_entity",
   "not_a_git_repository",
+  "output_root_not_ignored",
   "output_root_symlink",
   "parse_failed",
   "parser_initialization_failed",

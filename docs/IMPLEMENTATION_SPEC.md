@@ -267,6 +267,8 @@ Rules:
 - `<PATH>` defaults to the discovered Git repository root and is read-only.
 - Output always stays under that repository's `.skia/`; there is no arbitrary
   output-path flag in the pilot.
+- `skia review` refuses before snapshot capture or artifact allocation unless
+  the repository's Git ignore rules cover `.skia/`.
 - `--non-interactive` fails clearly when a prediction, subsystem selection, or
   agent consent is required; it never assumes consent or fabricates input.
 - `--no-agent` produces deterministic repository output with HLD/LLD marked

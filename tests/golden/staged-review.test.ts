@@ -35,6 +35,29 @@ function createSupportedRepository(): string {
   return repositoryRoot;
 }
 
+test("skia review refuses to write when .skia is not ignored", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+  const result = runCli(["review"], {
+    input: '"ok"\n',
+    repository_root: repositoryRoot,
+  });
+
+  assert.strictEqual(result.kind, "review_failed");
+  assert.match(result.output, /\.skia\/.*gitignore/i);
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
+});
+
 test("skia review golden path shows evidence before prediction and feedback after persistence", () => {
   const repositoryRoot = createSupportedRepository();
   const result = runCli(["review"], {
@@ -177,6 +200,62 @@ test("skia review rejects non-JSON predictions without writing a receipt", () =>
   assert.strictEqual(result.kind, "invalid_prediction");
   assert.match(result.output, /valid JSON scalar/);
   assert.strictEqual(fs.existsSync(`${repositoryRoot}/.skia/receipts`), false);
+  assert.deepStrictEqual(listRuns(repositoryRoot), []);
+});
+
+test("skia review displays coverage when syntax is outside the pilot", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    "export const gateStatus = (code: string) => code;\n",
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = runCli(["review"], {
+    input: '"ok"\n',
+    repository_root: repositoryRoot,
+  });
+
+  assert.strictEqual(result.kind, "review_unsupported");
+  assert.match(result.output, /Coverage: .*unsupported=1/);
+});
+
+test("skia review enforces the 150-line budget before interaction", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      ...Array.from({ length: 151 }, (_, index) => `// line ${index + 1}`),
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+  let interacted = false;
+
+  const result = runCli(["review"], {
+    read_input: () => {
+      interacted = true;
+      return '"ok"';
+    },
+    repository_root: repositoryRoot,
+  });
+
+  assert.strictEqual(result.kind, "review_unsupported");
+  assert.strictEqual(result.exit_code, 1);
+  assert.match(result.output, /staged_budget_exceeded/);
+  assert.match(result.output, /unsupported=155/);
+  assert.strictEqual(interacted, false);
   assert.deepStrictEqual(listRuns(repositoryRoot), []);
 });
 

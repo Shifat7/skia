@@ -1,11 +1,13 @@
 import { Buffer } from "node:buffer";
 
+import { MAX_STAGED_CHANGED_LINES } from "../limits.js";
 import type {
   CoverageEnvelope,
   CoverageEvent,
   CoverageEventId,
   GitCapturedBlob,
   SnapshotEntry,
+  StableErrorReason,
   StagedSnapshotCapture,
 } from "../types.js";
 import { analyzeLiteralGuardFunction } from "./analyze.js";
@@ -314,9 +316,51 @@ function failedCoverage(
   };
 }
 
+function unsupportedCoverage(
+  reason: StableErrorReason,
+  units: number,
+  entry?: SnapshotEntry,
+): CoverageEnvelope {
+  const coverage = reason === "unmapped_region" ? "unmapped" : "unsupported";
+
+  return {
+    summary: {
+      total_units: units,
+      supported_units: 0,
+      partial_units: 0,
+      unmapped_units: coverage === "unmapped" ? units : 0,
+      unsupported_units: coverage === "unsupported" ? units : 0,
+      excluded_units: 0,
+      failed_units: 0,
+      unchecked_units: 0,
+    },
+    events: units === 0
+      ? []
+      : [
+          {
+            id: `staged:${entry?.path ?? "snapshot"}:${coverage}` as CoverageEventId,
+            coverage,
+            units,
+            reason,
+            path: entry?.path ?? null,
+            language: entry?.language ?? null,
+            anchors: [],
+          },
+        ],
+  };
+}
+
 export function analyzeCapturedStagedSnapshot(
   capture: StagedSnapshotCapture,
 ): StagedPipelineResult {
+  const patchChanges = lineChangesFromPatch(capture.patch_bytes);
+  const patchUnits = [...patchChanges.values()].reduce(
+    (total, changes) =>
+      total + changes.stagedLines.length + changes.deletedLines.length,
+    0,
+  );
+  const capturedUnits =
+    patchUnits > 0 ? patchUnits : capture.raw_records.length;
   const entries = capture.identity.entries.filter(
     (entry) => entry.language === "typescript",
   );
@@ -325,6 +369,10 @@ export function analyzeCapturedStagedSnapshot(
     return {
       kind: "unsupported",
       reason: "no_supported_staged_entity",
+      coverage: unsupportedCoverage(
+        "no_supported_staged_entity",
+        capturedUnits,
+      ),
     };
   }
 
@@ -333,6 +381,10 @@ export function analyzeCapturedStagedSnapshot(
     return {
       kind: "unsupported",
       reason: "no_supported_staged_entity",
+      coverage: unsupportedCoverage(
+        "no_supported_staged_entity",
+        capturedUnits,
+      ),
     };
   }
 
@@ -341,6 +393,11 @@ export function analyzeCapturedStagedSnapshot(
     return {
       kind: "unsupported",
       reason: "missing_local_object",
+      coverage: unsupportedCoverage(
+        "missing_local_object",
+        capturedUnits,
+        entry,
+      ),
     };
   }
 
@@ -349,6 +406,7 @@ export function analyzeCapturedStagedSnapshot(
     return {
       kind: "unsupported",
       reason: "binary_source",
+      coverage: unsupportedCoverage("binary_source", capturedUnits, entry),
     };
   }
 
@@ -358,12 +416,31 @@ export function analyzeCapturedStagedSnapshot(
     return {
       kind: "unsupported",
       reason: "invalid_source_encoding",
+      coverage: unsupportedCoverage(
+        "invalid_source_encoding",
+        capturedUnits,
+        entry,
+      ),
     };
   }
 
-  const lineChanges = lineChangesFromPatch(capture.patch_bytes).get(entry.path);
+  const lineChanges = patchChanges.get(entry.path);
   const changedLines = lineChanges?.stagedLines ?? [];
   const deletedLines = lineChanges?.deletedLines ?? [];
+  const changedUnitCount = changedLines.length + deletedLines.length;
+
+  if (changedUnitCount > MAX_STAGED_CHANGED_LINES) {
+    return {
+      kind: "unsupported",
+      reason: "staged_budget_exceeded",
+      coverage: unsupportedCoverage(
+        "staged_budget_exceeded",
+        changedUnitCount,
+        entry,
+      ),
+    };
+  }
+
   const analysis = analyzeLiteralGuardFunction({
     blob_oid: blob.oid,
     changed_lines: changedLines,
@@ -383,7 +460,14 @@ export function analyzeCapturedStagedSnapshot(
   }
 
   if (analysis.kind !== "supported") {
-    return analysis;
+    return {
+      ...analysis,
+      coverage: unsupportedCoverage(
+        analysis.reason,
+        changedUnitCount,
+        entry,
+      ),
+    };
   }
 
   return {

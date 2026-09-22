@@ -310,8 +310,8 @@ Other TypeScript shapes, TSX/Python reduction,
 multiple staged files, `skia repo review`, agent transport, HLD/LLD generation,
 and behavioral validation remain unimplemented.
 
-After building, run the pilot inside a Git repository with exactly one
-supported staged file:
+After building, add `.skia/` to the target repository's ignore rules, then run
+the pilot with exactly one supported staged file:
 
 ```sh
 node /path/to/skia/dist/src/main.js review

@@ -155,6 +155,7 @@ export interface SupportedStagedPipelineResult {
 export interface UnsupportedStagedPipelineResult {
   readonly kind: "unsupported";
   readonly reason: StableErrorReason;
+  readonly coverage: CoverageEnvelope;
 }
 
 export interface FailedStagedPipelineResult {

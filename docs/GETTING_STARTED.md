@@ -23,6 +23,9 @@ implemented:
 - `skia review` for one staged `.ts` file containing one named function with a
   strict literal guard and literal return.
 
+The pilot writes local receipts beneath `.skia/` and refuses before writing
+unless the target repository's Git ignore rules cover `.skia/`.
+
 Broader staged reduction, TSX/Python behavior reduction, multiple staged files,
 `skia repo review`, agent transport, HLD/LLD generation, and behavioral
 validation remain deferred.

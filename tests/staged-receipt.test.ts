@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 import { captureStagedSnapshot } from "../src/git.js";
@@ -339,4 +340,64 @@ test("staged receipt publication keeps the canonical path absent until atomic pu
     )),
     true,
   );
+});
+
+test("deleting a completed run removes interrupted receipt hard-link temporaries", () => {
+  const repositoryRoot = createSupportedRepository();
+  const pipeline = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+  assert.strictEqual(pipeline.kind, "supported");
+  if (pipeline.kind !== "supported") {
+    return;
+  }
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const session = createPredictionSession(pipeline.analysis);
+  const artifacts: ReturnType<typeof writeStagedArtifactFile>[] = [];
+  const sealed = session.persistPrediction(
+    { kind: "return_value", value: "ok" },
+    (record) => {
+      artifacts.push(
+        writeStagedArtifactFile(
+          allocation,
+          "behavior_cards",
+          `${JSON.stringify(record, null, 2)}\n`,
+        ),
+      );
+    },
+  );
+  const artifact = artifacts[0];
+  if (artifact === undefined) {
+    throw new Error("expected behavior-card artifact");
+  }
+  const receipt = createStagedReviewReceipt({
+    allocation,
+    analysis: pipeline.analysis,
+    behavior_card_artifact: artifact,
+    completed_at: new Date("2026-09-22T01:02:05Z"),
+    coverage: pipeline.coverage,
+    sealed_prediction: sealed,
+    snapshot: pipeline.snapshot,
+    source_check: session.sourceCheck(),
+  });
+  const completed = completeStagedRun(allocation, receipt);
+  const receiptName = completed.receiptPath.split("/").at(-1);
+  if (receiptName === undefined) {
+    throw new Error("expected receipt filename");
+  }
+  const temporaryPath = path.join(
+    completed.receiptPath.slice(0, -(receiptName.length + 1)),
+    `.${receiptName}.tmp-12345-1`,
+  );
+  fs.linkSync(completed.receiptPath, temporaryPath);
+
+  assert.deepStrictEqual(deleteRun(repositoryRoot, allocation.runId), {
+    deleted: true,
+    remaining_paths: [],
+  });
+  assert.strictEqual(fs.existsSync(temporaryPath), false);
 });

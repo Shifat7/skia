@@ -401,6 +401,59 @@ function resolveGitRepositoryRoot(
   return path.resolve(requestedRoot, discoveredRoot);
 }
 
+export function requireIgnoredSkiaOutputRoot(
+  repositoryRoot: string,
+  options?: CaptureGitSnapshotOptions,
+): string {
+  const resolvedRoot = resolveGitRepositoryRoot(repositoryRoot, options);
+  const commandOptions = gitCommandOptions(resolvedRoot, options);
+  const result = spawnSync(
+    commandOptions.gitExecutable,
+    [
+      "-c",
+      "core.fsmonitor=false",
+      "check-ignore",
+      "--quiet",
+      "--no-index",
+      "--",
+      `${SKIA_DIRECTORY_NAME}/receipt-probe`,
+    ],
+    optionsWithOptionalEnv({
+      cwd: resolvedRoot,
+      env: buildGitEnvironment(commandOptions.processEnv),
+      maxBuffer: commandOptions.outputLimitBytes,
+      shell: false,
+      timeout: commandOptions.timeoutMs,
+    }),
+  );
+
+  if (result.error !== undefined) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      gitSpawnFailureDetail(result.stderr, result.error),
+    );
+  }
+
+  if (result.status === 0) {
+    return resolvedRoot;
+  }
+
+  if (result.status === 1) {
+    throw new GitSnapshotError(
+      "output_root_not_ignored",
+      "add .skia/ to the repository .gitignore before running skia review",
+    );
+  }
+
+  throw new GitSnapshotError(
+    mapGitFailureReason(
+      asBuffer(result.stderr as Uint8Array),
+      "git_process_failed",
+    ),
+    escapeDiagnosticBytes(asBuffer(result.stderr as Uint8Array)),
+  );
+}
+
 function parseBranchState(commandOptions: GitCommandOptions): SnapshotCheckout {
   try {
     const branch = bytesToUtf8(
