@@ -979,17 +979,17 @@ function assertCompleteStagedReceipt(receipt: StagedReceipt): void {
   }
 }
 
-function assertSourceCheckMatchesSnapshot(
+function assertReviewMatchesSnapshot(
   repositoryRoot: string,
   receipt: StagedReceipt,
 ): void {
   const review = receipt.review;
-  const sourceCheck = review?.entity.source_check ?? null;
 
-  if (review === undefined || sourceCheck === null) {
+  if (review === undefined) {
     return;
   }
 
+  const sourceCheck = review.entity.source_check;
   const anchor = review.entity.anchor;
 
   if (anchor.side !== "staged") {
@@ -1028,12 +1028,27 @@ function assertSourceCheckMatchesSnapshot(
     path: anchor.path,
     source,
   });
+  const matchesSource = analysis.kind === "supported" &&
+    isDeepStrictEqual(
+      {
+        id: analysis.entity.id,
+        name: analysis.entity.name,
+        anchor: analysis.entity.anchor,
+        evidence: analysis.evidence,
+        scenario: analysis.scenario,
+      },
+      {
+        id: review.entity.id,
+        name: review.entity.name,
+        anchor: review.entity.anchor,
+        evidence: review.entity.evidence,
+        scenario: review.entity.scenario,
+      },
+    ) &&
+    (sourceCheck === null ||
+      isDeepStrictEqual(analysis.expected_return, sourceCheck.expected));
 
-  if (
-    analysis.kind !== "supported" ||
-    analysis.evidence.relation !== review.entity.evidence.relation ||
-    !isDeepStrictEqual(analysis.expected_return, sourceCheck.expected)
-  ) {
+  if (!matchesSource) {
     throw createStorageError(
       "source check expected value must match the staged snapshot source",
     );
@@ -1608,7 +1623,7 @@ export function completeStagedRun(
     allocation.skiaRootPath,
     validation.value,
   );
-  assertSourceCheckMatchesSnapshot(allocation.repositoryRoot, validation.value);
+  assertReviewMatchesSnapshot(allocation.repositoryRoot, validation.value);
   const absolutePath = receiptFilePath(
     allocation.repositoryRoot,
     validation.value,
@@ -1642,7 +1657,7 @@ export function writeStagedReceipt(
   const { skiaRootPath } = ensureStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
   validateStagedArtifactHashes(skiaRootPath, validation.value);
   validateStagedBehaviorCardArtifact(skiaRootPath, validation.value);
-  assertSourceCheckMatchesSnapshot(repositoryRoot, validation.value);
+  assertReviewMatchesSnapshot(repositoryRoot, validation.value);
 
   let claimPath: string;
   try {

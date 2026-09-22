@@ -178,9 +178,15 @@ function staticSubscriptIndex(
   if (current.type === "template_string") {
     const fragments = current.namedChildren;
     const fragment = fragments.length === 1 ? fragments[0] : undefined;
-    return fragment?.type === "string_fragment"
-      ? { kind: "string", value: fragment.text }
-      : { kind: "unknown" };
+    if (
+      fragment?.type !== "string_fragment" ||
+      fragment.text.includes("\\") ||
+      fragments.some((child) => child.type !== "string_fragment")
+    ) {
+      return { kind: "unknown" };
+    }
+
+    return { kind: "string", value: fragment.text };
   }
 
   return { kind: "unknown" };

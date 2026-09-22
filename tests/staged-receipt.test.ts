@@ -531,6 +531,111 @@ test("completing a staged run rejects an incomplete receipt", () => {
   assert.strictEqual(listRuns(prepared.repositoryRoot)[0]?.status, "incomplete");
 });
 
+test("completing a staged run rejects a rewritten scenario even when the expected return still matches", () => {
+  const prepared = preparedMismatchReceipt();
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
+    artifact_hashes: { kind: string; sha256: string }[];
+    review: {
+      entity: {
+        prediction: { scenario: { when: string } };
+        scenario: { when: string };
+      };
+    };
+  };
+  forged.review.entity.scenario.when = "forged invocation";
+  forged.review.entity.prediction.scenario.when = "forged invocation";
+  const cardPath = path.join(
+    prepared.allocation.skiaRootPath,
+    deriveStagedArtifactPath(
+      prepared.allocation.runId,
+      prepared.allocation.sessionId,
+      "behavior_cards",
+    ),
+  );
+  const cardBytes = `${JSON.stringify(forged.review.entity.prediction, null, 2)}\n`;
+  fs.writeFileSync(cardPath, cardBytes);
+  const cardHash = createHash("sha256").update(cardBytes).digest("hex");
+  const behaviorCard = forged.artifact_hashes.find(
+    (artifact) => artifact.kind === "behavior_cards",
+  );
+  if (behaviorCard === undefined) {
+    throw new Error("expected behavior-card hash");
+  }
+  behaviorCard.sha256 = cardHash;
+  const rewritten = receiptWithSelfHash(forged as unknown as StagedReceipt);
+
+  assert.strictEqual(validateStagedReceipt(rewritten).valid, true);
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, rewritten),
+    /staged snapshot source/,
+  );
+});
+
+test("completing a skipped staged run rejects rewritten deterministic evidence", () => {
+  const repositoryRoot = createSupportedRepository();
+  const pipeline = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+  assert.strictEqual(pipeline.kind, "supported");
+  if (pipeline.kind !== "supported") {
+    return;
+  }
+
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const artifact = writeStagedArtifactFile(
+    allocation,
+    "behavior_cards",
+    `${JSON.stringify({
+      action: "skip",
+      scenario: pipeline.analysis.scenario,
+      sealed_at: "2026-09-22T01:02:04Z",
+    })}\n`,
+  );
+  const receipt = createSkippedStagedReviewReceipt({
+    allocation,
+    analysis: pipeline.analysis,
+    behavior_card_artifact: artifact,
+    completed_at: new Date("2026-09-22T01:02:05Z"),
+    coverage: pipeline.coverage,
+    snapshot: pipeline.snapshot,
+  });
+  const forged = JSON.parse(JSON.stringify(receipt)) as {
+    artifact_hashes: { kind: string; sha256: string }[];
+    review: {
+      entity: {
+        evidence: { relation: string };
+        scenario: { when: string };
+      };
+    };
+  };
+  forged.review.entity.scenario.when = "forged invocation";
+  forged.review.entity.evidence.relation = "forged relation";
+  const cardBytes = `${JSON.stringify({
+    action: "skip",
+    scenario: forged.review.entity.scenario,
+    sealed_at: "2026-09-22T01:02:04Z",
+  })}\n`;
+  fs.writeFileSync(artifact.absolutePath, cardBytes);
+  const behaviorCard = forged.artifact_hashes.find(
+    (candidate) => candidate.kind === "behavior_cards",
+  );
+  if (behaviorCard === undefined) {
+    throw new Error("expected behavior-card hash");
+  }
+  behaviorCard.sha256 = createHash("sha256").update(cardBytes).digest("hex");
+  const rewritten = receiptWithSelfHash(forged as unknown as StagedReceipt);
+
+  assert.strictEqual(validateStagedReceipt(rewritten).valid, true);
+  assert.throws(
+    () => completeStagedRun(allocation, rewritten),
+    /staged snapshot source/,
+  );
+});
+
 test("aborting a staged run leaves an artifact it did not create", () => {
   const repositoryRoot = createSupportedRepository();
   const allocation = allocateStagedRun(

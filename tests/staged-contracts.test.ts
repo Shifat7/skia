@@ -265,6 +265,44 @@ test("pilot analyzer rejects dotted global rebinding of the reviewed function", 
   });
 });
 
+test("pilot analyzer rejects escaped template rebinding of the reviewed function", () => {
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1, 2, 3, 4, 5],
+    path: PATH,
+    source: [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      "(globalThis as any)[`gate\\x53tatus`] = (_code: string) => \"evil\";",
+    ].join("\n"),
+  });
+
+  assert.deepStrictEqual(result, {
+    kind: "unsupported",
+    reason: "no_supported_staged_entity",
+  });
+});
+
+test("pilot analyzer keeps an unrelated template key unmapped", () => {
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1, 2, 3, 4],
+    path: PATH,
+    source: [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      "const counts: Record<string, number> = {};",
+      "counts[`other`] = 1;",
+    ].join("\n"),
+  });
+
+  assert.strictEqual(result.kind, "supported");
+});
+
 test("pilot analyzer rejects computed global rebinding of the reviewed function", () => {
   const result = analyzeLiteralGuardFunction({
     blob_oid: BLOB_OID,
