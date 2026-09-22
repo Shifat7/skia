@@ -12,6 +12,7 @@ export default defineConfig({
 			favicon: '/favicon.svg',
 			customCss: ['./src/styles/custom.css'],
 			components: {
+				Header: './src/components/Header.astro',
 				Hero: './src/components/SplashHero.astro',
 				Search: './src/components/SplashSearch.astro',
 				EditLink: './src/components/SplashEditLink.astro',

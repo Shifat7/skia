@@ -1,0 +1,79 @@
+---
+import Search from 'virtual:starlight/components/Search';
+import SiteTitle from 'virtual:starlight/components/SiteTitle';
+import SocialIcons from 'virtual:starlight/components/SocialIcons';
+
+const isSplash = Astro.locals.starlightRoute.entry.data.template === 'splash';
+const statusHref = `${import.meta.env.BASE_URL}status/`;
+---
+
+<div class="header">
+	<div class="title-wrapper sl-flex">
+		<SiteTitle />
+	</div>
+	{
+		!isSplash && (
+			<div class="search-slot">
+				<Search {...Astro.props} />
+			</div>
+		)
+	}
+	<div class="right-group sl-flex">
+		<a class="nav-status" href={statusHref}>Status</a>
+		<div class="social-icons sl-flex">
+			<SocialIcons />
+		</div>
+	</div>
+</div>
+
+<style>
+	.header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		height: 100%;
+	}
+
+	.title-wrapper {
+		min-width: 0;
+		overflow: clip;
+	}
+
+	.search-slot {
+		flex: 1 1 auto;
+		display: flex;
+		justify-content: flex-end;
+		min-width: 0;
+	}
+
+	.right-group {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		flex: none;
+	}
+
+	.nav-status {
+		color: var(--sl-color-gray-1);
+		font-size: 0.72rem;
+		font-weight: 560;
+		letter-spacing: 0.14em;
+		text-decoration: none;
+		text-transform: uppercase;
+		padding: 0.35rem 0.45rem;
+	}
+
+	.nav-status:hover {
+		color: var(--sl-color-white);
+	}
+
+	.social-icons {
+		display: flex;
+		align-items: center;
+	}
+
+	.social-icons::after {
+		content: none;
+	}
+</style>

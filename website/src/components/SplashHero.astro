@@ -4,12 +4,27 @@ import HeroDemo from './HeroDemo.astro';
 
 const { data } = Astro.locals.starlightRoute.entry;
 const { title = data.title, tagline, actions = [] } = data.hero || {};
+const titleText = String(title ?? '');
+const accentPhrase = 'AI diff';
+const accentAt = titleText.indexOf(accentPhrase);
 ---
 
 <div class="splash-hero">
 	<div class="splash-hero__copy">
 		<p class="splash-hero__eyebrow">Foundation · demos illustrative until Gate A</p>
-		<h1 id="_top" data-page-title set:html={title} />
+		<h1 id="_top" data-page-title>
+			{
+				accentAt === -1 ? (
+					titleText
+				) : (
+					<>
+						{titleText.slice(0, accentAt)}
+						<span class="accent">{accentPhrase}</span>
+						{titleText.slice(accentAt + accentPhrase.length)}
+					</>
+				)
+			}
+		</h1>
 		{tagline && <div class="splash-hero__tagline" set:html={tagline} />}
 		{
 			actions.length > 0 && (
@@ -73,12 +88,16 @@ const { title = data.title, tagline, actions = [] } = data.hero || {};
 
 	.splash-hero h1 {
 		margin: 0;
-		max-width: 16em;
+		max-width: 14em;
 		font-size: clamp(1.7rem, 1.15rem + 1.5vw, 2.55rem);
-		line-height: 1.08;
-		letter-spacing: -0.034em;
+		line-height: 1.02;
+		letter-spacing: -0.038em;
 		font-weight: 600;
 		color: var(--sl-color-white);
+	}
+
+	.splash-hero h1 .accent {
+		color: var(--sl-color-accent);
 	}
 
 	.splash-hero__tagline {
@@ -113,7 +132,7 @@ const { title = data.title, tagline, actions = [] } = data.hero || {};
 
 	.trust-strip--hero li {
 		border: 1px solid rgb(255 255 255 / 12%);
-		border-radius: 999px;
+		border-radius: 2px;
 		padding: 0.22rem 0.6rem;
 		font-family: var(--sl-font-mono);
 		font-size: 0.72rem;
@@ -181,8 +200,16 @@ const { title = data.title, tagline, actions = [] } = data.hero || {};
 
 	@media (min-width: 50rem) {
 		.splash-hero {
-			padding-block: 0.85rem 0.35rem;
-			gap: 1.35rem;
+			padding-block: 1.55rem 0.45rem;
+			gap: 1.65rem;
+		}
+
+		.splash-hero h1 {
+			font-size: clamp(2.35rem, 1.2rem + 1.8vw, 3.05rem);
+		}
+
+		.splash-hero__copy {
+			gap: 0.9rem;
 		}
 	}
 

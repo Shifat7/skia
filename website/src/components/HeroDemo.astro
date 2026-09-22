@@ -53,12 +53,12 @@ return round(max(total, 0))</code></pre>
 
 <style>
 	.hero-demo {
-		--demo-bg: #07080a;
-		--demo-elev: #101114;
+		--demo-bg: #070707;
+		--demo-elev: #101212;
 		--demo-border: rgb(255 255 255 / 10%);
-		--demo-fg: #f4f1ea;
-		--demo-muted: #8d897f;
-		--demo-accent: #e0a84a;
+		--demo-fg: #f4f6f6;
+		--demo-muted: #8d9696;
+		--demo-accent: var(--sl-color-accent);
 		margin: 0;
 		width: 100%;
 		border: 1px solid var(--demo-border);
@@ -97,7 +97,7 @@ return round(max(total, 0))</code></pre>
 	}
 
 	.hero-demo__badge {
-		border: 1px solid rgb(224 168 74 / 55%);
+		border: 1px solid color-mix(in srgb, var(--demo-accent) 70%, transparent);
 		border-radius: 2px;
 		padding: 0.06rem 0.4rem;
 		color: var(--demo-accent);
@@ -120,8 +120,8 @@ return round(max(total, 0))</code></pre>
 	}
 
 	.hero-demo__card--warn {
-		border-color: rgb(224 168 74 / 45%);
-		background: #14110c;
+		border-color: color-mix(in srgb, var(--demo-accent) 45%, transparent);
+		background: #0c1414;
 		padding-block: 0.4rem;
 	}
 
@@ -239,7 +239,7 @@ return round(max(total, 0))</code></pre>
 	}
 
 	.hd-chip--warn {
-		border-color: rgb(224 168 74 / 55%);
+		border-color: color-mix(in srgb, var(--demo-accent) 70%, transparent);
 		color: var(--demo-accent);
 	}
 
