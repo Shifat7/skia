@@ -161,6 +161,7 @@ export interface StagedArtifactWriteResult extends ArtifactWriteResult {
 }
 
 export interface StorageTestHooks {
+  readonly afterCreateNewFile?: () => void;
   readonly afterRunIdClaim?: (claim: {
     readonly mode: RunMode;
     readonly runId: RunId;
@@ -402,8 +403,10 @@ function isExistingPathError(error: unknown): boolean {
 function writeNewFile(filePath: string, data: string | Uint8Array): void {
   const bytes = asBytes(data);
   const fileDescriptor = fs.openSync(filePath, "wx", OWNER_FILE_MODE);
+  let completed = false;
 
   try {
+    storageTestHooks?.afterCreateNewFile?.();
     let offset = 0;
 
     while (offset < bytes.length) {
@@ -417,8 +420,12 @@ function writeNewFile(filePath: string, data: string | Uint8Array): void {
     }
 
     fs.fsyncSync(fileDescriptor);
+    completed = true;
   } finally {
     fs.closeSync(fileDescriptor);
+    if (!completed) {
+      fs.rmSync(filePath, { force: true });
+    }
   }
 }
 

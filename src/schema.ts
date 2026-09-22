@@ -611,6 +611,20 @@ function validateStagedReview(
   }
 
   if (sourceCheck !== null) {
+    const canonicalRelation =
+      `${review.entity.scenario.given.parameter} === ` +
+      `${JSON.stringify(review.entity.scenario.given.value)} -> return ` +
+      `${JSON.stringify(sourceCheck.expected)}`;
+
+    if (review.entity.evidence.relation !== canonicalRelation) {
+      errors.push({
+        instance_path: "/review/entity/source_check/expected",
+        keyword: "evidence_expectation",
+        message:
+          "source check expected value must match the deterministic evidence relation",
+      });
+    }
+
     const valuesMatch = isDeepStrictEqual(
       sourceCheck.expected,
       sourceCheck.predicted,

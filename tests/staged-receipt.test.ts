@@ -262,6 +262,27 @@ test("staged run persists prediction artifact before completing validated receip
     );
   }
 
+  const relabeledExpectation = JSON.parse(JSON.stringify(receipt)) as {
+    review: {
+      entity: {
+        source_check: {
+          expected: unknown;
+          status: string;
+        };
+      };
+    };
+  };
+  relabeledExpectation.review.entity.source_check.expected = "different";
+  relabeledExpectation.review.entity.source_check.status = "source_derived_match";
+  const relabeledValidation = validateStagedReceipt(relabeledExpectation);
+  assert.strictEqual(relabeledValidation.valid, false);
+  if (!relabeledValidation.valid) {
+    assert.match(
+      relabeledValidation.errors.map((error) => error.message).join("\n"),
+      /deterministic evidence relation/,
+    );
+  }
+
   impossibleSeal.review.entity.prediction.sealed_at = "2026-99-99T99:99:99Z";
   const impossibleSealValidation = validateStagedReceipt(impossibleSeal);
   assert.strictEqual(impossibleSealValidation.valid, false);
@@ -344,6 +365,40 @@ test("staged run allocation resolves collisions before any interaction", () => {
       },
     ],
   );
+});
+
+test("a failed artifact write removes the file it just created", () => {
+  const repositoryRoot = createSupportedRepository();
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const absolutePath = path.join(
+    allocation.skiaRootPath,
+    deriveStagedArtifactPath(
+      allocation.runId,
+      allocation.sessionId,
+      "behavior_cards",
+    ),
+  );
+  setStorageTestHooks({
+    afterCreateNewFile: () => {
+      throw new Error("ENOSPC");
+    },
+  });
+
+  try {
+    assert.throws(
+      () => writeStagedArtifactFile(allocation, "behavior_cards", "{}\n"),
+      /ENOSPC/,
+    );
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  assert.strictEqual(fs.existsSync(absolutePath), false);
+  abortStagedRun(allocation);
 });
 
 test("aborting a staged run leaves an artifact it did not create", () => {

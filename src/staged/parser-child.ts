@@ -72,10 +72,29 @@ function topLevelFunctions(root: ParserNode): readonly ParserNode[] {
   return matches;
 }
 
+function decodedIdentifier(text: string): string {
+  return text.replace(
+    /\\u\{([0-9A-Fa-f]+)\}|\\u([0-9A-Fa-f]{4})/g,
+    (match, braced: string | undefined, four: string | undefined) => {
+      const hex = braced ?? four;
+      if (hex === undefined) {
+        return match;
+      }
+
+      const codePoint = Number.parseInt(hex, 16);
+      if (codePoint < 0 || codePoint > 0x10ffff) {
+        return match;
+      }
+
+      return String.fromCodePoint(codePoint);
+    },
+  );
+}
+
 function mentionsIdentifier(node: ParserNode, name: string): boolean {
   if (
     (node.type === "identifier" || node.type === "property_identifier") &&
-    node.text === name
+    decodedIdentifier(node.text) === decodedIdentifier(name)
   ) {
     return true;
   }
