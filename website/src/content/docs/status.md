@@ -5,6 +5,14 @@ description: What ships in the Skia repository today, what is planned, and what 
 
 Alpha. The Phase 1 foundation is in the repository. The product CLI is not released.
 
+| Fact | Value |
+|---|---|
+| License | MIT |
+| Engine floor | Node.js `>=24.0.0 <25` (`package.json`) |
+| Package | `0.0.0`, `private: true` — unpublished |
+| Product telemetry | None planned |
+| Review backend | None — no Skia-operated review service |
+
 Solid means the code and tests exist today. Outline means intended product behavior with no install command. Outline is not a green check.
 
 ## Ships today

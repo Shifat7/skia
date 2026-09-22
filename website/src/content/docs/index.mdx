@@ -10,8 +10,8 @@ banner:
   content: |
     <a href="/skia/status/">Alpha · foundation shipping · product CLI not released → /status/</a>
 hero:
-  title: Understand the AI diff before you trust the commit
-  tagline: Local pre-PR comprehension for vibecoders. Turns a generated change into a source-backed reading check — keeps anything it couldn’t analyze visible. <code>skia review</code> is not released yet.
+  title: Local review for AI-written code
+  tagline: Skia is a pre-PR CLI for vibecoders — simplified view, one prediction, then source. Foundation is in the repo; <code>skia review</code> is not released yet.
   actions:
     - text: View on GitHub
       link: https://github.com/Shifat7/skia
@@ -25,32 +25,9 @@ hero:
 
 import { LinkButton, Steps } from '@astrojs/starlight/components';
 
-## Available vs planned
+## What ships today
 
-Solid badges ship in the repository today. Outline badges are intended product behavior — never a green check.
-
-<table class="capability-matrix">
-	<thead>
-		<tr>
-			<th>Available now</th>
-			<th>Planned</th>
-		</tr>
-	</thead>
-	<tbody>
-		<tr>
-			<td>
-				<span class="status-badge status-badge--ships">Ships today</span>
-				Exact Git snapshots, schema and coverage validation, TypeScript / TSX / Python analysis, path-safe local storage.
-			</td>
-			<td>
-				<span class="status-badge status-badge--planned">Planned</span>
-				Simplified view + one prediction, <code>skia review</code> / <code>skia repo review</code>, npm publish, editor and CI adapters.
-			</td>
-		</tr>
-	</tbody>
-</table>
-
-<p class="matrix-note">Full matrix and exclusions: <a href="/skia/status/">Status</a>.</p>
+The Phase 1 foundation is in the repository. Outline Planned items stay on <a href="/skia/status/">Status</a> — never a green check on this page.
 
 ## How it works
 
@@ -67,6 +44,24 @@ Solid badges ship in the repository today. Outline badges are intended product b
 4. Open original code wherever coverage is `partial`, `unmapped`, `unsupported`, `failed`, or `unchecked`.
 
 </Steps>
+
+<div class="bento bento--ships">
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Exact Git snapshots</h3>
+		<p>Staged and committed-HEAD snapshots, with path-safe local storage.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Parsers and schemas</h3>
+		<p>TypeScript, TSX, and Python analysis, plus schema and coverage validation.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Uncertainty stays visible</h3>
+		<p><code>partial</code> and <code>unmapped</code> are useful results. A gap is part of the output, not something to hide.</p>
+	</article>
+</div>
 
 ## Problem
 
