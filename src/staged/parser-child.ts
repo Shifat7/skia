@@ -109,6 +109,79 @@ function containsDirectEval(root: ParserNode): boolean {
   return visit(root);
 }
 
+function staticSubscriptIndex(
+  node: ParserNode,
+): { readonly kind: "string"; readonly value: string } | { readonly kind: "other" } | { readonly kind: "unknown" } {
+  let current = node;
+
+  while (
+    current.type === "parenthesized_expression" &&
+    current.namedChildren.length === 1
+  ) {
+    const inner = current.namedChildren[0];
+    if (inner === undefined) {
+      return { kind: "unknown" };
+    }
+    current = inner;
+  }
+
+  if (current.type === "number") {
+    return { kind: "other" };
+  }
+
+  if (current.type === "string") {
+    const text = current.text;
+    if (text.startsWith("\"") && text.endsWith("\"")) {
+      try {
+        const value = JSON.parse(text) as unknown;
+        return typeof value === "string"
+          ? { kind: "string", value }
+          : { kind: "unknown" };
+      } catch {
+        return { kind: "unknown" };
+      }
+    }
+
+    if (
+      text.startsWith("'") &&
+      text.endsWith("'") &&
+      !text.slice(1, -1).includes("\\")
+    ) {
+      return { kind: "string", value: text.slice(1, -1) };
+    }
+
+    return { kind: "unknown" };
+  }
+
+  if (current.type === "template_string") {
+    const fragments = current.namedChildren;
+    const fragment = fragments.length === 1 ? fragments[0] : undefined;
+    return fragment?.type === "string_fragment"
+      ? { kind: "string", value: fragment.text }
+      : { kind: "unknown" };
+  }
+
+  return { kind: "unknown" };
+}
+
+function subscriptMayRebind(node: ParserNode, name: string): boolean {
+  if (node.type === "subscript_expression") {
+    const index = node.childForFieldName("index");
+    const value = index === null
+      ? { kind: "unknown" as const }
+      : staticSubscriptIndex(index);
+    const provenDifferent =
+      value.kind === "other" ||
+      (value.kind === "string" && value.value !== name);
+
+    if (!provenDifferent) {
+      return true;
+    }
+  }
+
+  return node.children.some((child) => subscriptMayRebind(child, name));
+}
+
 function writesBinding(root: ParserNode, name: string): boolean {
   const visit = (node: ParserNode): boolean => {
     const target = node.type === "assignment_expression" ||
@@ -121,7 +194,10 @@ function writesBinding(root: ParserNode, name: string): boolean {
           ? node.childForFieldName("name")
           : null;
 
-    if (target !== null && mentionsIdentifier(target, name)) {
+    if (
+      target !== null &&
+      (mentionsIdentifier(target, name) || subscriptMayRebind(target, name))
+    ) {
       return true;
     }
 

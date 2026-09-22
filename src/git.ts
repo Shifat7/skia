@@ -422,6 +422,29 @@ export function requireIgnoredSkiaOutputRoot(
     sessionId,
     temporaryStamp,
   );
+  assertIgnoredRepositoryPaths(resolvedRoot, commandOptions, probes);
+  return resolvedRoot;
+}
+
+export function assertStagedPersistencePathsIgnored(
+  repositoryRoot: string,
+  runId: string,
+  sessionId: string,
+): void {
+  const resolvedRoot = resolveGitRepositoryRoot(repositoryRoot);
+  const commandOptions = gitCommandOptions(resolvedRoot);
+  assertIgnoredRepositoryPaths(
+    resolvedRoot,
+    commandOptions,
+    stagedPersistenceProbePaths(runId, sessionId),
+  );
+}
+
+function assertIgnoredRepositoryPaths(
+  resolvedRoot: string,
+  commandOptions: GitCommandOptions,
+  probes: readonly string[],
+): void {
   const result = spawnSync(
     commandOptions.gitExecutable,
     [
@@ -470,8 +493,6 @@ export function requireIgnoredSkiaOutputRoot(
       `${exposed} is not ignored; add .skia/ to the repository .gitignore before running skia review`,
     );
   }
-
-  return resolvedRoot;
 }
 
 function pad2(value: number): string {
@@ -509,6 +530,20 @@ function stagedOutputProbePaths(
         `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/.${receiptName}.tmp-${nextStagedReceiptTemporarySuffix()}`,
       ];
     }),
+  ];
+}
+
+function stagedPersistenceProbePaths(
+  runId: string,
+  sessionId: string,
+): readonly string[] {
+  const receiptName = `${runId}-${sessionId}-session.json`;
+
+  return [
+    `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`,
+    `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${runId}-${sessionId}-behavior_cards.json`,
+    `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/${receiptName}`,
+    `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/.${receiptName}.tmp-${nextStagedReceiptTemporarySuffix()}`,
   ];
 }
 

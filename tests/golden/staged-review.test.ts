@@ -648,6 +648,41 @@ test("skia review refuses a tracked artifact path missing from the work tree", (
   );
 });
 
+test("skia review rechecks ignore status before persisting a prediction", () => {
+  const repositoryRoot = createSupportedRepository();
+  const result = runCli(["review"], {
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    read_input: () => {
+      writeRepoTextFile(repositoryRoot, ".gitignore", "\n");
+      return '"ok"\n';
+    },
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+
+  assert.strictEqual(result.kind, "review_failed");
+  assert.match(result.output, /not ignored/);
+  assert.strictEqual(
+    fs.existsSync(
+      path.join(
+        repositoryRoot,
+        ".skia/artifacts/20260922T010203Z-8f5d1a2c-behavior_cards.json",
+      ),
+    ),
+    false,
+  );
+  assert.strictEqual(
+    fs.existsSync(
+      path.join(
+        repositoryRoot,
+        ".skia/receipts/20260922T010203Z-8f5d1a2c-session.json",
+      ),
+    ),
+    false,
+  );
+  assert.deepStrictEqual(listRuns(repositoryRoot), []);
+});
+
 test("skia review probes the receipt temporary the next write will use", () => {
   const repositoryRoot = createSupportedRepository();
   const completed = runCli(["review"], {

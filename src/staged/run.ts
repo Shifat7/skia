@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 
 import {
+  assertStagedPersistencePathsIgnored,
   captureStagedSnapshot,
   requireIgnoredSkiaOutputRoot,
 } from "../git.js";
@@ -220,6 +221,11 @@ function completePrediction(
   }
 
   if (prediction.kind === "skip") {
+    assertStagedPersistencePathsIgnored(
+      repositoryRoot,
+      activeAllocation.runId,
+      activeAllocation.sessionId,
+    );
     const behaviorCard = writeStagedArtifactFile(
       activeAllocation,
       "behavior_cards",
@@ -237,6 +243,11 @@ function completePrediction(
       coverage: pipeline.coverage,
       snapshot: pipeline.snapshot,
     });
+    assertStagedPersistencePathsIgnored(
+      repositoryRoot,
+      activeAllocation.runId,
+      activeAllocation.sessionId,
+    );
     const completedRun = completeStagedRun(activeAllocation, receipt);
     markCompleted();
     const suffix = [
@@ -260,6 +271,11 @@ function completePrediction(
       value: prediction.value,
     },
     (record) => {
+      assertStagedPersistencePathsIgnored(
+        repositoryRoot,
+        activeAllocation.runId,
+        activeAllocation.sessionId,
+      );
       artifacts.push(
         writeStagedArtifactFile(
           activeAllocation,
@@ -287,6 +303,11 @@ function completePrediction(
     snapshot: pipeline.snapshot,
     source_check: sourceCheck,
   });
+  assertStagedPersistencePathsIgnored(
+    repositoryRoot,
+    activeAllocation.runId,
+    activeAllocation.sessionId,
+  );
   const completedRun = completeStagedRun(activeAllocation, receipt);
   markCompleted();
   const suffix = [
