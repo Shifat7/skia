@@ -426,6 +426,9 @@ export function analyzeCapturedStagedSnapshot(
   const entries = capture.identity.entries.filter(
     (entry) => entry.language === "typescript",
   );
+  const soleCapturedEntry = capture.identity.entries.length === 1
+    ? capture.identity.entries[0]
+    : undefined;
 
   if (budgetUnits > MAX_STAGED_CHANGED_LINES) {
     return {
@@ -434,7 +437,7 @@ export function analyzeCapturedStagedSnapshot(
       coverage: unsupportedCoverage(
         "staged_budget_exceeded",
         capturedUnits,
-        entries[0],
+        entries[0] ?? soleCapturedEntry,
       ),
     };
   }
@@ -446,6 +449,7 @@ export function analyzeCapturedStagedSnapshot(
       coverage: unsupportedCoverage(
         "no_supported_staged_entity",
         capturedUnits,
+        capture.raw_records.length === 1 ? soleCapturedEntry : undefined,
       ),
     };
   }

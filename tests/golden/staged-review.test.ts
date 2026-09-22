@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
 
-import { runCli } from "../../src/main.js";
+import { runCli, terminalPredictionPayload } from "../../src/main.js";
 import {
   listRuns,
   nextStagedReceiptTemporarySuffix,
@@ -59,6 +60,7 @@ test("skia review refuses to write when .skia is not ignored", () => {
     repository_root: repositoryRoot,
   });
 
+  assert.strictEqual(result.exit_code, 2);
   assert.strictEqual(result.kind, "review_failed");
   assert.match(result.output, /\.skia\/.*gitignore/i);
   assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
@@ -393,6 +395,23 @@ test("skia review distinguishes the JSON string skip from the skip command", () 
   assert.strictEqual(result.output.includes("Prediction skipped"), false);
 });
 
+test("skia review accepts a maximum-length prediction before its line terminator", () => {
+  const repositoryRoot = createSupportedRepository();
+  const prediction = `"${"x".repeat(4_094)}"`;
+  assert.strictEqual(Buffer.from(prediction).byteLength, 4_096);
+  const payload = terminalPredictionPayload(Buffer.from(`${prediction}\n`));
+  assert.strictEqual(payload.byteLength, 4_096);
+  const result = runCli(["review"], {
+    input: `${prediction}\n`,
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+
+  assert.strictEqual(result.exit_code, 0);
+  assert.strictEqual(result.kind, "review_complete");
+});
+
 test("skia review rejects terminal input above the published limit", () => {
   const repositoryRoot = createSupportedRepository();
   const result = runCli(["review"], {
@@ -660,6 +679,7 @@ test("skia review rechecks ignore status before persisting a prediction", () => 
     session_id: "8f5d1a2c",
   });
 
+  assert.strictEqual(result.exit_code, 2);
   assert.strictEqual(result.kind, "review_failed");
   assert.match(result.output, /not ignored/);
   assert.strictEqual(

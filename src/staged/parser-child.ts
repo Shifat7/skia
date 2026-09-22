@@ -415,9 +415,32 @@ function parse(input: ParserInput): PilotParserResponse {
 
   const name = functionNode.childForFieldName("name")?.text.trim() ?? "";
   return name.length > 0 &&
-      (writesBinding(tree.rootNode, name) || containsDirectEval(tree.rootNode))
+      (
+        writesBinding(tree.rootNode, name) ||
+        containsDirectEval(tree.rootNode) ||
+        containsCallOutside(tree.rootNode, functionNode)
+      )
     ? { kind: "unsupported" }
     : parseFunction(functionNode);
+}
+
+function containsCallOutside(
+  root: ParserNode,
+  functionNode: ParserNode,
+): boolean {
+  const visit = (node: ParserNode): boolean => {
+    if (node === functionNode) {
+      return false;
+    }
+
+    if (node.type === "call_expression") {
+      return true;
+    }
+
+    return node.children.some(visit);
+  };
+
+  return visit(root);
 }
 
 function main(): void {

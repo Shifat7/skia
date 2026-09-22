@@ -82,6 +82,19 @@ export function runCli(
   };
 }
 
+export function terminalPredictionPayload(line: Uint8Array): Uint8Array {
+  let end = line.byteLength;
+
+  if (end > 0 && line[end - 1] === 0x0a) {
+    end -= 1;
+    if (end > 0 && line[end - 1] === 0x0d) {
+      end -= 1;
+    }
+  }
+
+  return line.subarray(0, end);
+}
+
 function readBoundedTerminalLine(): Promise<string> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
@@ -108,8 +121,9 @@ function readBoundedTerminalLine(): Promise<string> {
       const bytes = Buffer.from(chunk);
       const newlineAt = bytes.indexOf(0x0a);
       const line = newlineAt === -1 ? bytes : bytes.subarray(0, newlineAt + 1);
+      const payload = terminalPredictionPayload(line);
       const remaining = MAX_TERMINAL_INPUT_BYTES + 1 - totalBytes;
-      const limited = line.subarray(0, Math.max(0, remaining));
+      const limited = payload.subarray(0, Math.max(0, remaining));
       chunks.push(Buffer.from(limited));
       totalBytes += limited.byteLength;
 

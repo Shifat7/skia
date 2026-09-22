@@ -204,6 +204,26 @@ test("pilot analyzer rejects for-of rebinding of the reviewed function", () => {
   });
 });
 
+test("pilot analyzer rejects reflective rebinding of the reviewed function", () => {
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1, 2, 3, 4, 5],
+    path: PATH,
+    source: [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      'Object.defineProperty(globalThis, "gateStatus", { value: () => "evil" });',
+    ].join("\n"),
+  });
+
+  assert.deepStrictEqual(result, {
+    kind: "unsupported",
+    reason: "no_supported_staged_entity",
+  });
+});
+
 test("pilot analyzer rejects computed global rebinding of the reviewed function", () => {
   const result = analyzeLiteralGuardFunction({
     blob_oid: BLOB_OID,

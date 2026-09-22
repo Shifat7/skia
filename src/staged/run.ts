@@ -6,6 +6,7 @@ import process from "node:process";
 import {
   assertStagedPersistencePathsIgnored,
   captureStagedSnapshot,
+  GitSnapshotError,
   requireIgnoredSkiaOutputRoot,
 } from "../git.js";
 import { MAX_TERMINAL_INPUT_BYTES } from "../limits.js";
@@ -68,11 +69,12 @@ function createSessionId() {
 }
 
 function parsePrediction(input: string): ParsedPrediction {
-  if (Buffer.from(input, "utf8").byteLength > MAX_TERMINAL_INPUT_BYTES) {
+  const framed = input.replace(/\r?\n$/, "");
+  if (Buffer.from(framed, "utf8").byteLength > MAX_TERMINAL_INPUT_BYTES) {
     return { kind: "invalid", reason: "limit" };
   }
 
-  const value = input.split(/\r?\n/, 1)[0]?.trim() ?? "";
+  const value = framed.split(/\r?\n/, 1)[0]?.trim() ?? "";
 
   if (value === "skip") {
     return { kind: "skip" };
@@ -183,8 +185,12 @@ function failedReview(
     }
   }
 
+  const configurationError =
+    error instanceof GitSnapshotError &&
+    error.reason === "output_root_not_ignored";
+
   return {
-    exit_code: 1,
+    exit_code: configurationError ? 2 : 1,
     kind: "review_failed",
     output:
       `Skia staged review failed: ${escapeTerminalText(message)}` +

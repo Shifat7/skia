@@ -324,6 +324,39 @@ test("captured staged snapshot rejects more than 150 changed lines before analys
   assert.strictEqual(result.coverage.summary.unsupported_units, 155);
 });
 
+test("a sole supported-language file outside the TypeScript pilot keeps coverage identity", () => {
+  for (const [filename, language] of [
+    ["src/gate-status.tsx", "tsx"],
+    ["src/gate_status.py", "python"],
+  ] as const) {
+    const repositoryRoot = createRepository();
+    writeRepoTextFile(
+      repositoryRoot,
+      filename,
+      filename.endsWith(".py")
+        ? "def gate_status(code):\n    return 'ok'\n"
+        : [
+          "export function gateStatus(code: string): string {",
+          '  if (code === "ready") return "ok";',
+          '  return "hold";',
+          "}",
+        ].join("\n"),
+    );
+    stagePaths(repositoryRoot, filename);
+    const result = analyzeCapturedStagedSnapshot(
+      captureStagedSnapshot(repositoryRoot),
+    );
+
+    assert.strictEqual(result.kind, "unsupported");
+    if (result.kind !== "unsupported") {
+      continue;
+    }
+    assert.strictEqual(result.reason, "no_supported_staged_entity");
+    assert.strictEqual(`${result.coverage.events[0]?.path}`, filename);
+    assert.strictEqual(`${result.coverage.events[0]?.language}`, language);
+  }
+});
+
 test("unsupported-language changes do not consume the staged review budget", () => {
   const repositoryRoot = createRepository();
   writeRepoTextFile(
