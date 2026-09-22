@@ -80,6 +80,35 @@ function mentionsIdentifier(node: ParserNode, name: string): boolean {
   return node.children.some((child) => mentionsIdentifier(child, name));
 }
 
+function calleeIdentifier(node: ParserNode): ParserNode | null {
+  let callee: ParserNode | null = node;
+
+  while (
+    callee !== null &&
+    callee.type === "parenthesized_expression" &&
+    callee.namedChildren.length === 1
+  ) {
+    callee = callee.namedChildren[0] ?? null;
+  }
+
+  return callee?.type === "identifier" ? callee : null;
+}
+
+function containsDirectEval(root: ParserNode): boolean {
+  const visit = (node: ParserNode): boolean => {
+    if (node.type === "call_expression") {
+      const callee = node.childForFieldName("function");
+      if (callee !== null && calleeIdentifier(callee)?.text === "eval") {
+        return true;
+      }
+    }
+
+    return node.children.some(visit);
+  };
+
+  return visit(root);
+}
+
 function writesBinding(root: ParserNode, name: string): boolean {
   const visit = (node: ParserNode): boolean => {
     const target = node.type === "assignment_expression" ||
@@ -307,7 +336,8 @@ function parse(input: ParserInput): PilotParserResponse {
   }
 
   const name = functionNode.childForFieldName("name")?.text.trim() ?? "";
-  return name.length > 0 && writesBinding(tree.rootNode, name)
+  return name.length > 0 &&
+      (writesBinding(tree.rootNode, name) || containsDirectEval(tree.rootNode))
     ? { kind: "unsupported" }
     : parseFunction(functionNode);
 }

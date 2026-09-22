@@ -85,7 +85,49 @@ test("skia review verifies each output subtree against ignore negation", () => {
   });
 
   assert.strictEqual(result.kind, "review_failed");
-  assert.match(result.output, /\.skia\/artifacts\/.*-behavior_cards\.json/);
+  assert.match(
+    result.output,
+    /\.skia\/artifacts\/[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}-behavior_cards\.json/,
+  );
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
+});
+
+test("skia review probes a generated run id rather than a hexadecimal token", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(
+    repositoryRoot,
+    ".gitignore",
+    [
+      ".skia/*",
+      "!.skia/artifacts/",
+      ".skia/artifacts/????????[0-9a-f]???????-????????????????-behavior_cards.json",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = runCli(["review"], {
+    input: '"ok"\n',
+    repository_root: repositoryRoot,
+  });
+
+  assert.strictEqual(result.kind, "review_failed");
+  assert.match(
+    result.output,
+    /\.skia\/artifacts\/[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}-behavior_cards\.json/,
+  );
   assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
 });
 

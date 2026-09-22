@@ -410,13 +410,7 @@ export function requireIgnoredSkiaOutputRoot(
 ): string {
   const resolvedRoot = resolveGitRepositoryRoot(repositoryRoot, options);
   const commandOptions = gitCommandOptions(resolvedRoot, options);
-  const probeToken = randomBytes(8).toString("hex");
-  const probes = [
-    `${SKIA_DIRECTORY_NAME}/${TMP_DIRECTORY_NAME}/${probeToken}-snapshot`,
-    `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${probeToken}.json`,
-    `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${probeToken}-${probeToken}-behavior_cards.json`,
-    `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/${probeToken}-${probeToken}-session.json`,
-  ];
+  const probes = stagedOutputProbePaths();
 
   for (const probe of probes) {
     const result = spawnSync(
@@ -465,6 +459,33 @@ export function requireIgnoredSkiaOutputRoot(
   }
 
   return resolvedRoot;
+}
+
+function randomDecimalDigits(length: number): string {
+  const bytes = randomBytes(length);
+  let digits = "";
+
+  for (const byte of bytes) {
+    digits += String(byte % 10);
+  }
+
+  return digits;
+}
+
+function stagedOutputProbePaths(): readonly string[] {
+  const runId = `${randomDecimalDigits(8)}T${randomDecimalDigits(6)}Z`;
+  const sessionId = randomBytes(8).toString("hex");
+
+  return [
+    [
+      SKIA_DIRECTORY_NAME,
+      TMP_DIRECTORY_NAME,
+      `copied-index-${randomDecimalDigits(6)}-${randomDecimalDigits(13)}-1.bin`,
+    ].join("/"),
+    `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`,
+    `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${runId}-${sessionId}-behavior_cards.json`,
+    `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/${runId}-${sessionId}-session.json`,
+  ];
 }
 
 function parseBranchState(commandOptions: GitCommandOptions): SnapshotCheckout {
