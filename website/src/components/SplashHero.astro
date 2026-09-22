@@ -78,6 +78,9 @@ const { title = data.title, tagline, actions = [] } = data.hero || {};
 		width: 100%;
 		display: flex;
 		justify-content: center;
+		padding-block: 0.35rem 0.15rem;
+		background:
+			radial-gradient(ellipse 70% 55% at 50% 55%, rgb(196 146 58 / 10%), transparent 70%);
 	}
 
 	@media (max-width: 49.99rem) {
@@ -118,6 +121,12 @@ const { title = data.title, tagline, actions = [] } = data.hero || {};
 		.splash-hero {
 			padding-block: 0.7rem 0.5rem;
 			gap: 1.2rem;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.splash-hero__demo {
+			background: none;
 		}
 	}
 </style>

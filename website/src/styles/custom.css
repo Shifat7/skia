@@ -194,6 +194,27 @@
 	margin-top: 0.45rem;
 }
 
+.cta-band {
+	margin: 2rem 0 0.5rem;
+	padding: 1.35rem 1.2rem 1.4rem;
+	border: 1px solid var(--sl-color-gray-5);
+	border-radius: 0.75rem;
+	background: var(--sl-color-gray-6);
+}
+
+.cta-band__line {
+	margin: 0 0 0.35rem;
+	font-size: 1.15rem;
+	font-weight: 650;
+	color: var(--sl-color-white);
+}
+
+.cta-band__note {
+	margin: 0 0 0.85rem;
+	font-size: 0.92rem;
+	color: var(--sl-color-gray-2);
+}
+
 @media (min-width: 50rem) {
 	.bento--ships {
 		grid-template-columns: repeat(3, 1fr);
@@ -219,6 +240,11 @@
 
 	.cta-row :is(a) {
 		justify-content: center;
+	}
+
+	.cta-band {
+		margin-inline: 0;
+		border-radius: 0.65rem;
 	}
 }
 
