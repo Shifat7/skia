@@ -27,7 +27,12 @@ behavioral validation remain deferred.
 
 ## 1. Install and verify the repository
 
-Requirements: Node.js and npm.
+Requirements: Node.js 24.x (`>=24.0.0 <25` in `package.json`) and npm.
+
+This is a checkout of the foundation, not a global install. The npm package
+is private at `0.0.0`, and `skia review` is not a runnable command. The
+adopter overview is <https://shifat7.github.io/skia/> once GitHub Pages is
+serving the Actions workflow.
 
 ```sh
 npm ci

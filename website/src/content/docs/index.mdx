@@ -1,0 +1,106 @@
+---
+title: Skia
+description: Alpha local pre-PR checkpoint. Foundation is in the repo. Product CLI is not released.
+template: splash
+sidebar:
+  hidden: true
+prev: false
+next: false
+banner:
+  content: |
+    <a href="/skia/status/">Alpha · foundation shipping · product CLI not released → /status/</a>
+hero:
+  title: Read the AI diff before you trust the commit
+  tagline: Local pre-PR comprehension for vibecoders. Map what a generated change appears to do, then keep every analysis gap visible.
+  actions:
+    - text: View on GitHub
+      link: https://github.com/Shifat7/skia
+      icon: external
+      variant: primary
+    - text: What's real vs planned
+      link: /skia/status/
+      icon: right-arrow
+      variant: secondary
+---
+
+import { LinkButton, Steps } from '@astrojs/starlight/components';
+
+## What ships today
+
+Phase 1 foundation is in the repository. Planned items stay on <a href="/skia/status/">Status</a> — they do not get a green check here.
+
+## How it works
+
+`skia review` is a documented name. The shell in `src/main.ts` is unimplemented. Planned loop:
+
+<Steps>
+
+1. Stage or point at a change — exact Git snapshot when the product CLI lands.
+
+2. Read the simplified view. It is a map. It is not executable.
+
+3. Predict one result yourself, before any feedback.
+
+4. Open original code wherever coverage is `partial`, `unmapped`, `unsupported`, `failed`, or `unchecked`.
+
+</Steps>
+
+<div class="bento bento--ships">
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Exact Git snapshots</h3>
+		<p>Staged and committed-HEAD snapshots, with path-safe local storage.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Parsers and schemas</h3>
+		<p>TypeScript, TSX, and Python analysis, plus schema and coverage validation.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Gaps stay visible</h3>
+		<p><code>partial</code> and <code>unmapped</code> are useful results. A gap belongs in the output.</p>
+	</article>
+</div>
+
+## Problem
+
+AI tools can produce a working-looking diff faster than you can build a mental model of it. Extra abstractions, buried branches, and unfamiliar behavior that still passes tests are easy to miss. Skia is meant as the checkpoint for one developer before that gap becomes a reviewer's problem.
+
+## FAQ
+
+<div class="faq">
+	<details>
+		<summary>Is <code>skia review</code> available today?</summary>
+		<p>No. The package is private at 0.0.0, and the shell does not run a review. There is no working global npm install, Homebrew formula, or curl installer.</p>
+	</details>
+	<details>
+		<summary>Does my code leave the machine?</summary>
+		<p>Foundation work keeps snapshot and parse artifacts local. Skia does not operate a review backend and does not send product telemetry. A future repository mode may send bounded context to an endpoint you configure, after consent. See <a href="/skia/privacy/">Privacy</a>.</p>
+	</details>
+	<details>
+		<summary>Is this a CodeRabbit or Greptile replacement?</summary>
+		<p>No. Skia is a local pre-PR comprehension checkpoint for one developer — simplify, predict, surface uncertainty — not a hosted PR bot or agent fix loop.</p>
+	</details>
+	<details>
+		<summary>How do I install it?</summary>
+		<p>You do not install a review CLI yet. Contributors run the foundation with Node 24+ from the repository (<a href="/skia/contribute/">Contribute</a>). No <code>npm i -g skia</code> command is published here.</p>
+	</details>
+	<details>
+		<summary>Which languages are analyzed today?</summary>
+		<p>Exactly TypeScript, TSX, and Python. Anything else stays <code>unsupported</code>.</p>
+	</details>
+	<details>
+		<summary>Is this Google's Skia?</summary>
+		<p>No. Different project. The shared name is an open release risk (<a href="https://github.com/Shifat7/skia/blob/main/docs/OPEN_DECISIONS.md">OD-1</a>), not an affiliation.</p>
+	</details>
+</div>
+
+<div class="cta-band not-content">
+	<p class="cta-band__line">Start from the repository. There is no review CLI to install yet.</p>
+	<p class="cta-band__note">Marketing drafts stay unpublished until a stranger can run a real review. No curl or global install here.</p>
+	<div class="cta-row">
+		<LinkButton href="https://github.com/Shifat7/skia" variant="primary" icon="external">View on GitHub</LinkButton>
+		<LinkButton href="/skia/status/" variant="secondary" icon="right-arrow">What's real vs planned</LinkButton>
+	</div>
+</div>

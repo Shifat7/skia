@@ -1,0 +1,220 @@
+---
+import { LinkButton } from '@astrojs/starlight/components';
+import HeroDemo from './HeroDemo.astro';
+
+const { data } = Astro.locals.starlightRoute.entry;
+const { title = data.title, tagline, actions = [] } = data.hero || {};
+const titleText = String(title ?? '');
+const knownTitle = 'Read the AI diff before you trust the commit';
+const isKnownTitle = titleText === knownTitle;
+---
+
+<div class="splash-hero">
+	<div class="splash-hero__copy">
+		<p class="splash-hero__eyebrow">Alpha · demos are illustrative until Gate A</p>
+		<h1 id="_top" data-page-title>
+			{
+				isKnownTitle ? (
+					<>
+						Read the <span class="h1-dim">AI diff</span> <span class="accent">before you trust</span> the commit
+					</>
+				) : (
+					titleText
+				)
+			}
+		</h1>
+		{tagline && <div class="splash-hero__tagline" set:html={tagline} />}
+		{
+			actions.length > 0 && (
+				<div class="splash-hero__actions">
+					{actions.map(
+						({ attrs: { class: className, ...attrs } = {}, icon, link: href, text, variant }) => (
+							<LinkButton {href} {variant} icon={icon?.name} class:list={[className]} {...attrs}>
+								{text}
+								{icon?.html && <Fragment set:html={icon.html} />}
+							</LinkButton>
+						)
+					)}
+				</div>
+			)
+		}
+		<ul class="trust-strip trust-strip--hero" aria-label="Current product facts">
+			<li>Local-first</li>
+			<li>TS / TSX / Python foundation</li>
+			<li><code>skia review</code> not runnable</li>
+		</ul>
+	</div>
+
+	<div class="splash-hero__demo">
+		<HeroDemo />
+	</div>
+</div>
+
+<style>
+	.splash-hero {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 1.15rem;
+		padding-block: 0.35rem 0.2rem;
+		text-align: start;
+	}
+
+	.splash-hero__copy,
+	.splash-hero__demo {
+		position: relative;
+		z-index: 1;
+	}
+
+	.splash-hero__copy {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.75rem;
+		max-width: 40rem;
+	}
+
+	.splash-hero__eyebrow {
+		margin: 0;
+		font-family: var(--sl-font-mono);
+		font-size: 0.68rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: var(--sl-color-accent);
+	}
+
+	.splash-hero h1 {
+		margin: 0;
+		max-width: 14em;
+		font-size: clamp(1.7rem, 1.15rem + 1.5vw, 2.55rem);
+		line-height: 1.02;
+		letter-spacing: -0.038em;
+		font-weight: 600;
+		color: var(--sl-color-white);
+	}
+
+	.splash-hero h1 .h1-dim {
+		color: var(--sl-color-gray-2);
+	}
+
+	.splash-hero h1 .accent {
+		color: var(--sl-color-accent);
+	}
+
+	.splash-hero__tagline {
+		margin: 0;
+		max-width: 38rem;
+		font-size: 1rem;
+		line-height: 1.4;
+		color: #c9c4b8;
+	}
+
+	.splash-hero__actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-start;
+		gap: 0.55rem 0.65rem;
+		margin-top: 0.15rem;
+	}
+
+	.splash-hero__demo {
+		width: 100%;
+	}
+
+	.trust-strip--hero {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-start;
+		gap: 0.4rem;
+		margin: 0.15rem 0 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.trust-strip--hero li {
+		border: 1px solid rgb(255 255 255 / 12%);
+		border-radius: 2px;
+		padding: 0.22rem 0.55rem;
+		font-family: var(--sl-font-mono);
+		font-size: 0.64rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--sl-color-gray-1);
+		background: rgb(255 255 255 / 3%);
+	}
+
+	.trust-strip--hero code {
+		font-size: inherit;
+	}
+
+	@media (max-width: 49.99rem) {
+		.splash-hero {
+			gap: 0.7rem;
+			padding-block: 0.2rem 0;
+		}
+
+		.splash-hero__copy {
+			gap: 0.5rem;
+			max-width: none;
+		}
+
+		.splash-hero h1 {
+			max-width: none;
+			font-size: 1.62rem;
+		}
+
+		.splash-hero__tagline {
+			font-size: 0.95rem;
+			line-height: 1.35;
+		}
+
+		.trust-strip--hero {
+			gap: 0.3rem;
+		}
+
+		.trust-strip--hero li {
+			padding: 0.16rem 0.48rem;
+		}
+
+		.splash-hero__actions {
+			flex-direction: row;
+			flex-wrap: wrap;
+			align-items: stretch;
+			width: 100%;
+		}
+
+		.splash-hero__actions :global(.sl-link-button) {
+			flex: 1 1 auto;
+			justify-content: center;
+			padding: 0.45rem 0.7rem;
+			font-size: 0.82rem;
+		}
+
+		.trust-strip--hero li:nth-child(2) {
+			order: 3;
+			flex-basis: 100%;
+		}
+
+		.splash-hero__demo {
+			width: 100vw;
+			margin-inline: calc(50% - 50vw);
+		}
+	}
+
+	@media (min-width: 50rem) {
+		.splash-hero {
+			padding-block: 1.55rem 0.45rem;
+			gap: 1.65rem;
+		}
+
+		.splash-hero h1 {
+			font-size: clamp(2.35rem, 1.2rem + 1.8vw, 3.05rem);
+		}
+
+		.splash-hero__copy {
+			gap: 0.9rem;
+		}
+	}
+
+</style>
