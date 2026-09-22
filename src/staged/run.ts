@@ -379,7 +379,15 @@ export function runStagedReview(
     allocation = activeAllocation;
     const prompt = promptOutput(pipeline);
     const unbindInterruptCleanup = bindInterruptCleanup(activeAllocation);
-    const pendingInput = readPredictionInput(options, prompt);
+    let pendingInput: PredictionInput | Promise<PredictionInput>;
+
+    try {
+      pendingInput = readPredictionInput(options, prompt);
+    } catch (error) {
+      unbindInterruptCleanup();
+      throw error;
+    }
+
     if (isPromise(pendingInput)) {
       return pendingInput
         .then((input) => completePrediction(

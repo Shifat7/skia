@@ -497,11 +497,16 @@ function stagedOutputProbePaths(
         `copied-index-${process.pid}-${temporaryStamp}-${attempt}.bin`,
       ].join("/"),
     ),
-    ...runIds.flatMap((runId) => [
-      `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`,
-      `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${runId}-${sessionId}-behavior_cards.json`,
-      `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/${runId}-${sessionId}-session.json`,
-    ]),
+    ...runIds.flatMap((runId) => {
+      const receiptName = `${runId}-${sessionId}-session.json`;
+
+      return [
+        `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`,
+        `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${runId}-${sessionId}-behavior_cards.json`,
+        `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/${receiptName}`,
+        `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/.${receiptName}.tmp-${process.pid}-1`,
+      ];
+    }),
   ];
 }
 

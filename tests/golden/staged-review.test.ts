@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import process from "node:process";
 import test from "node:test";
 
 import { runCli } from "../../src/main.js";
@@ -168,6 +169,65 @@ test("skia review probes collision-suffixed run ids before writing", () => {
     /\.skia\/artifacts\/[0-9]{8}T[0-9]{6}Z-01-[0-9a-f]{16}-behavior_cards\.json/,
   );
   assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
+});
+
+test("skia review probes receipt temporary names before writing", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(
+    repositoryRoot,
+    ".gitignore",
+    [
+      ".skia/*",
+      "!.skia/receipts/",
+      ".skia/receipts/*-session.json",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = runCli(["review"], {
+    input: '"ok"\n',
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+
+  assert.strictEqual(result.kind, "review_failed");
+  assert.match(
+    result.output,
+    /\.skia\/receipts\/\.20260922T010203Z-8f5d1a2c-session\.json\.tmp-/,
+  );
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
+});
+
+test("skia review unbinds interrupt cleanup when prediction input throws", () => {
+  const repositoryRoot = createSupportedRepository();
+  const before = process.listenerCount("SIGINT");
+  const result = runCli(["review"], {
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    read_input: () => {
+      throw new Error("prediction input failed");
+    },
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+
+  assert.strictEqual(result.kind, "review_failed");
+  assert.match(result.output, /prediction input failed/);
+  assert.strictEqual(process.listenerCount("SIGINT"), before);
+  assert.deepStrictEqual(listRuns(repositoryRoot), []);
 });
 
 test("skia review probes the timestamp that will name the artifact", () => {

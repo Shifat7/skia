@@ -224,6 +224,7 @@ declare module "node:process" {
     readonly platform: string;
     on(event: "SIGINT", listener: () => void): void;
     off(event: "SIGINT", listener: () => void): void;
+    listenerCount(event: "SIGINT"): number;
     exit(code: number): never;
   };
 
