@@ -8,9 +8,11 @@ Product design documents stay in the repository `docs/` directory. This site
 does not live there.
 
 The site is forced dark, including when a visitor prefers a light color
-scheme. The splash is a near-black product page with one teal accent and a
-terminal-style reading check. That look is inspired by coding-agent marketing
-sites. It does not copy their branding, install commands, or product claims.
+scheme. The splash is a black product page with grain, Geist and JetBrains
+Mono, one teal accent on the headline phrase, and a hairline reading-check
+panel. That look is inspired by coding-agent marketing sites. It does not
+copy their branding, install commands, or product claims. View on GitHub
+stays the primary action.
 
 ## Build
 

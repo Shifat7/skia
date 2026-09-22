@@ -5,8 +5,8 @@ import HeroDemo from './HeroDemo.astro';
 const { data } = Astro.locals.starlightRoute.entry;
 const { title = data.title, tagline, actions = [] } = data.hero || {};
 const titleText = String(title ?? '');
-const accentPhrase = 'AI diff';
-const accentAt = titleText.indexOf(accentPhrase);
+const knownTitle = 'Understand the AI diff before you trust the commit';
+const isKnownTitle = titleText === knownTitle;
 ---
 
 <div class="splash-hero">
@@ -14,14 +14,12 @@ const accentAt = titleText.indexOf(accentPhrase);
 		<p class="splash-hero__eyebrow">Foundation · demos illustrative until Gate A</p>
 		<h1 id="_top" data-page-title>
 			{
-				accentAt === -1 ? (
-					titleText
-				) : (
+				isKnownTitle ? (
 					<>
-						{titleText.slice(0, accentAt)}
-						<span class="accent">{accentPhrase}</span>
-						{titleText.slice(accentAt + accentPhrase.length)}
+						Understand the <span class="h1-dim">AI diff</span> <span class="accent">before you trust</span> the commit
 					</>
+				) : (
+					titleText
 				)
 			}
 		</h1>
@@ -80,8 +78,8 @@ const accentAt = titleText.indexOf(accentPhrase);
 	.splash-hero__eyebrow {
 		margin: 0;
 		font-family: var(--sl-font-mono);
-		font-size: 0.72rem;
-		letter-spacing: 0.04em;
+		font-size: 0.68rem;
+		letter-spacing: 0.18em;
 		text-transform: uppercase;
 		color: var(--sl-color-accent);
 	}
@@ -94,6 +92,10 @@ const accentAt = titleText.indexOf(accentPhrase);
 		letter-spacing: -0.038em;
 		font-weight: 600;
 		color: var(--sl-color-white);
+	}
+
+	.splash-hero h1 .h1-dim {
+		color: var(--sl-color-gray-2);
 	}
 
 	.splash-hero h1 .accent {
@@ -133,9 +135,11 @@ const accentAt = titleText.indexOf(accentPhrase);
 	.trust-strip--hero li {
 		border: 1px solid rgb(255 255 255 / 12%);
 		border-radius: 2px;
-		padding: 0.22rem 0.6rem;
+		padding: 0.22rem 0.55rem;
 		font-family: var(--sl-font-mono);
-		font-size: 0.72rem;
+		font-size: 0.64rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
 		color: var(--sl-color-gray-1);
 		background: rgb(255 255 255 / 3%);
 	}
