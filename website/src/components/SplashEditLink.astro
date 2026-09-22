@@ -1,0 +1,11 @@
+---
+/**
+ * Splash pages omit the Edit page affordance so the landing reads as a product
+ * page, not a docs article. Inner pages keep the default link.
+ */
+import Default from '@astrojs/starlight/components/EditLink.astro';
+
+const isSplash = Astro.locals.starlightRoute.entry.data.template === 'splash';
+---
+
+{isSplash ? null : <Default {...Astro.props} />}

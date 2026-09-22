@@ -1,46 +1,68 @@
 :root {
-	--sl-color-accent-low: #3a2e18;
-	--sl-color-accent: #e6b15a;
-	--sl-color-accent-high: #f3d7a4;
+	/* Quiet orange: accent mainly for wordmark + primary CTA */
+	--sl-color-accent-low: #2c2618;
+	--sl-color-accent: #c4923a;
+	--sl-color-accent-high: #e6c78a;
 	--sl-font: "IBM Plex Sans", "Segoe UI", sans-serif;
 	--sl-font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
-/* Splash: less docs chrome so the demo clears one scroll on ~1440×900 */
+/* Soften stage banner into a mute text rail */
+.sl-banner {
+	--sl-color-banner-bg: color-mix(in srgb, var(--sl-color-accent) 18%, var(--sl-color-gray-6));
+	--sl-color-banner-text: var(--sl-color-gray-1);
+	font-size: 0.85rem;
+	font-weight: 500;
+}
+
+.sl-banner a {
+	text-decoration: underline;
+	text-underline-offset: 0.15em;
+	font-weight: 600;
+	color: inherit;
+}
+
+/* Splash: product page, not docs article */
 :root[data-has-hero] header.header {
-	padding-block: 0.35rem;
+	padding-block: 0.3rem;
 }
 
 :root[data-has-hero] .content-panel:first-of-type {
-	padding-bottom: 0.35rem;
+	padding-bottom: 0.25rem;
 }
 
 :root[data-has-hero] .content-panel + .content-panel {
-	padding-top: 0.85rem;
+	padding-top: 0.75rem;
 }
 
-:root[data-has-hero] .right-sidebar-container {
-	display: none;
+:root[data-has-hero] .right-sidebar-container,
+:root[data-has-hero] .sidebar-pane,
+:root[data-has-hero] starlight-menu-button {
+	display: none !important;
+}
+
+:root[data-has-hero] .main-frame {
+	padding-inline-start: 0;
 }
 
 :root[data-has-hero] .main-pane {
 	width: 100%;
-	max-width: 52rem;
-	margin-inline: auto;
-}
-
-:root[data-has-hero] .sl-markdown-content {
 	max-width: 48rem;
 	margin-inline: auto;
 }
 
-:root[data-has-hero] .sl-markdown-content :is(h2) {
-	margin-top: 2rem;
-	font-size: 1.25rem;
+:root[data-has-hero] .sl-markdown-content {
+	max-width: 44rem;
+	margin-inline: auto;
 }
 
-:root[data-has-hero] .sl-markdown-content :is(h2 + p, h2 + ul, h2 + ol) {
-	margin-top: 0.55rem;
+:root[data-has-hero] .sl-markdown-content :is(h2) {
+	margin-top: 1.75rem;
+	font-size: 1.2rem;
+}
+
+:root[data-has-hero] .sl-markdown-content :is(h2 + p, h2 + ul, h2 + ol, h2 + div) {
+	margin-top: 0.5rem;
 }
 
 :root[data-has-hero] .sl-markdown-content li + li {
@@ -48,22 +70,15 @@
 }
 
 :root[data-has-hero] .sl-markdown-content .sl-steps {
-	margin-block: 0.75rem 0.25rem;
-}
-
-/* Strengthen stage banner link affordance */
-.sl-banner a {
-	text-decoration: underline;
-	text-underline-offset: 0.15em;
-	font-weight: 600;
+	margin-block: 0.65rem 0.2rem;
 }
 
 .trust-strip {
 	display: flex;
 	flex-wrap: wrap;
 	justify-content: center;
-	gap: 0.45rem;
-	margin: 0.15rem 0 1.35rem;
+	gap: 0.4rem;
+	margin: 0.1rem 0 1.15rem;
 	padding: 0;
 	list-style: none;
 }
@@ -71,24 +86,27 @@
 .trust-strip li {
 	border: 1px solid var(--sl-color-gray-5);
 	border-radius: 999px;
-	padding: 0.3rem 0.7rem;
+	padding: 0.28rem 0.65rem;
 	font-family: var(--sl-font-mono);
-	font-size: 0.78rem;
+	font-size: 0.76rem;
 	color: var(--sl-color-white);
-	background: var(--sl-color-gray-6);
+	background: transparent;
+}
+
+.trust-strip code {
+	font-size: inherit;
 }
 
 .status-badge {
 	display: inline-flex;
 	align-items: center;
-	margin: 0 0.4rem 0.2rem 0;
+	margin: 0 0 0.4rem;
 	border-radius: 999px;
 	padding: 0.12rem 0.55rem;
 	font-family: var(--sl-font-mono);
 	font-size: 0.75rem;
 	letter-spacing: 0.01em;
 	line-height: 1.4;
-	vertical-align: middle;
 }
 
 .status-badge--ships {
@@ -103,40 +121,33 @@
 	border: 1px solid var(--sl-color-gray-3);
 }
 
-.capability-matrix,
-.egress-matrix {
-	width: 100%;
-	border-collapse: collapse;
-	margin: 0.75rem 0 0.5rem;
-	font-size: 0.92rem;
+.bento {
+	display: grid;
+	gap: 0.85rem;
+	margin: 0.85rem 0 1.1rem;
 }
 
-.capability-matrix th,
-.capability-matrix td,
-.egress-matrix th,
-.egress-matrix td {
+.bento article {
 	border: 1px solid var(--sl-color-gray-5);
-	padding: 0.7rem 0.8rem;
-	vertical-align: top;
-	text-align: start;
-}
-
-.capability-matrix th,
-.egress-matrix th {
+	border-radius: 0.65rem;
+	padding: 0.95rem 1rem 1rem;
 	background: var(--sl-color-gray-6);
-	font-size: 0.82rem;
-	font-weight: 600;
 }
 
-.matrix-note {
-	margin: 0.35rem 0 0;
-	font-size: 0.9rem;
+.bento h3 {
+	margin: 0 0 0.3rem;
+	font-size: 1.05rem;
+}
+
+.bento p {
+	margin: 0;
 	color: var(--sl-color-gray-2);
+	font-size: 0.92rem;
 }
 
 .faq details {
 	border-bottom: 1px solid var(--sl-color-gray-5);
-	padding: 0.7rem 0;
+	padding: 0.65rem 0;
 }
 
 .faq summary {
@@ -145,27 +156,26 @@
 }
 
 .faq details p {
-	margin: 0.45rem 0 0.15rem;
+	margin: 0.4rem 0 0.1rem;
 }
 
 .cta-row {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 0.65rem;
-	margin-top: 0.5rem;
+	margin-top: 0.45rem;
+}
+
+@media (min-width: 50rem) {
+	.bento--ships {
+		grid-template-columns: repeat(3, 1fr);
+	}
 }
 
 @media (max-width: 49.99rem) {
 	.trust-strip {
 		justify-content: flex-start;
-		margin-bottom: 1.1rem;
-	}
-
-	.capability-matrix,
-	.egress-matrix {
-		display: block;
-		overflow-x: auto;
-		-webkit-overflow-scrolling: touch;
+		margin-bottom: 1rem;
 	}
 
 	.cta-row {

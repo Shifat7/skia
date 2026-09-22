@@ -10,8 +10,8 @@ banner:
   content: |
     <a href="/skia/status/">Alpha · foundation shipping · product CLI not released → /status/</a>
 hero:
-  title: Comprehend AI-written diffs before you open the PR.
-  tagline: Local-first reading check — source-backed simplify, one prediction you make yourself, uncertainty left visible. Not a GitHub App. Not a review bot. Not a runnable <code>skia review</code> yet.
+  title: Understand the AI diff before you trust the commit
+  tagline: Local pre-PR comprehension for vibecoders. Turns a generated change into a source-backed reading check — keeps anything it couldn’t analyze visible. <code>skia review</code> is not released yet.
   actions:
     - text: View on GitHub
       link: https://github.com/Shifat7/skia
@@ -21,29 +21,37 @@ hero:
       link: /skia/status/
       icon: right-arrow
       variant: secondary
-    - text: Limitations
-      link: '#limitations'
-      variant: minimal
 ---
 
 import { LinkButton, Steps } from '@astrojs/starlight/components';
 
 <ul class="trust-strip" aria-label="Trust substitutes">
 	<li>Local-first</li>
-	<li>Source-backed</li>
-	<li>Uncertainty visible</li>
-	<li>Telemetry none planned</li>
+	<li>TypeScript / TSX / Python foundation</li>
+	<li><code>skia review</code>: not runnable</li>
 </ul>
 
-## Problem
+## What ships today
 
-AI tools can ship a working-looking diff faster than a reliable mental model forms.
+Solid badges are in the repository today. Outline means intended product behavior — never a green check. Planned detail lives on <a href="/skia/status/">Status</a>.
 
-- Extra abstractions or dependencies the change did not need
-- Branches and error paths buried in a large generated diff
-- Code that compiles and passes tests while the behavior is still unfamiliar
-
-Skia is the intended checkpoint for one developer before that gap becomes a reviewer's problem.
+<div class="bento bento--ships">
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Exact Git snapshots</h3>
+		<p>Staged and committed-HEAD snapshots, with path-safe local storage.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Parsers and schemas</h3>
+		<p>TypeScript, TSX, and Python analysis, plus schema and coverage validation.</p>
+	</article>
+	<article>
+		<p><span class="status-badge status-badge--ships">Ships today</span></p>
+		<h3>Uncertainty stays visible</h3>
+		<p><code>partial</code> and <code>unmapped</code> are useful results. A gap is part of the output, not something to hide.</p>
+	</article>
+</div>
 
 ## How it works
 
@@ -61,79 +69,9 @@ Skia is the intended checkpoint for one developer before that gap becomes a revi
 
 </Steps>
 
-## Available vs planned
+## Problem
 
-Solid badges are in the repository today. Outline badges are intended product behavior — never a green check.
-
-<table class="capability-matrix">
-	<thead>
-		<tr>
-			<th>Available now</th>
-			<th>Planned</th>
-		</tr>
-	</thead>
-	<tbody>
-		<tr>
-			<td>
-				<span class="status-badge status-badge--ships">Ships today</span>
-				Exact Git snapshots, schema and coverage validation, TypeScript / TSX / Python analysis, path-safe local storage.
-			</td>
-			<td>
-				<span class="status-badge status-badge--planned">Planned</span>
-				Simplified view + one prediction, <code>skia review</code> / <code>skia repo review</code>, npm publish, editor and CI adapters.
-			</td>
-		</tr>
-	</tbody>
-</table>
-
-<p class="matrix-note">Full matrix, including exclusions: <a href="/skia/status/">Status</a>.</p>
-
-## Privacy and egress
-
-Skia has no review backend and no product telemetry. Foundation artifacts stay on disk. A future repository mode may send bounded context only to a model endpoint you configure, after consent. “Local” is about where artifacts sit — not a promise that a cloud model never sees a prompt.
-
-<table class="egress-matrix">
-	<thead>
-		<tr>
-			<th>Path</th>
-			<th>Status</th>
-			<th>What can leave</th>
-		</tr>
-	</thead>
-	<tbody>
-		<tr>
-			<td>Foundation library</td>
-			<td><span class="status-badge status-badge--ships">Ships today</span></td>
-			<td>Designed as local snapshot, parse, and storage. Not a formal network audit.</td>
-		</tr>
-		<tr>
-			<td>Staged review</td>
-			<td><span class="status-badge status-badge--planned">Planned</span></td>
-			<td>Specified with no network capability.</td>
-		</tr>
-		<tr>
-			<td>Repo-mode model</td>
-			<td><span class="status-badge status-badge--planned">Planned</span></td>
-			<td>Only the provider endpoint you disclose, after consent.</td>
-		</tr>
-		<tr>
-			<td>Product telemetry</td>
-			<td>None</td>
-			<td>No analytics beacon, crash upload, or auto-update phone-home.</td>
-		</tr>
-	</tbody>
-</table>
-
-<p class="matrix-note">Details: <a href="/skia/privacy/">Privacy</a>.</p>
-
-## Limitations
-
-- No working review CLI. Package is private at `0.0.0`; shell returns unimplemented.
-- No global install command is shown here. npm is the first channel when publication is allowed.
-- Simplified views will not be executable or proof of semantic equivalence.
-- Name collision with Google’s Skia graphics library is an open release risk ([OD-1](https://github.com/Shifat7/skia/blob/main/docs/OPEN_DECISIONS.md)).
-
-<p class="matrix-note">More on <a href="/skia/status/">Status</a> · hand-written transcripts in <a href="https://github.com/Shifat7/skia/tree/main/examples/illustrative">examples/illustrative</a>.</p>
+AI tools can ship a working-looking diff faster than a reliable mental model forms. Extra abstractions, buried branches, and unfamiliar behavior that still passes tests are easy to miss. Skia is the intended checkpoint for one developer before that gap becomes a reviewer's problem.
 
 ## FAQ
 
@@ -171,5 +109,4 @@ Build the pre-PR habit from the source of truth. Marketing drafts stay unpublish
 <div class="cta-row">
 	<LinkButton href="https://github.com/Shifat7/skia" variant="primary" icon="external">View on GitHub</LinkButton>
 	<LinkButton href="/skia/status/" variant="secondary" icon="right-arrow">What's real vs planned</LinkButton>
-	<LinkButton href="#limitations" variant="minimal">Limitations</LinkButton>
 </div>
