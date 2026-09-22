@@ -1,0 +1,233 @@
+---
+/**
+ * Illustrative terminal island for the splash hero.
+ * Diff → simplify → predict from the README pricing example.
+ * Not a live CLI session.
+ */
+---
+
+<figure class="hero-demo" aria-label="Illustrative Skia reading loop">
+	<div class="hero-demo__chrome">
+		<span class="hero-demo__dots" aria-hidden="true">
+			<span></span><span></span><span></span>
+		</span>
+		<span class="hero-demo__title">skia · README example</span>
+		<span class="hero-demo__badge">Illustrative · not runnable yet</span>
+	</div>
+
+	<div class="hero-demo__stage">
+		<div class="hero-demo__frames" data-hero-demo-frames>
+			<pre class="hero-demo__frame hero-demo__frame--diff" data-frame="0"><code>{`diff — calculateFinalPrice
+ function calculateFinalPrice(total, member, promotion) {
+-  return total;
++  if (member) total *= 0.9;
++  if (promotion > 0) total -= promotion;
++  return Math.max(0, Math.round(total));
+ }`}</code></pre>
+
+			<pre class="hero-demo__frame hero-demo__frame--simplify" data-frame="1"><code>{`SIMPLIFIED VIEW — not executable
+src/pricing.ts:12-18
+
+if (member)        total = total * 0.90
+if (promotion > 0)  total = total - promotion
+return round(max(total, 0))`}</code></pre>
+
+			<pre class="hero-demo__frame hero-demo__frame--predict" data-frame="2"><code>{`total=100, member=true, promotion=10
+What should calculateFinalPrice(...) return?
+
+> 80
+  (developer_supplied — not a test result)`}</code></pre>
+
+			<pre class="hero-demo__frame hero-demo__frame--coverage" data-frame="3"><code>{`coverage (illustrative labels)
+branches shown     supported
+runtime result 80  not_available
+next               open original source`}</code></pre>
+		</div>
+
+		{/* Static stack for prefers-reduced-motion and no-JS */}
+		<pre class="hero-demo__static" aria-hidden="true"><code>{`SIMPLIFIED VIEW — not executable
+src/pricing.ts:12-18
+if (member)        total = total * 0.90
+if (promotion > 0)  total = total - promotion
+return round(max(total, 0))
+
+total=100, member=true, promotion=10 → ?
+example answer (developer_supplied): 80`}</code></pre>
+	</div>
+
+	<figcaption class="hero-demo__caption">
+		Illustrative / intended UX — not a live CLI session
+	</figcaption>
+</figure>
+
+<style>
+	.hero-demo {
+		--demo-bg: #0d1117;
+		--demo-border: #30363d;
+		--demo-fg: #e6edf3;
+		--demo-muted: #8b949e;
+		--demo-green: #3fb950;
+		--demo-red: #f85149;
+		--demo-accent: #e6b15a;
+		margin: 0;
+		width: 100%;
+		max-width: 42rem;
+		border: 1px solid var(--demo-border);
+		border-radius: 0.75rem;
+		overflow: hidden;
+		background: var(--demo-bg);
+		color: var(--demo-fg);
+		box-shadow: 0 18px 48px rgb(0 0 0 / 28%);
+	}
+
+	.hero-demo__chrome {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem 0.75rem;
+		padding: 0.55rem 0.85rem;
+		border-bottom: 1px solid var(--demo-border);
+		font-family: var(--sl-font-mono);
+		font-size: 0.72rem;
+		color: var(--demo-muted);
+	}
+
+	.hero-demo__dots {
+		display: inline-flex;
+		gap: 0.28rem;
+	}
+
+	.hero-demo__dots span {
+		width: 0.45rem;
+		height: 0.45rem;
+		border-radius: 999px;
+		background: #484f58;
+	}
+
+	.hero-demo__title {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.hero-demo__badge {
+		border: 1px solid var(--demo-border);
+		border-radius: 999px;
+		padding: 0.12rem 0.55rem;
+		color: var(--demo-accent);
+		white-space: nowrap;
+	}
+
+	.hero-demo__stage {
+		position: relative;
+		min-height: 11.5rem;
+	}
+
+	.hero-demo__frames,
+	.hero-demo__frame,
+	.hero-demo__static {
+		margin: 0;
+		font-family: var(--sl-font-mono);
+		font-size: 0.78rem;
+		line-height: 1.45;
+		white-space: pre;
+	}
+
+	.hero-demo__frames {
+		position: relative;
+		min-height: 11.5rem;
+	}
+
+	.hero-demo__frame {
+		position: absolute;
+		inset: 0;
+		padding: 1rem 1.05rem 1.15rem;
+		overflow-x: auto;
+		opacity: 0;
+		visibility: hidden;
+		animation: hero-demo-cycle 16s infinite;
+	}
+
+	.hero-demo__frame--diff {
+		animation-delay: 0s;
+	}
+	.hero-demo__frame--simplify {
+		animation-delay: 4s;
+	}
+	.hero-demo__frame--predict {
+		animation-delay: 8s;
+	}
+	.hero-demo__frame--coverage {
+		animation-delay: 12s;
+	}
+
+	.hero-demo__frame--diff code {
+		color: var(--demo-fg);
+	}
+
+	.hero-demo__frame--simplify code {
+		color: #c9d1d9;
+	}
+
+	.hero-demo__frame--predict code {
+		color: var(--demo-green);
+	}
+
+	.hero-demo__frame--coverage code {
+		color: var(--demo-accent);
+	}
+
+	.hero-demo__static {
+		display: none;
+		padding: 1rem 1.05rem 1.15rem;
+		overflow-x: auto;
+		color: #c9d1d9;
+	}
+
+	.hero-demo__caption {
+		padding: 0.5rem 0.9rem 0.65rem;
+		border-top: 1px solid var(--demo-border);
+		font-family: var(--sl-font-mono);
+		font-size: 0.72rem;
+		color: var(--demo-muted);
+		text-align: center;
+	}
+
+	@keyframes hero-demo-cycle {
+		0%,
+		22% {
+			opacity: 1;
+			visibility: visible;
+		}
+		25%,
+		100% {
+			opacity: 0;
+			visibility: hidden;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.hero-demo__frames {
+			display: none;
+		}
+
+		.hero-demo__static {
+			display: block;
+		}
+
+		.hero-demo__stage {
+			min-height: 0;
+		}
+	}
+
+	@media (max-width: 49.99rem) {
+		.hero-demo {
+			max-width: none;
+			border-radius: 0.65rem;
+		}
+
+		.hero-demo__frame,
+		.hero-demo__static {
+			font-size: 0.74rem;
+		}
+	}
+</style>

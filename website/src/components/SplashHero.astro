@@ -1,0 +1,134 @@
+---
+import { LinkButton } from '@astrojs/starlight/components';
+import HeroDemo from './HeroDemo.astro';
+
+const { data } = Astro.locals.starlightRoute.entry;
+const { title = data.title, tagline, actions = [] } = data.hero || {};
+---
+
+<div class="splash-hero">
+	<div class="splash-hero__copy">
+		<p class="splash-hero__eyebrow">Local pre-PR CLI for vibecoders</p>
+		<h1 id="_top" data-page-title set:html={title} />
+		{tagline && <div class="splash-hero__tagline" set:html={tagline} />}
+		{
+			actions.length > 0 && (
+				<div class="splash-hero__actions">
+					{actions.map(
+						({ attrs: { class: className, ...attrs } = {}, icon, link: href, text, variant }) => (
+							<LinkButton {href} {variant} icon={icon?.name} class:list={[className]} {...attrs}>
+								{text}
+								{icon?.html && <Fragment set:html={icon.html} />}
+							</LinkButton>
+						)
+					)}
+				</div>
+			)
+		}
+		<p class="splash-hero__micro">npm first · Node 24+ · no Skia backend</p>
+	</div>
+
+	<div class="splash-hero__demo">
+		<HeroDemo />
+	</div>
+</div>
+
+<style>
+	.splash-hero {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1.25rem;
+		padding-block: 0.75rem 0.5rem;
+		text-align: center;
+	}
+
+	.splash-hero__copy {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.85rem;
+		max-width: 42rem;
+	}
+
+	.splash-hero__eyebrow {
+		margin: 0;
+		font-family: var(--sl-font-mono);
+		font-size: 0.78rem;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--sl-color-gray-2);
+	}
+
+	.splash-hero h1 {
+		margin: 0;
+		font-size: clamp(1.65rem, 0.4rem + 3.2vw, 2.55rem);
+		line-height: 1.15;
+		font-weight: 650;
+		color: var(--sl-color-white);
+		max-width: 22ch;
+	}
+
+	.splash-hero__tagline {
+		margin: 0;
+		font-size: clamp(0.95rem, 0.85rem + 0.4vw, 1.1rem);
+		line-height: 1.45;
+		color: var(--sl-color-gray-2);
+		max-width: 48ch;
+	}
+
+	.splash-hero__actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 0.65rem 0.85rem;
+	}
+
+	.splash-hero__micro {
+		margin: 0;
+		font-family: var(--sl-font-mono);
+		font-size: 0.78rem;
+		color: var(--sl-color-gray-3);
+	}
+
+	.splash-hero__demo {
+		width: 100%;
+		display: flex;
+		justify-content: center;
+	}
+
+	@media (max-width: 49.99rem) {
+		.splash-hero {
+			align-items: stretch;
+			text-align: start;
+			gap: 1rem;
+			padding-block: 0.35rem 0.25rem;
+		}
+
+		.splash-hero__copy {
+			align-items: stretch;
+			max-width: none;
+		}
+
+		.splash-hero h1 {
+			max-width: none;
+		}
+
+		.splash-hero__actions {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.splash-hero__actions :global(.sl-link-button) {
+			justify-content: center;
+			width: 100%;
+		}
+	}
+
+	@media (min-width: 50rem) {
+		.splash-hero {
+			padding-block: 0.85rem 0.65rem;
+			gap: 1.35rem;
+		}
+	}
+</style>

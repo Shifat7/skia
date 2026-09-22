@@ -11,6 +11,9 @@ export default defineConfig({
 			title: 'Skia',
 			favicon: '/favicon.svg',
 			customCss: ['./src/styles/custom.css'],
+			components: {
+				Hero: './src/components/SplashHero.astro',
+			},
 			social: [
 				{
 					icon: 'github',
