@@ -1,6 +1,6 @@
 ---
 title: Skia
-description: Alpha local pre-PR checkpoint. The foundation ships in the repository. The product CLI is not released.
+description: Alpha local pre-PR checkpoint. Foundation is in the repo. Product CLI is not released.
 template: splash
 sidebar:
   hidden: true
@@ -10,8 +10,8 @@ banner:
   content: |
     <a href="/skia/status/">Alpha · foundation shipping · product CLI not released → /status/</a>
 hero:
-  title: Understand the AI diff before you trust the commit
-  tagline: Local pre-PR comprehension for vibecoders. Turns a generated change into a source-backed reading check — keeps anything it couldn’t analyze visible.
+  title: Read the AI diff before you trust the commit
+  tagline: Local pre-PR comprehension for vibecoders. Map what a generated change appears to do, then keep every analysis gap visible.
   actions:
     - text: View on GitHub
       link: https://github.com/Shifat7/skia
@@ -27,17 +27,17 @@ import { LinkButton, Steps } from '@astrojs/starlight/components';
 
 ## What ships today
 
-The Phase 1 foundation is in the repository. Outline Planned items stay on <a href="/skia/status/">Status</a> — never a green check on this page.
+Phase 1 foundation is in the repository. Planned items stay on <a href="/skia/status/">Status</a> — they do not get a green check here.
 
 ## How it works
 
-`skia review` is a documented name. The shell in `src/main.ts` is unimplemented. Intended loop:
+`skia review` is a documented name. The shell in `src/main.ts` is unimplemented. Planned loop:
 
 <Steps>
 
 1. Stage or point at a change — exact Git snapshot when the product CLI lands.
 
-2. Read the simplified view. It is a map, and it is not executable.
+2. Read the simplified view. It is a map. It is not executable.
 
 3. Predict one result yourself, before any feedback.
 
@@ -58,14 +58,14 @@ The Phase 1 foundation is in the repository. Outline Planned items stay on <a hr
 	</article>
 	<article>
 		<p><span class="status-badge status-badge--ships">Ships today</span></p>
-		<h3>Uncertainty stays visible</h3>
-		<p><code>partial</code> and <code>unmapped</code> are useful results. A gap is part of the output, not something to hide.</p>
+		<h3>Gaps stay visible</h3>
+		<p><code>partial</code> and <code>unmapped</code> are useful results. A gap belongs in the output.</p>
 	</article>
 </div>
 
 ## Problem
 
-AI tools can ship a working-looking diff faster than a reliable mental model forms. Extra abstractions, buried branches, and unfamiliar behavior that still passes tests are easy to miss. Skia is the intended checkpoint for one developer before that gap becomes a reviewer's problem.
+AI tools can produce a working-looking diff faster than you can build a mental model of it. Extra abstractions, buried branches, and unfamiliar behavior that still passes tests are easy to miss. Skia is meant as the checkpoint for one developer before that gap becomes a reviewer's problem.
 
 ## FAQ
 
@@ -76,11 +76,11 @@ AI tools can ship a working-looking diff faster than a reliable mental model for
 	</details>
 	<details>
 		<summary>Does my code leave the machine?</summary>
-		<p>Foundation work is designed to keep snapshot and parse artifacts local. Skia does not operate a review backend and does not send product telemetry. A future repository mode may send bounded context to an endpoint you configure, after consent. See <a href="/skia/privacy/">Privacy</a>.</p>
+		<p>Foundation work keeps snapshot and parse artifacts local. Skia does not operate a review backend and does not send product telemetry. A future repository mode may send bounded context to an endpoint you configure, after consent. See <a href="/skia/privacy/">Privacy</a>.</p>
 	</details>
 	<details>
 		<summary>Is this a CodeRabbit or Greptile replacement?</summary>
-		<p>No. Skia is intended as a local pre-PR comprehension checkpoint for one developer — simplify, predict, surface uncertainty — not a hosted PR bot or agent fix loop.</p>
+		<p>No. Skia is a local pre-PR comprehension checkpoint for one developer — simplify, predict, surface uncertainty — not a hosted PR bot or agent fix loop.</p>
 	</details>
 	<details>
 		<summary>How do I install it?</summary>
@@ -97,7 +97,7 @@ AI tools can ship a working-looking diff faster than a reliable mental model for
 </div>
 
 <div class="cta-band not-content">
-	<p class="cta-band__line">Pre-PR comprehension for AI diffs — start from the repository.</p>
+	<p class="cta-band__line">Start from the repository. There is no review CLI to install yet.</p>
 	<p class="cta-band__note">Marketing drafts stay unpublished until a stranger can run a real review. No curl or global install here.</p>
 	<div class="cta-row">
 		<LinkButton href="https://github.com/Shifat7/skia" variant="primary" icon="external">View on GitHub</LinkButton>

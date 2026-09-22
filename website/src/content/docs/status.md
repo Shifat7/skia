@@ -1,9 +1,9 @@
 ---
 title: Status
-description: What ships in the Skia repository today, what is planned, and what is not a roadmap item.
+description: What ships in the Skia repository today, what is planned, and what is not on the roadmap.
 ---
 
-Alpha. The Phase 1 foundation is in the repository. The product CLI is not released.
+Alpha. Phase 1 foundation is in the repository. The product CLI is not released.
 
 | Fact | Value |
 |---|---|
@@ -13,7 +13,7 @@ Alpha. The Phase 1 foundation is in the repository. The product CLI is not relea
 | Product telemetry | None planned |
 | Review backend | None — no Skia-operated review service |
 
-Solid means the code and tests exist today. Outline means intended product behavior with no install command. Outline is not a green check.
+**Ships today** means the code and tests exist now. **Planned** means intended product behavior with no install command. Planned is not a green check.
 
 ## Ships today
 
@@ -26,9 +26,9 @@ Solid means the code and tests exist today. Outline means intended product behav
 | Coverage states, including `partial` and `unmapped` | <span class="status-badge status-badge--ships">Ships today</span> |
 | Bootstrap `skia` shell (`implemented: false`) | <span class="status-badge status-badge--ships">Ships today</span> |
 
-The shell shipping today returns an unimplemented result. It does not review a diff.
+The shell that ships today returns an unimplemented result. It does not review a diff.
 
-## Intended or planned
+## Planned
 
 | Capability | Status |
 |---|---|
@@ -42,9 +42,9 @@ The shell shipping today returns an unimplemented result. It does not review a d
 
 npm is the channel that would ship first. This page has no `npm install -g`, `brew`, or `curl` command. Publication also waits on the name decision in [OD-1](https://github.com/Shifat7/skia/blob/main/docs/OPEN_DECISIONS.md). Node.js 24.x is the engine floor in `package.json` (`>=24.0.0 <25`).
 
-## Not a roadmap item
+## Not on the roadmap
 
-These are exclusions in the implementation plan and repository metadata, so they do not get a planned badge:
+These are exclusions in the implementation plan and repository metadata. They do not get a planned badge:
 
 - complete call graphs or a generated dependency-graph product;
 - type inference or type-drift analysis;
@@ -53,8 +53,8 @@ These are exclusions in the implementation plan and repository metadata, so they
 - a hosted PR bot, team dashboard, or product telemetry;
 - CI review comments.
 
-`partial` and `unmapped` coverage from the parser foundation is a different thing: it records what a run could not safely reduce. That visibility ships in the foundation. A polished "error coverage" product does not.
+`partial` and `unmapped` from the parser foundation are different: they record what a run could not safely reduce. That visibility ships today. A polished "error coverage" product does not.
 
 ## Proof gaps
 
-There is no public benchmark, no captured CLI transcript, and no tester-quote wall. Samples under `examples/illustrative/` are hand-written. Stars are not used as a quality signal.
+There is no public benchmark, no captured CLI transcript, and no tester-quote wall. Samples under `examples/illustrative/` are hand-written. Stars are not a quality signal.

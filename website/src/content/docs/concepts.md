@@ -1,23 +1,23 @@
 ---
 title: Concepts
-description: Simplified views, one prediction, and why partial and unmapped coverage are part of the product.
+description: Simplified views, one prediction, and why partial and unmapped coverage belong in the product.
 ---
 
-These are the intended reading ideas. They are not output from a released CLI.
+These are the reading ideas for the product. They are not output from a released CLI.
 
 ## Simplified view
 
-A simplified view is a short, source-anchored reading of what a change appears to do. It is labeled **not executable**. The original source and the exact Git snapshot stay authoritative. A simplified view is not semantic equivalence and not code to paste back into a project.
+A simplified view is a short, source-anchored reading of what a change appears to do. It is labeled **not executable**. The original source and the exact Git snapshot stay authoritative. A simplified view is not semantic equivalence, and it is not code to paste back into a project.
 
 The decision is recorded in [ADR-001](https://github.com/Shifat7/skia/blob/main/docs/decisions/ADR-001-simplified-code-as-evidence.md).
 
 ## One prediction
 
-The intended card asks for one concrete result before feedback. That answer is `developer_supplied`. The system may supply the scenario. Skia does not treat the answer as a passing test or as runtime verification.
+The planned card asks for one concrete result before feedback. That answer is `developer_supplied`. The system may supply the scenario. Skia does not treat the answer as a passing test or as runtime verification.
 
-## Uncertainty is a feature
+## Gaps stay visible
 
-A run that cannot safely reduce something must say so. Hiding the gap behind a clean summary is the failure mode.
+If a run cannot safely reduce something, it must say so. Hiding the gap behind a clean summary is the failure mode.
 
 | State | What you should do |
 |---|---|

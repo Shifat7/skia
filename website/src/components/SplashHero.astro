@@ -5,18 +5,18 @@ import HeroDemo from './HeroDemo.astro';
 const { data } = Astro.locals.starlightRoute.entry;
 const { title = data.title, tagline, actions = [] } = data.hero || {};
 const titleText = String(title ?? '');
-const knownTitle = 'Understand the AI diff before you trust the commit';
+const knownTitle = 'Read the AI diff before you trust the commit';
 const isKnownTitle = titleText === knownTitle;
 ---
 
 <div class="splash-hero">
 	<div class="splash-hero__copy">
-		<p class="splash-hero__eyebrow">Foundation · demos illustrative until Gate A</p>
+		<p class="splash-hero__eyebrow">Alpha · demos are illustrative until Gate A</p>
 		<h1 id="_top" data-page-title>
 			{
 				isKnownTitle ? (
 					<>
-						Understand the <span class="h1-dim">AI diff</span> <span class="accent">before you trust</span> the commit
+						Read the <span class="h1-dim">AI diff</span> <span class="accent">before you trust</span> the commit
 					</>
 				) : (
 					titleText
@@ -38,10 +38,10 @@ const isKnownTitle = titleText === knownTitle;
 				</div>
 			)
 		}
-		<ul class="trust-strip trust-strip--hero" aria-label="Trust substitutes">
+		<ul class="trust-strip trust-strip--hero" aria-label="Current product facts">
 			<li>Local-first</li>
-			<li>TypeScript / TSX / Python foundation</li>
-			<li><code>skia review</code>: not runnable</li>
+			<li>TS / TSX / Python foundation</li>
+			<li><code>skia review</code> not runnable</li>
 		</ul>
 	</div>
 

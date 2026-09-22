@@ -3,9 +3,9 @@ title: Contribute
 description: How to run the Skia foundation tests. This is not a review-CLI install.
 ---
 
-The product CLI is not released. This page does not install `skia`. It runs the foundation that is already in the repository.
+The product CLI is not released. This page does not install `skia`. It runs the foundation already in the repository.
 
-Contributors should read [Getting Started](https://github.com/Shifat7/skia/blob/main/docs/GETTING_STARTED.md) and [CONTRIBUTING.md](https://github.com/Shifat7/skia/blob/main/CONTRIBUTING.md) before opening a pull request.
+Read [Getting Started](https://github.com/Shifat7/skia/blob/main/docs/GETTING_STARTED.md) and [CONTRIBUTING.md](https://github.com/Shifat7/skia/blob/main/CONTRIBUTING.md) before opening a pull request.
 
 ## Run the foundation
 

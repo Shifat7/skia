@@ -11,7 +11,7 @@ Skia does not operate a review backend and does not send product telemetry. The 
 
 | Path | Status | What can leave the machine |
 |---|---|---|
-| Foundation library | <span class="status-badge status-badge--ships">Ships today</span> | Designed as local snapshot, parse, and storage work. This page is not a formal network audit. |
+| Foundation library | <span class="status-badge status-badge--ships">Ships today</span> | Local snapshot, parse, and storage work. This page is not a formal network audit. |
 | Staged review | <span class="status-badge status-badge--planned">Planned</span> | Specified with no network capability. |
 | Cloud model in repository mode | <span class="status-badge status-badge--planned">Planned</span> | Only the provider endpoint you disclose, after consent and an allowlist. |
 | Local model | <span class="status-badge status-badge--planned">Planned</span> | A local endpoint, once provider wiring exists. |
