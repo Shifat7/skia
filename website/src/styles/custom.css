@@ -100,13 +100,14 @@
 .status-badge {
 	display: inline-flex;
 	align-items: center;
-	margin: 0 0 0.4rem;
+	margin: 0 0.35rem 0.25rem 0;
 	border-radius: 999px;
 	padding: 0.12rem 0.55rem;
 	font-family: var(--sl-font-mono);
 	font-size: 0.75rem;
 	letter-spacing: 0.01em;
 	line-height: 1.4;
+	vertical-align: middle;
 }
 
 .status-badge--ships {
@@ -119,6 +120,33 @@
 	background: transparent;
 	color: var(--sl-color-white);
 	border: 1px solid var(--sl-color-gray-3);
+}
+
+.capability-matrix {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 0.7rem 0 0.4rem;
+	font-size: 0.92rem;
+}
+
+.capability-matrix th,
+.capability-matrix td {
+	border: 1px solid var(--sl-color-gray-5);
+	padding: 0.7rem 0.8rem;
+	vertical-align: top;
+	text-align: start;
+}
+
+.capability-matrix th {
+	background: var(--sl-color-gray-6);
+	font-size: 0.82rem;
+	font-weight: 600;
+}
+
+.matrix-note {
+	margin: 0.3rem 0 0;
+	font-size: 0.9rem;
+	color: var(--sl-color-gray-2);
 }
 
 .bento {
@@ -176,6 +204,12 @@
 	.trust-strip {
 		justify-content: flex-start;
 		margin-bottom: 1rem;
+	}
+
+	.capability-matrix {
+		display: block;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	.cta-row {
