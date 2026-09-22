@@ -1,0 +1,26 @@
+---
+/**
+ * Force dark for the whole site.
+ * Starlight 0.42 has no prefer-theme config. The default provider
+ * follows prefers-color-scheme and localStorage, which lands light-mode
+ * visitors in light chrome. This script runs in <head> before paint.
+ */
+---
+
+<meta name="color-scheme" content="dark" />
+<meta name="theme-color" content="#07080a" />
+<script is:inline>
+	document.documentElement.dataset.theme = 'dark';
+	document.documentElement.style.colorScheme = 'dark';
+	try {
+		localStorage.removeItem('starlight-theme');
+	} catch {
+		/* Storage can be blocked. The CSS lock still keeps the dark palette. */
+	}
+	window.StarlightThemeProvider = {
+		updatePickers() {
+			document.documentElement.dataset.theme = 'dark';
+			document.documentElement.style.colorScheme = 'dark';
+		},
+	};
+</script>

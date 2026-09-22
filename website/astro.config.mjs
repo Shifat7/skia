@@ -15,6 +15,11 @@ export default defineConfig({
 				Hero: './src/components/SplashHero.astro',
 				Search: './src/components/SplashSearch.astro',
 				EditLink: './src/components/SplashEditLink.astro',
+				ThemeProvider: './src/components/ForceDarkTheme.astro',
+				ThemeSelect: './src/components/ThemeSelect.astro',
+			},
+			expressiveCode: {
+				themes: ['github-dark'],
 			},
 			social: [
 				{

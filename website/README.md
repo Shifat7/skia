@@ -7,6 +7,11 @@ It does not claim a runnable `skia review` command or a published npm package.
 Product design documents stay in the repository `docs/` directory. This site
 does not live there.
 
+The site is forced dark, including when a visitor prefers a light color
+scheme. The splash is a near-black product page with one amber accent and a
+terminal-style reading check. That look is inspired by coding-agent marketing
+sites. It does not copy their branding, install commands, or product claims.
+
 ## Build
 
 From `website/`, with Node.js 22 or newer:

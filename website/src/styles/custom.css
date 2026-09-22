@@ -1,30 +1,165 @@
-:root {
-	/* Quiet orange: accent mainly for wordmark + primary CTA */
-	--sl-color-accent-low: #2c2618;
-	--sl-color-accent: #c4923a;
-	--sl-color-accent-high: #e6c78a;
-	--sl-font: "IBM Plex Sans", "Segoe UI", sans-serif;
-	--sl-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
+
+/*
+ * Forced dark palette. One accent: Skia amber.
+ * Near-black canvas and hairline borders follow a terminal-site vibe.
+ * Light-theme tokens are pinned to the same values so a light
+ * prefers-color-scheme cannot flip the chrome.
+ */
+:root,
+:root[data-theme='light'],
+:root[data-theme='dark'] {
+	color-scheme: dark;
+	--sl-font: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
+	--sl-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+
+	--sl-color-white: #f4f1ea;
+	--sl-color-gray-1: #e6e1d6;
+	--sl-color-gray-2: #a39e93;
+	--sl-color-gray-3: #6f6b63;
+	--sl-color-gray-4: #3c3a36;
+	--sl-color-gray-5: rgb(255 255 255 / 12%);
+	--sl-color-gray-6: #101114;
+	--sl-color-gray-7: #0c0d10;
+	--sl-color-black: #07080a;
+
+	--sl-color-accent-low: #2a2112;
+	--sl-color-accent: #e0a84a;
+	--sl-color-accent-high: #f0d7a4;
+
+	--sl-color-text: #c8c3b8;
+	--sl-color-text-accent: var(--sl-color-accent);
+	--sl-color-text-invert: #16130c;
+	--sl-color-bg: #07080a;
+	--sl-color-bg-nav: #07080a;
+	--sl-color-bg-sidebar: #07080a;
+	--sl-color-bg-inline-code: #16171b;
+	--sl-color-bg-accent: var(--sl-color-accent);
+	--sl-color-hairline-light: rgb(255 255 255 / 12%);
+	--sl-color-hairline: rgb(255 255 255 / 8%);
+	--sl-color-hairline-shade: rgb(255 255 255 / 8%);
+
+	--sl-color-banner-bg: #0c0d10;
+	--sl-color-banner-text: #c8c3b8;
+	--sl-color-backdrop-overlay: rgb(0 0 0 / 72%);
+
+	--sl-nav-height: 3.25rem;
 }
 
-/* Soften stage banner into a mute text rail */
+html,
+html[data-theme='light'] {
+	color-scheme: dark;
+	background-color: #07080a;
+}
+
+:root[data-has-hero] {
+	overflow-x: clip;
+}
+
+@media (min-width: 50em) {
+	:root,
+	:root[data-theme='light'] {
+		--sl-nav-height: 3.5rem;
+	}
+}
+
+/* Quiet alpha rail, not a docs banner */
 .sl-banner {
-	--sl-color-banner-bg: color-mix(in srgb, var(--sl-color-accent) 18%, var(--sl-color-gray-6));
-	--sl-color-banner-text: var(--sl-color-gray-1);
-	font-size: 0.85rem;
-	font-weight: 500;
+	font-family: var(--sl-font-mono);
+	font-size: 0.78rem;
+	font-weight: 450;
+	border-bottom: 1px solid rgb(255 255 255 / 8%);
 }
 
 .sl-banner a {
 	text-decoration: underline;
 	text-underline-offset: 0.15em;
-	font-weight: 600;
+	font-weight: 500;
 	color: inherit;
+}
+
+/* Nav: wordmark + GitHub. No theme picker. */
+header.header {
+	background-color: #07080a;
+	border-bottom-color: rgb(255 255 255 / 8%);
+}
+
+.site-title {
+	gap: 0.55rem;
+	color: var(--sl-color-white);
+	font-size: 1rem;
+	font-weight: 600;
+	letter-spacing: -0.03em;
+}
+
+.site-title::before {
+	content: '';
+	width: 0.58rem;
+	height: 0.58rem;
+	border-radius: 2px;
+	background: var(--sl-color-accent);
+	flex: none;
+}
+
+.social-icons::after {
+	display: none;
+}
+
+.social-icons a {
+	color: var(--sl-color-gray-2);
+}
+
+.social-icons a:hover {
+	color: var(--sl-color-white);
+}
+
+/* Splash keeps GitHub in the bar on small screens. The menu button is hidden. */
+:root[data-has-hero] .right-group {
+	display: flex;
+	flex: none;
+}
+
+:root[data-has-hero] .social-icons {
+	flex: none;
+}
+
+:root[data-has-hero] header.header {
+	padding-inline-end: var(--sl-nav-pad-x);
+}
+
+.sl-link-button {
+	border-radius: 0.4rem;
+	font-weight: 560;
+	letter-spacing: -0.011em;
+}
+
+.sl-link-button.primary {
+	background: var(--sl-color-accent);
+	border-color: var(--sl-color-accent);
+	color: #16130c;
+}
+
+.sl-link-button.primary:hover {
+	background: var(--sl-color-accent-high);
+	border-color: var(--sl-color-accent-high);
+	color: #16130c;
+}
+
+.sl-link-button.secondary {
+	background: transparent;
+	border-color: rgb(255 255 255 / 16%);
+	color: var(--sl-color-gray-1);
+}
+
+.sl-link-button.secondary:hover {
+	border-color: rgb(255 255 255 / 36%);
+	color: var(--sl-color-white);
 }
 
 /* Splash: product page, not docs article */
 :root[data-has-hero] header.header {
-	padding-block: 0.3rem;
+	padding-block: 0.35rem;
 }
 
 :root[data-has-hero] .content-panel:first-of-type {
@@ -32,7 +167,8 @@
 }
 
 :root[data-has-hero] .content-panel + .content-panel {
-	padding-top: 0.75rem;
+	padding-top: 0.85rem;
+	border-top: 1px solid rgb(255 255 255 / 8%);
 }
 
 :root[data-has-hero] .right-sidebar-container,
@@ -47,18 +183,19 @@
 
 :root[data-has-hero] .main-pane {
 	width: 100%;
-	max-width: 48rem;
+	max-width: 52rem;
 	margin-inline: auto;
 }
 
 :root[data-has-hero] .sl-markdown-content {
-	max-width: 44rem;
+	max-width: 46rem;
 	margin-inline: auto;
 }
 
 :root[data-has-hero] .sl-markdown-content :is(h2) {
-	margin-top: 1.75rem;
-	font-size: 1.2rem;
+	margin-top: 1.85rem;
+	font-size: 1.15rem;
+	letter-spacing: -0.02em;
 }
 
 :root[data-has-hero] .sl-markdown-content :is(h2 + p, h2 + ul, h2 + ol, h2 + div) {
@@ -76,7 +213,7 @@
 .trust-strip {
 	display: flex;
 	flex-wrap: wrap;
-	justify-content: center;
+	justify-content: flex-start;
 	gap: 0.4rem;
 	margin: 0.1rem 0 1.15rem;
 	padding: 0;
@@ -84,13 +221,13 @@
 }
 
 .trust-strip li {
-	border: 1px solid var(--sl-color-gray-5);
+	border: 1px solid rgb(255 255 255 / 12%);
 	border-radius: 999px;
-	padding: 0.28rem 0.65rem;
+	padding: 0.22rem 0.6rem;
 	font-family: var(--sl-font-mono);
-	font-size: 0.76rem;
-	color: var(--sl-color-white);
-	background: transparent;
+	font-size: 0.72rem;
+	color: var(--sl-color-gray-1);
+	background: rgb(255 255 255 / 3%);
 }
 
 .trust-strip code {
@@ -102,24 +239,24 @@
 	align-items: center;
 	margin: 0 0.35rem 0.25rem 0;
 	border-radius: 999px;
-	padding: 0.12rem 0.55rem;
+	padding: 0.1rem 0.5rem;
 	font-family: var(--sl-font-mono);
-	font-size: 0.75rem;
+	font-size: 0.72rem;
 	letter-spacing: 0.01em;
 	line-height: 1.4;
 	vertical-align: middle;
 }
 
 .status-badge--ships {
-	background: var(--sl-color-white);
-	color: var(--sl-color-black);
-	border: 1px solid var(--sl-color-white);
+	background: rgb(255 255 255 / 4%);
+	color: var(--sl-color-white);
+	border: 1px solid rgb(255 255 255 / 22%);
 }
 
 .status-badge--planned {
 	background: transparent;
-	color: var(--sl-color-white);
-	border: 1px solid var(--sl-color-gray-3);
+	color: var(--sl-color-gray-1);
+	border: 1px solid rgb(255 255 255 / 14%);
 }
 
 .capability-matrix {
@@ -131,14 +268,14 @@
 
 .capability-matrix th,
 .capability-matrix td {
-	border: 1px solid var(--sl-color-gray-5);
+	border: 1px solid rgb(255 255 255 / 10%);
 	padding: 0.7rem 0.8rem;
 	vertical-align: top;
 	text-align: start;
 }
 
 .capability-matrix th {
-	background: var(--sl-color-gray-6);
+	background: #101114;
 	font-size: 0.82rem;
 	font-weight: 600;
 }
@@ -151,20 +288,21 @@
 
 .bento {
 	display: grid;
-	gap: 0.85rem;
+	gap: 0.75rem;
 	margin: 0.85rem 0 1.1rem;
 }
 
 .bento article {
-	border: 1px solid var(--sl-color-gray-5);
-	border-radius: 0.65rem;
-	padding: 0.95rem 1rem 1rem;
-	background: var(--sl-color-gray-6);
+	border: 1px solid rgb(255 255 255 / 10%);
+	border-radius: 0.5rem;
+	padding: 0.9rem 0.95rem 1rem;
+	background: #0c0d10;
 }
 
 .bento h3 {
 	margin: 0 0 0.3rem;
-	font-size: 1.05rem;
+	font-size: 1.02rem;
+	letter-spacing: -0.015em;
 }
 
 .bento p {
@@ -174,13 +312,14 @@
 }
 
 .faq details {
-	border-bottom: 1px solid var(--sl-color-gray-5);
+	border-bottom: 1px solid rgb(255 255 255 / 10%);
 	padding: 0.65rem 0;
 }
 
 .faq summary {
 	cursor: pointer;
 	font-weight: 600;
+	color: var(--sl-color-white);
 }
 
 .faq details p {
@@ -196,16 +335,17 @@
 
 .cta-band {
 	margin: 2rem 0 0.5rem;
-	padding: 1.35rem 1.2rem 1.4rem;
-	border: 1px solid var(--sl-color-gray-5);
-	border-radius: 0.75rem;
-	background: var(--sl-color-gray-6);
+	padding: 1.25rem 1.15rem 1.3rem;
+	border: 1px solid rgb(255 255 255 / 10%);
+	border-radius: 0.5rem;
+	background: #0c0d10;
 }
 
 .cta-band__line {
 	margin: 0 0 0.35rem;
-	font-size: 1.15rem;
-	font-weight: 650;
+	font-size: 1.12rem;
+	font-weight: 600;
+	letter-spacing: -0.02em;
 	color: var(--sl-color-white);
 }
 
@@ -223,7 +363,6 @@
 
 @media (max-width: 49.99rem) {
 	.trust-strip {
-		justify-content: flex-start;
 		margin-bottom: 1rem;
 	}
 
@@ -244,7 +383,6 @@
 
 	.cta-band {
 		margin-inline: 0;
-		border-radius: 0.65rem;
 	}
 }
 
