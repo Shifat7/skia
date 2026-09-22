@@ -32,12 +32,18 @@ import {
   validateRunId,
   validateSessionId,
 } from "./paths.js";
+import { readRepositoryBlob } from "./git.js";
+import {
+  allocateStagedReceiptTemporarySuffix,
+  nextStagedReceiptTemporarySuffix,
+} from "./receipt-temporary.js";
 import {
   validateCoverageEnvelope,
   validateRepositoryManifest,
   validateStagedReceipt,
   validRfc3339Utc,
 } from "./schema.js";
+import { analyzeLiteralGuardFunction } from "./staged/analyze.js";
 import type {
   HashedArtifactKind,
   RepositoryManifest,
@@ -191,11 +197,8 @@ interface ParsedReceiptFileName {
 }
 
 let storageTestHooks: StorageTestHooks | null = null;
-let stagedReceiptTemporaryCounter = 0;
 
-export function nextStagedReceiptTemporarySuffix(): string {
-  return `${process.pid}-${stagedReceiptTemporaryCounter + 1}`;
-}
+export { nextStagedReceiptTemporarySuffix };
 
 function createStorageError(message: string): Error {
   return new Error(message);
@@ -435,10 +438,9 @@ function writeNewFileAtomically(
 ): void {
   const directoryPath = path.dirname(filePath);
   const filename = filePath.slice(directoryPath.length + 1);
-  stagedReceiptTemporaryCounter += 1;
   const temporaryPath = path.join(
     directoryPath,
-    `.${filename}.tmp-${process.pid}-${stagedReceiptTemporaryCounter}`,
+    `.${filename}.tmp-${allocateStagedReceiptTemporarySuffix()}`,
   );
 
   try {
@@ -971,6 +973,73 @@ function validateStagedArtifactHashes(
   }
 }
 
+function assertCompleteStagedReceipt(receipt: StagedReceipt): void {
+  if (receipt.status !== "complete" || receipt.completed_at === null) {
+    throw createStorageError("staged run completion requires a complete receipt");
+  }
+}
+
+function assertSourceCheckMatchesSnapshot(
+  repositoryRoot: string,
+  receipt: StagedReceipt,
+): void {
+  const review = receipt.review;
+  const sourceCheck = review?.entity.source_check ?? null;
+
+  if (review === undefined || sourceCheck === null) {
+    return;
+  }
+
+  const anchor = review.entity.anchor;
+
+  if (anchor.side !== "staged") {
+    throw createStorageError(
+      "source check expected value must match the staged snapshot source",
+    );
+  }
+
+  let source: string;
+
+  try {
+    source = new TextDecoder("utf-8", { fatal: true }).decode(
+      readRepositoryBlob(repositoryRoot, anchor.blob_oid),
+    );
+  } catch {
+    throw createStorageError(
+      "source check expected value must match the staged snapshot source",
+    );
+  }
+
+  const changedLines: number[] = [];
+
+  for (const evidenceAnchor of review.entity.evidence.anchors) {
+    for (
+      let line = evidenceAnchor.start_line;
+      line <= evidenceAnchor.end_line;
+      line += 1
+    ) {
+      changedLines.push(line);
+    }
+  }
+
+  const analysis = analyzeLiteralGuardFunction({
+    blob_oid: anchor.blob_oid,
+    changed_lines: changedLines,
+    path: anchor.path,
+    source,
+  });
+
+  if (
+    analysis.kind !== "supported" ||
+    analysis.evidence.relation !== review.entity.evidence.relation ||
+    !isDeepStrictEqual(analysis.expected_return, sourceCheck.expected)
+  ) {
+    throw createStorageError(
+      "source check expected value must match the staged snapshot source",
+    );
+  }
+}
+
 function validateStagedBehaviorCardArtifact(
   skiaRootPath: string,
   receipt: StagedReceipt,
@@ -1487,6 +1556,8 @@ export function completeStagedRun(
   allocation: StagedRunAllocation,
   receipt: StagedReceipt,
 ): { readonly receiptPath: string; readonly artifactBytes: number } {
+  assertCompleteStagedReceipt(receipt);
+
   if (
     receipt.run_id !== allocation.runId ||
     receipt.session_id !== allocation.sessionId
@@ -1537,6 +1608,7 @@ export function completeStagedRun(
     allocation.skiaRootPath,
     validation.value,
   );
+  assertSourceCheckMatchesSnapshot(allocation.repositoryRoot, validation.value);
   const absolutePath = receiptFilePath(
     allocation.repositoryRoot,
     validation.value,
@@ -1556,6 +1628,7 @@ export function writeStagedReceipt(
   repositoryRoot: string,
   receipt: StagedReceipt,
 ): { readonly path: string; readonly bytes: number } {
+  assertCompleteStagedReceipt(receipt);
   const validation = validateStagedReceipt(receipt);
 
   if (!validation.valid) {
@@ -1569,6 +1642,7 @@ export function writeStagedReceipt(
   const { skiaRootPath } = ensureStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
   validateStagedArtifactHashes(skiaRootPath, validation.value);
   validateStagedBehaviorCardArtifact(skiaRootPath, validation.value);
+  assertSourceCheckMatchesSnapshot(repositoryRoot, validation.value);
 
   let claimPath: string;
   try {

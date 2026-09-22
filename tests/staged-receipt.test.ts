@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { TOOL_VERSION } from "../src/limits.js";
+import type { Sha256Hex, StagedReceipt } from "../src/types.js";
 import { captureStagedSnapshot } from "../src/git.js";
 import {
   deriveStagedArtifactPath,
@@ -56,6 +58,82 @@ function createSupportedRepository(): string {
   );
   stagePaths(repositoryRoot, "src/gate-status.ts");
   return repositoryRoot;
+}
+
+function receiptWithSelfHash(receipt: StagedReceipt): StagedReceipt {
+  const withoutSelf = {
+    ...receipt,
+    artifact_hashes: receipt.artifact_hashes.filter(
+      (artifact) => artifact.kind !== "receipt",
+    ),
+  };
+  const sha256 = createHash("sha256")
+    .update(`${JSON.stringify(withoutSelf, null, 2)}\n`)
+    .digest("hex") as Sha256Hex;
+
+  return {
+    ...withoutSelf,
+    artifact_hashes: [
+      ...withoutSelf.artifact_hashes,
+      {
+        kind: "receipt",
+        path: deriveStagedReceiptPath(withoutSelf.run_id, withoutSelf.session_id),
+        sha256,
+      },
+    ],
+  };
+}
+
+function preparedMismatchReceipt(): {
+  readonly allocation: ReturnType<typeof allocateStagedRun>;
+  readonly receipt: StagedReceipt;
+  readonly repositoryRoot: string;
+} {
+  const repositoryRoot = createSupportedRepository();
+  const pipeline = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+  assert.strictEqual(pipeline.kind, "supported");
+  if (pipeline.kind !== "supported") {
+    throw new Error("expected a supported staged snapshot");
+  }
+
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const session = createPredictionSession(pipeline.analysis);
+  let cardArtifact: ReturnType<typeof writeStagedArtifactFile> | undefined;
+  const sealed = session.persistPrediction(
+    { kind: "return_value", value: "hold" },
+    (record) => {
+      cardArtifact = writeStagedArtifactFile(
+        allocation,
+        "behavior_cards",
+        `${JSON.stringify(record, null, 2)}\n`,
+      );
+    },
+    new Date("2026-09-22T01:02:04Z"),
+  );
+  if (cardArtifact === undefined) {
+    throw new Error("expected behavior-card artifact");
+  }
+
+  return {
+    allocation,
+    repositoryRoot,
+    receipt: createStagedReviewReceipt({
+      allocation,
+      analysis: pipeline.analysis,
+      behavior_card_artifact: cardArtifact,
+      completed_at: new Date("2026-09-22T01:02:05Z"),
+      coverage: pipeline.coverage,
+      sealed_prediction: sealed,
+      snapshot: pipeline.snapshot,
+      source_check: session.sourceCheck(),
+    }),
+  };
 }
 
 test("staged run persists prediction artifact before completing validated receipt", () => {
@@ -399,6 +477,58 @@ test("a failed artifact write removes the file it just created", () => {
 
   assert.strictEqual(fs.existsSync(absolutePath), false);
   abortStagedRun(allocation);
+});
+
+test("completing a staged run rejects a receipt whose expected return was rewritten to the prediction", () => {
+  const prepared = preparedMismatchReceipt();
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
+    review: {
+      entity: {
+        evidence: { relation: string };
+        scenario: { given: { parameter: string; value: unknown } };
+        source_check: { expected: unknown; predicted: unknown; status: string };
+      };
+    };
+  };
+  forged.review.entity.source_check.expected =
+    forged.review.entity.source_check.predicted;
+  forged.review.entity.source_check.status = "source_derived_match";
+  forged.review.entity.evidence.relation =
+    `${forged.review.entity.scenario.given.parameter} === ` +
+    `${JSON.stringify(forged.review.entity.scenario.given.value)} -> return ` +
+    `${JSON.stringify(forged.review.entity.source_check.expected)}`;
+  const rewritten = receiptWithSelfHash(forged as StagedReceipt);
+  const receiptPath = path.join(
+    prepared.allocation.skiaRootPath,
+    deriveStagedReceiptPath(prepared.allocation.runId, prepared.allocation.sessionId),
+  );
+
+  assert.strictEqual(validateStagedReceipt(rewritten).valid, true);
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, rewritten),
+    /staged snapshot source/,
+  );
+  assert.strictEqual(fs.existsSync(receiptPath), false);
+});
+
+test("completing a staged run rejects an incomplete receipt", () => {
+  const prepared = preparedMismatchReceipt();
+  const incomplete = receiptWithSelfHash({
+    ...JSON.parse(JSON.stringify(prepared.receipt)) as StagedReceipt,
+    status: "incomplete",
+    completed_at: null,
+  });
+  const receiptPath = path.join(
+    prepared.allocation.skiaRootPath,
+    deriveStagedReceiptPath(prepared.allocation.runId, prepared.allocation.sessionId),
+  );
+
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, incomplete),
+    /complete receipt/,
+  );
+  assert.strictEqual(fs.existsSync(receiptPath), false);
+  assert.strictEqual(listRuns(prepared.repositoryRoot)[0]?.status, "incomplete");
 });
 
 test("aborting a staged run leaves an artifact it did not create", () => {

@@ -6,7 +6,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { resolveLanguageRegistration } from "./languages/registry.js";
-import { nextStagedReceiptTemporarySuffix } from "./storage.js";
+import { nextStagedReceiptTemporarySuffix } from "./receipt-temporary.js";
 import {
   ARTIFACTS_DIRECTORY_NAME,
   DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
@@ -1049,6 +1049,23 @@ function uniqueBlobOids(records: readonly GitRawSnapshotRecord[]): readonly GitO
   }
 
   return ordered;
+}
+
+export function readRepositoryBlob(
+  repositoryRoot: string,
+  oid: GitObjectId,
+): Uint8Array {
+  if (!GIT_OBJECT_ID_PATTERN.test(oid)) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "Git blob identity is not a Git object id",
+    );
+  }
+
+  return runGit(
+    ["cat-file", "blob", oid],
+    gitCommandOptions(path.resolve(repositoryRoot)),
+  ).stdout;
 }
 
 function readCapturedBlobs(
