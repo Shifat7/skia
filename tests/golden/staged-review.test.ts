@@ -63,7 +63,7 @@ test("skia review verifies each output subtree against ignore negation", () => {
   writeRepoTextFile(
     repositoryRoot,
     ".gitignore",
-    ".skia/*\n!.skia/artifacts/\n",
+    ".skia/*\n!.skia/artifacts/\n.skia/artifacts/behavior_cards/\n",
   );
   stagePaths(repositoryRoot, ".gitignore");
   commitAll(repositoryRoot, "initial");
@@ -85,7 +85,7 @@ test("skia review verifies each output subtree against ignore negation", () => {
   });
 
   assert.strictEqual(result.kind, "review_failed");
-  assert.match(result.output, /\.skia\/artifacts\/behavior_cards/);
+  assert.match(result.output, /\.skia\/artifacts\/.*-behavior_cards\.json/);
   assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
 });
 

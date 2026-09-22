@@ -92,7 +92,7 @@ test("pilot analyzer refuses unsupported syntax instead of inventing evidence", 
   });
 });
 
-test("pilot analyzer rejects nested and async functions", () => {
+test("pilot analyzer rejects nested, async, and generator functions", () => {
   const nested = analyzeLiteralGuardFunction({
     blob_oid: BLOB_OID,
     changed_lines: [1, 2, 3, 4, 5, 6, 7, 8],
@@ -118,12 +118,27 @@ test("pilot analyzer rejects nested and async functions", () => {
       "}",
     ].join("\n"),
   });
+  const generatorFunction = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1, 2, 3, 4],
+    path: PATH,
+    source: [
+      "export function* gateStatus(code: string) {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  });
 
   assert.deepStrictEqual(nested, {
     kind: "unsupported",
     reason: "no_supported_staged_entity",
   });
   assert.deepStrictEqual(asyncFunction, {
+    kind: "unsupported",
+    reason: "no_supported_staged_entity",
+  });
+  assert.deepStrictEqual(generatorFunction, {
     kind: "unsupported",
     reason: "no_supported_staged_entity",
   });

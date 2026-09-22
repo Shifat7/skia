@@ -293,7 +293,11 @@ function supportedCoverage(
 
 function failedCoverage(
   entry: SnapshotEntry,
-  reason: "parse_failed" | "parse_timeout",
+  reason:
+    | "binary_source"
+    | "invalid_source_encoding"
+    | "parse_failed"
+    | "parse_timeout",
   units: number,
 ): CoverageEnvelope {
   const failedUnits = Math.max(1, units);
@@ -328,13 +332,18 @@ function unsupportedCoverage(
   units: number,
   entry?: SnapshotEntry,
 ): CoverageEnvelope {
-  const coverage = reason === "unmapped_region" ? "unmapped" : "unsupported";
+  const coverage =
+    reason === "unmapped_region"
+      ? "unmapped"
+      : reason === "syntax_error"
+        ? "partial"
+        : "unsupported";
 
   return {
     summary: {
       total_units: units,
       supported_units: 0,
-      partial_units: 0,
+      partial_units: coverage === "partial" ? units : 0,
       unmapped_units: coverage === "unmapped" ? units : 0,
       unsupported_units: coverage === "unsupported" ? units : 0,
       excluded_units: 0,
@@ -423,9 +432,9 @@ export function analyzeCapturedStagedSnapshot(
   let source: string;
   if (blob.bytes.includes(0)) {
     return {
-      kind: "unsupported",
+      kind: "failed",
       reason: "binary_source",
-      coverage: unsupportedCoverage("binary_source", capturedUnits, entry),
+      coverage: failedCoverage(entry, "binary_source", capturedUnits),
     };
   }
 
@@ -433,13 +442,9 @@ export function analyzeCapturedStagedSnapshot(
     source = UTF8_DECODER.decode(blob.bytes);
   } catch {
     return {
-      kind: "unsupported",
+      kind: "failed",
       reason: "invalid_source_encoding",
-      coverage: unsupportedCoverage(
-        "invalid_source_encoding",
-        capturedUnits,
-        entry,
-      ),
+      coverage: failedCoverage(entry, "invalid_source_encoding", capturedUnits),
     };
   }
 

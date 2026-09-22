@@ -95,7 +95,9 @@ function parseResponse(stdout: string): PilotParserResponse | null {
       typeof value === "object" &&
       (value as { readonly kind?: unknown }).kind === "unsupported"
     ) {
-      return { kind: "unsupported" };
+      return (value as { readonly reason?: unknown }).reason === "syntax_error"
+        ? { kind: "unsupported", reason: "syntax_error" }
+        : { kind: "unsupported" };
     }
   } catch {
     return null;
@@ -192,7 +194,7 @@ export function analyzeLiteralGuardFunction(
   if (parsed.kind === "unsupported") {
     return {
       kind: "unsupported",
-      reason: "no_supported_staged_entity",
+      reason: parsed.reason ?? "no_supported_staged_entity",
     };
   }
 

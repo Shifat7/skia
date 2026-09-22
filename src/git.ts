@@ -413,7 +413,7 @@ export function requireIgnoredSkiaOutputRoot(
   const probes = [
     `${SKIA_DIRECTORY_NAME}/${TMP_DIRECTORY_NAME}/snapshot-probe`,
     `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/claim-probe.json`,
-    `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/behavior_cards/card-probe.json`,
+    `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/probe-probe-behavior_cards.json`,
     `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/receipt-probe.json`,
   ];
 

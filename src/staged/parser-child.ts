@@ -157,7 +157,9 @@ function singleReturn(statement: ParserNode): ParserNode | null {
 function parseFunction(functionNode: ParserNode): PilotParserResponse {
   if (
     functionNode.text.trimStart().startsWith("async ") ||
-    functionNode.children.some((child) => child.type === "async")
+    functionNode.children.some(
+      (child) => child.type === "async" || child.type === "*",
+    )
   ) {
     return { kind: "unsupported" };
   }
@@ -265,7 +267,9 @@ function parse(input: ParserInput): PilotParserResponse {
   const tree = parser.parse(input.source);
 
   if (tree.rootNode.type !== "program" || tree.rootNode.hasError === true) {
-    return { kind: "unsupported" };
+    return tree.rootNode.hasError === true
+      ? { kind: "unsupported", reason: "syntax_error" }
+      : { kind: "unsupported" };
   }
 
   const functions = topLevelFunctions(tree.rootNode);

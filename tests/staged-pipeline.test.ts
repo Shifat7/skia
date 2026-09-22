@@ -241,12 +241,12 @@ test("captured staged snapshot rejects NUL-containing source as binary", () => {
     captureStagedSnapshot(repositoryRoot),
   );
 
-  assert.strictEqual(result.kind, "unsupported");
-  if (result.kind !== "unsupported") {
+  assert.strictEqual(result.kind, "failed");
+  if (result.kind !== "failed") {
     return;
   }
   assert.strictEqual(result.reason, "binary_source");
-  assert.strictEqual(result.coverage.summary.unsupported_units, 1);
+  assert.strictEqual(result.coverage.summary.failed_units, 1);
 });
 
 test("captured staged snapshot accepts an optional UTF-8 BOM", () => {
@@ -361,4 +361,31 @@ test("diff-suppressed TypeScript remains explicit unsupported coverage", () => {
   assert.strictEqual(result.coverage.summary.total_units, 1);
   assert.strictEqual(result.coverage.summary.unsupported_units, 1);
   assert.strictEqual(result.coverage.events[0]?.coverage, "unsupported");
+});
+
+test("malformed TypeScript preserves partial syntax-error coverage", () => {
+  const repositoryRoot = createRepository();
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind !== "unsupported") {
+    return;
+  }
+  assert.strictEqual(result.reason, "syntax_error");
+  assert.strictEqual(result.coverage.summary.partial_units, 3);
+  assert.strictEqual(result.coverage.events[0]?.coverage, "partial");
+  assert.strictEqual(result.coverage.events[0]?.reason, "syntax_error");
 });

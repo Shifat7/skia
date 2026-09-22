@@ -47,7 +47,7 @@ export interface PilotUnsupportedAnalysis {
   readonly kind: "unsupported";
   readonly reason: Extract<
     StableErrorReason,
-    "no_supported_staged_entity" | "unmapped_region"
+    "no_supported_staged_entity" | "syntax_error" | "unmapped_region"
   >;
 }
 
@@ -131,6 +131,7 @@ export interface PilotParserSuccess {
 
 export interface PilotParserUnsupported {
   readonly kind: "unsupported";
+  readonly reason?: "syntax_error";
 }
 
 export interface PilotParserFailed {
@@ -162,7 +163,10 @@ export interface FailedStagedPipelineResult {
   readonly kind: "failed";
   readonly reason: Extract<
     StableErrorReason,
-    "parse_failed" | "parse_timeout"
+    | "binary_source"
+    | "invalid_source_encoding"
+    | "parse_failed"
+    | "parse_timeout"
   >;
   readonly coverage: CoverageEnvelope;
 }
