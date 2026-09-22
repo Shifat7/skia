@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { resolveLanguageRegistration } from "./languages/registry.js";
+import { nextStagedReceiptTemporarySuffix } from "./storage.js";
 import {
   ARTIFACTS_DIRECTORY_NAME,
   DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
@@ -59,6 +60,7 @@ export interface CaptureGitSnapshotOptions {
   readonly git_executable?: string;
   readonly output_limit_bytes?: number;
   readonly process_env?: Readonly<Record<string, string | undefined>>;
+  readonly temporary_stamp?: number;
   readonly test_hooks?: GitSnapshotTestHooks;
   readonly timeout_ms?: number;
 }
@@ -410,6 +412,7 @@ export function requireIgnoredSkiaOutputRoot(
   repositoryRoot: string,
   createdAt: Date,
   sessionId: string,
+  temporaryStamp: number,
   options?: CaptureGitSnapshotOptions,
 ): string {
   const resolvedRoot = resolveGitRepositoryRoot(repositoryRoot, options);
@@ -417,7 +420,7 @@ export function requireIgnoredSkiaOutputRoot(
   const probes = stagedOutputProbePaths(
     formatRunIdAtUtc(createdAt),
     sessionId,
-    createdAt.getTime(),
+    temporaryStamp,
   );
   const result = spawnSync(
     commandOptions.gitExecutable,
@@ -425,7 +428,6 @@ export function requireIgnoredSkiaOutputRoot(
       "-c",
       "core.fsmonitor=false",
       "check-ignore",
-      "--no-index",
       "--",
       ...probes,
     ],
@@ -504,7 +506,7 @@ function stagedOutputProbePaths(
         `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`,
         `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${runId}-${sessionId}-behavior_cards.json`,
         `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/${receiptName}`,
-        `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/.${receiptName}.tmp-${process.pid}-1`,
+        `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/.${receiptName}.tmp-${nextStagedReceiptTemporarySuffix()}`,
       ];
     }),
   ];
@@ -695,10 +697,11 @@ function liveIndexExists(indexPath: string): boolean {
 function tempIndexFilePath(
   tmpRoot: string,
   attemptNumber: number,
+  temporaryStamp: number,
 ): string {
   return path.join(
     tmpRoot,
-    `copied-index-${process.pid}-${Date.now()}-${attemptNumber}.bin`,
+    `copied-index-${process.pid}-${temporaryStamp}-${attemptNumber}.bin`,
   );
 }
 
@@ -1076,7 +1079,11 @@ function captureStagedAttempt(
   const liveIndexBytes = readLiveIndexBytes(indexPath);
   const copiedIndexSha256 = sha256Hex(liveIndexBytes);
   const copiedIndexPath = indexWasPresent
-    ? tempIndexFilePath(tmpRoot, attemptNumber)
+    ? tempIndexFilePath(
+      tmpRoot,
+      attemptNumber,
+      options?.temporary_stamp ?? Date.now(),
+    )
     : null;
   const attributeWorkTree = createTemporaryAttributeWorkTree(tmpRoot, attemptNumber);
 

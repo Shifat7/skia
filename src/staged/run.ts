@@ -337,12 +337,16 @@ export function runStagedReview(
     const sessionId = options.session_id === undefined
       ? createSessionId()
       : validateSessionId(options.session_id);
+    const temporaryStamp = createdAt.getTime();
     const repositoryRoot = requireIgnoredSkiaOutputRoot(
       requestedRoot,
       createdAt,
       sessionId,
+      temporaryStamp,
     );
-    const capture = captureStagedSnapshot(repositoryRoot);
+    const capture = captureStagedSnapshot(repositoryRoot, {
+      temporary_stamp: temporaryStamp,
+    });
     const pipeline = analyzeCapturedStagedSnapshot(capture);
 
     if (pipeline.kind === "failed") {

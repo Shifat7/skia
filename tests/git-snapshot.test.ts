@@ -3,6 +3,7 @@ import { Buffer } from "node:buffer";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import test from "node:test";
 
 import { MAX_GIT_CAPTURED_BLOB_BYTES } from "../src/limits.js";
@@ -399,6 +400,36 @@ test("git snapshot rejects a base-ref move that happens after copied-index creat
   assert.strictEqual(
     snapshot.raw_records[0]?.base_blob_oid,
     runGit(repositoryRoot, ["rev-parse", `${commitTwo}:src/example.ts`]).stdout.trim(),
+  );
+});
+
+test("staged snapshot uses the supplied copied-index stamp", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const base = 1;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    "export const base = 1;\nexport const staged = true;\n",
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+  const stamp = 1_758_502_923_000;
+  let copiedName = "";
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      after_copied_index_created: () => {
+        copiedName = fs
+          .readdirSync(path.join(repositoryRoot, ".skia/tmp"))
+          .find((name) => name.startsWith("copied-index-")) ?? "";
+      },
+    },
+  });
+
+  assert.strictEqual(
+    copiedName,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
   );
 });
 

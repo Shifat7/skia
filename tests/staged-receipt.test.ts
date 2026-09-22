@@ -23,7 +23,10 @@ import {
 } from "../src/storage.js";
 import { createPredictionSession } from "../src/staged/card.js";
 import { analyzeCapturedStagedSnapshot } from "../src/staged/pipeline.js";
-import { createStagedReviewReceipt } from "../src/staged/receipt.js";
+import {
+  createSkippedStagedReviewReceipt,
+  createStagedReviewReceipt,
+} from "../src/staged/receipt.js";
 import {
   commitAll,
   createTempGitRepository,
@@ -213,6 +216,64 @@ test("staged run persists prediction artifact before completing validated receip
       /one presented prompt/,
     );
   }
+
+  const impossibleSeal = JSON.parse(JSON.stringify(receipt)) as {
+    review: {
+      entity: {
+        prediction: {
+          sealed_at: string;
+        };
+      };
+    };
+  };
+  impossibleSeal.review.entity.prediction.sealed_at = "2026-99-99T99:99:99Z";
+  const impossibleSealValidation = validateStagedReceipt(impossibleSeal);
+  assert.strictEqual(impossibleSealValidation.valid, false);
+  if (!impossibleSealValidation.valid) {
+    assert.match(
+      impossibleSealValidation.errors.map((error) => error.message).join("\n"),
+      /real UTC calendar timestamp/,
+    );
+  }
+});
+
+test("skipped behavior cards reject impossible sealed_at timestamps", () => {
+  const repositoryRoot = createSupportedRepository();
+  const pipeline = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+  assert.strictEqual(pipeline.kind, "supported");
+  if (pipeline.kind !== "supported") {
+    return;
+  }
+
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const artifact = writeStagedArtifactFile(
+    allocation,
+    "behavior_cards",
+    `${JSON.stringify({
+      action: "skip",
+      scenario: pipeline.analysis.scenario,
+      sealed_at: "2026-99-99T99:99:99Z",
+    })}\n`,
+  );
+  const receipt = createSkippedStagedReviewReceipt({
+    allocation,
+    analysis: pipeline.analysis,
+    behavior_card_artifact: artifact,
+    completed_at: new Date("2026-09-22T01:02:05Z"),
+    coverage: pipeline.coverage,
+    snapshot: pipeline.snapshot,
+  });
+
+  assert.throws(
+    () => completeStagedRun(allocation, receipt),
+    /does not match the persisted skip/,
+  );
 });
 
 test("staged run allocation resolves collisions before any interaction", () => {

@@ -36,6 +36,7 @@ import {
   validateCoverageEnvelope,
   validateRepositoryManifest,
   validateStagedReceipt,
+  validRfc3339Utc,
 } from "./schema.js";
 import type {
   HashedArtifactKind,
@@ -190,6 +191,10 @@ interface ParsedReceiptFileName {
 
 let storageTestHooks: StorageTestHooks | null = null;
 let stagedReceiptTemporaryCounter = 0;
+
+export function nextStagedReceiptTemporarySuffix(): string {
+  return `${process.pid}-${stagedReceiptTemporaryCounter + 1}`;
+}
 
 function createStorageError(message: string): Error {
   return new Error(message);
@@ -1002,9 +1007,7 @@ function validateStagedBehaviorCardArtifact(
   const keys = Object.keys(skip).sort();
   const validSealedAt =
     typeof skip.sealed_at === "string" &&
-    /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/.test(
-      skip.sealed_at,
-    );
+    validRfc3339Utc(skip.sealed_at);
 
   if (
     !isDeepStrictEqual(keys, ["action", "scenario", "sealed_at"]) ||

@@ -126,7 +126,7 @@ function valid<T>(value: T): SchemaValidationResult<T> {
   };
 }
 
-function validRfc3339Utc(value: string): boolean {
+export function validRfc3339Utc(value: string): boolean {
   if (!RFC3339_UTC_REGEX.test(value)) {
     return false;
   }
@@ -536,6 +536,17 @@ function validateStagedReview(
   const errors: SchemaValidationError[] = [];
   const prediction = review.entity.prediction;
   const sourceCheck = review.entity.source_check;
+
+  if (
+    prediction !== null &&
+    !validRfc3339Utc(prediction.sealed_at)
+  ) {
+    errors.push({
+      instance_path: "/review/entity/prediction/sealed_at",
+      keyword: "rfc3339_calendar",
+      message: "sealed_at must be a real UTC calendar timestamp",
+    });
+  }
 
   if (review.card_status === "complete") {
     if (prediction === null || sourceCheck === null) {

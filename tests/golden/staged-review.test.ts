@@ -5,10 +5,15 @@ import process from "node:process";
 import test from "node:test";
 
 import { runCli } from "../../src/main.js";
-import { listRuns } from "../../src/storage.js";
+import {
+  listRuns,
+  nextStagedReceiptTemporarySuffix,
+} from "../../src/storage.js";
 import {
   commitAll,
   createTempGitRepository,
+  removeRepoPath,
+  runGit,
   stagePaths,
   writeRepoTextFile,
 } from "../git-test-helpers.js";
@@ -197,6 +202,7 @@ test("skia review probes receipt temporary names before writing", () => {
   );
   stagePaths(repositoryRoot, "src/gate-status.ts");
 
+  const temporarySuffix = nextStagedReceiptTemporarySuffix();
   const result = runCli(["review"], {
     input: '"ok"\n',
     now: () => new Date("2026-09-22T01:02:03Z"),
@@ -207,7 +213,9 @@ test("skia review probes receipt temporary names before writing", () => {
   assert.strictEqual(result.kind, "review_failed");
   assert.match(
     result.output,
-    /\.skia\/receipts\/\.20260922T010203Z-8f5d1a2c-session\.json\.tmp-/,
+    new RegExp(
+      `\\.skia/receipts/\\.20260922T010203Z-8f5d1a2c-session\\.json\\.tmp-${temporarySuffix}`,
+    ),
   );
   assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
 });
@@ -554,6 +562,128 @@ test("skia review escapes formatting controls in expected values and errors", ()
   assert.match(completed.output, /\\u2060EXPECTED/);
   assert.strictEqual(failed.output.includes("\u202e"), false);
   assert.match(failed.output, /\\u202e/);
+});
+
+test("skia review probes the copied-index stamp shared with snapshot capture", () => {
+  const createdAt = new Date("2026-09-22T01:02:03Z");
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(
+    repositoryRoot,
+    ".gitignore",
+    [".skia/*", "!.skia/tmp/", ""].join("\n"),
+  );
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = runCli(["review"], {
+    input: '"ok"\n',
+    now: () => createdAt,
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+
+  assert.strictEqual(result.kind, "review_failed");
+  assert.match(
+    result.output,
+    new RegExp(
+      `\\.skia/tmp/copied-index-${process.pid}-${createdAt.getTime()}-1\\.bin`,
+    ),
+  );
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
+});
+
+test("skia review refuses a tracked artifact path missing from the work tree", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const artifactPath =
+    ".skia/artifacts/20260922T010203Z-8f5d1a2c-behavior_cards.json";
+  writeRepoTextFile(repositoryRoot, artifactPath, "{}\n");
+  runGit(repositoryRoot, ["add", "-f", "--", artifactPath]);
+  commitAll(repositoryRoot, "track artifact");
+  removeRepoPath(repositoryRoot, artifactPath);
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = runCli(["review"], {
+    input: '"ok"\n',
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+
+  assert.strictEqual(result.kind, "review_failed");
+  assert.match(
+    result.output,
+    /\.skia\/artifacts\/20260922T010203Z-8f5d1a2c-behavior_cards\.json/,
+  );
+  assert.strictEqual(
+    fs.existsSync(path.join(repositoryRoot, artifactPath)),
+    false,
+  );
+  assert.strictEqual(
+    fs.existsSync(path.join(repositoryRoot, ".skia/receipts")),
+    false,
+  );
+});
+
+test("skia review probes the receipt temporary the next write will use", () => {
+  const repositoryRoot = createSupportedRepository();
+  const completed = runCli(["review"], {
+    input: '"ok"\n',
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+  assert.strictEqual(completed.kind, "review_complete");
+  const temporarySuffix = nextStagedReceiptTemporarySuffix();
+  assert.strictEqual(temporarySuffix.endsWith("-1"), false);
+  writeRepoTextFile(
+    repositoryRoot,
+    ".gitignore",
+    [
+      ".skia/*",
+      "!.skia/receipts/",
+      ".skia/receipts/*-session.json",
+      "",
+    ].join("\n"),
+  );
+
+  const result = runCli(["review"], {
+    input: '"ok"\n',
+    now: () => new Date("2026-09-22T01:02:04Z"),
+    repository_root: repositoryRoot,
+    session_id: "9f6e2b3d",
+  });
+
+  assert.strictEqual(result.kind, "review_failed");
+  assert.match(
+    result.output,
+    new RegExp(
+      `\\.skia/receipts/\\.20260922T010204Z-9f6e2b3d-session\\.json\\.tmp-${temporarySuffix}`,
+    ),
+  );
 });
 
 test("default session IDs distinguish independent review sessions", () => {
