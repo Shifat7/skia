@@ -333,7 +333,15 @@ export function runStagedReview(
   let completed = false;
 
   try {
-    const repositoryRoot = requireIgnoredSkiaOutputRoot(requestedRoot);
+    const createdAt = now();
+    const sessionId = options.session_id === undefined
+      ? createSessionId()
+      : validateSessionId(options.session_id);
+    const repositoryRoot = requireIgnoredSkiaOutputRoot(
+      requestedRoot,
+      createdAt,
+      sessionId,
+    );
     const capture = captureStagedSnapshot(repositoryRoot);
     const pipeline = analyzeCapturedStagedSnapshot(capture);
 
@@ -363,10 +371,11 @@ export function runStagedReview(
       };
     }
 
-    const sessionId = options.session_id === undefined
-      ? createSessionId()
-      : validateSessionId(options.session_id);
-    const activeAllocation = allocateStagedRun(repositoryRoot, sessionId, now());
+    const activeAllocation = allocateStagedRun(
+      repositoryRoot,
+      sessionId,
+      createdAt,
+    );
     allocation = activeAllocation;
     const prompt = promptOutput(pipeline);
     const unbindInterruptCleanup = bindInterruptCleanup(activeAllocation);

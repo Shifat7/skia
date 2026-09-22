@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -23,6 +23,7 @@ import {
 } from "./limits.js";
 import {
   escapePathForDisplay,
+  formatRunIdAtUtc,
   validateRelativePath,
 } from "./paths.js";
 import type {
@@ -407,11 +408,17 @@ function resolveGitRepositoryRoot(
 
 export function requireIgnoredSkiaOutputRoot(
   repositoryRoot: string,
+  createdAt: Date,
+  sessionId: string,
   options?: CaptureGitSnapshotOptions,
 ): string {
   const resolvedRoot = resolveGitRepositoryRoot(repositoryRoot, options);
   const commandOptions = gitCommandOptions(resolvedRoot, options);
-  const probes = stagedOutputProbePaths();
+  const probes = stagedOutputProbePaths(
+    formatRunIdAtUtc(createdAt),
+    sessionId,
+    createdAt.getTime(),
+  );
   const result = spawnSync(
     commandOptions.gitExecutable,
     [
@@ -465,31 +472,15 @@ export function requireIgnoredSkiaOutputRoot(
   return resolvedRoot;
 }
 
-function randomDecimalDigits(length: number): string {
-  let digits = "";
-
-  while (digits.length < length) {
-    for (const byte of randomBytes(length)) {
-      if (byte < 250) {
-        digits += String(Math.floor(byte / 25));
-      }
-
-      if (digits.length === length) {
-        break;
-      }
-    }
-  }
-
-  return digits;
-}
-
 function pad2(value: number): string {
   return value.toString().padStart(2, "0");
 }
 
-function stagedOutputProbePaths(): readonly string[] {
-  const runBase = `${randomDecimalDigits(8)}T${randomDecimalDigits(6)}Z`;
-  const sessionId = randomBytes(8).toString("hex");
+function stagedOutputProbePaths(
+  runBase: string,
+  sessionId: string,
+  temporaryStamp: number,
+): readonly string[] {
   const runIds = [
     runBase,
     ...Array.from(
@@ -499,11 +490,13 @@ function stagedOutputProbePaths(): readonly string[] {
   ];
 
   return [
-    [
-      SKIA_DIRECTORY_NAME,
-      TMP_DIRECTORY_NAME,
-      `copied-index-${randomDecimalDigits(6)}-${randomDecimalDigits(13)}-1.bin`,
-    ].join("/"),
+    ...[1, 2, 3].map((attempt) =>
+      [
+        SKIA_DIRECTORY_NAME,
+        TMP_DIRECTORY_NAME,
+        `copied-index-${process.pid}-${temporaryStamp}-${attempt}.bin`,
+      ].join("/"),
+    ),
     ...runIds.flatMap((runId) => [
       `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`,
       `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${runId}-${sessionId}-behavior_cards.json`,

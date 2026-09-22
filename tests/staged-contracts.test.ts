@@ -388,7 +388,7 @@ test("source checking canonicalizes negative zero as a JSON scalar", () => {
     path: PATH,
     source: [
       "export function gateStatus(code: number): number {",
-      "  if (code === 0) return -0;",
+      "  if (code === -1e-999) return -0;",
       "  return 1;",
       "}",
     ].join("\n"),
@@ -408,4 +408,6 @@ test("source checking canonicalizes negative zero as a JSON scalar", () => {
     expected: 0,
     predicted: 0,
   });
+  assert.strictEqual(Object.is(result.scenario.given.value, -0), false);
+  assert.strictEqual(Object.is(result.expected_return, -0), false);
 });

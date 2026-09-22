@@ -165,6 +165,54 @@ test("staged run persists prediction artifact before completing validated receip
   }
   contradictoryCheck.review.entity.source_check.predicted = "different";
   assert.strictEqual(validateStagedReceipt(contradictoryCheck).valid, false);
+
+  const extraPrompt = JSON.parse(JSON.stringify(receipt)) as {
+    review: {
+      session_counts: {
+        prompts_presented: number;
+      };
+    };
+  };
+  extraPrompt.review.session_counts.prompts_presented = 2;
+  const extraPromptValidation = validateStagedReceipt(extraPrompt);
+  assert.strictEqual(extraPromptValidation.valid, false);
+  if (!extraPromptValidation.valid) {
+    assert.match(
+      extraPromptValidation.errors.map((error) => error.message).join("\n"),
+      /one presented prompt/,
+    );
+  }
+
+  const extraSkippedPrompt = JSON.parse(JSON.stringify(receipt)) as {
+    review: {
+      card_status: string;
+      session_counts: {
+        prompts_presented: number;
+        predictions_completed: number;
+        skips: number;
+      };
+      entity: {
+        prediction: unknown;
+        source_check: unknown;
+      };
+    };
+  };
+  extraSkippedPrompt.review.card_status = "skipped";
+  extraSkippedPrompt.review.session_counts = {
+    prompts_presented: 2,
+    predictions_completed: 0,
+    skips: 1,
+  };
+  extraSkippedPrompt.review.entity.prediction = null;
+  extraSkippedPrompt.review.entity.source_check = null;
+  const extraSkippedValidation = validateStagedReceipt(extraSkippedPrompt);
+  assert.strictEqual(extraSkippedValidation.valid, false);
+  if (!extraSkippedValidation.valid) {
+    assert.match(
+      extraSkippedValidation.errors.map((error) => error.message).join("\n"),
+      /one presented prompt/,
+    );
+  }
 });
 
 test("staged run allocation resolves collisions before any interaction", () => {

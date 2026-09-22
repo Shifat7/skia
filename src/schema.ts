@@ -548,6 +548,7 @@ function validateStagedReview(
     }
 
     if (
+      review.session_counts.prompts_presented !== 1 ||
       review.session_counts.predictions_completed !== 1 ||
       review.session_counts.skips !== 0
     ) {
@@ -555,12 +556,13 @@ function validateStagedReview(
         instance_path: "/review/session_counts",
         keyword: "completed_card_counts",
         message:
-          "complete staged review cards require one completed prediction and zero skips",
+          "complete staged review cards require one presented prompt, one completed prediction, and zero skips",
       });
     }
   } else if (
     prediction !== null ||
     sourceCheck !== null ||
+    review.session_counts.prompts_presented !== 1 ||
     review.session_counts.predictions_completed !== 0 ||
     review.session_counts.skips !== 1
   ) {
@@ -568,7 +570,7 @@ function validateStagedReview(
       instance_path: "/review",
       keyword: "skipped_card",
       message:
-        "skipped staged review cards require no prediction or source check and exactly one skip",
+        "skipped staged review cards require one presented prompt, no prediction or source check, and exactly one skip",
     });
   }
 

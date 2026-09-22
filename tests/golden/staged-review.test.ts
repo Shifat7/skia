@@ -170,6 +170,48 @@ test("skia review probes collision-suffixed run ids before writing", () => {
   assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
 });
 
+test("skia review probes the timestamp that will name the artifact", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(
+    repositoryRoot,
+    ".gitignore",
+    [
+      ".skia/*",
+      "!.skia/artifacts/",
+      ".skia/artifacts/*",
+      "!.skia/artifacts/2026*",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = runCli(["review"], {
+    input: '"ok"\n',
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+
+  assert.strictEqual(result.kind, "review_failed");
+  assert.match(
+    result.output,
+    /\.skia\/artifacts\/20260922T010203Z-8f5d1a2c-behavior_cards\.json/,
+  );
+  assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
+});
+
 test("skia review golden path shows evidence before prediction and feedback after persistence", () => {
   const repositoryRoot = createSupportedRepository();
   const result = runCli(["review"], {
