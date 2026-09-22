@@ -39,6 +39,7 @@ export type CliRunOptions = StagedReviewRunOptions;
 export type ReviewCliResult = StagedReviewRunResult;
 
 export type CliResult = UnimplementedShellResult | ReviewCliResult;
+const TERMINAL_INPUT_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 export function createCliShell(): CliShell {
   return {
@@ -88,7 +89,11 @@ function readBoundedTerminalLine(): string {
     }
   }
 
-  return Buffer.concat(chunks).toString("utf8");
+  try {
+    return TERMINAL_INPUT_DECODER.decode(Buffer.concat(chunks));
+  } catch {
+    return "";
+  }
 }
 
 const runtimeProcess = process as unknown as {

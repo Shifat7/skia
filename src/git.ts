@@ -7,6 +7,7 @@ import process from "node:process";
 
 import { resolveLanguageRegistration } from "./languages/registry.js";
 import {
+  ARTIFACTS_DIRECTORY_NAME,
   DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
   DEFAULT_GIT_TIMEOUT_MS,
   MAX_GIT_CAPTURED_BLOB_BYTES,
@@ -14,6 +15,8 @@ import {
   MAX_GIT_INDEX_BYTES,
   OWNER_DIRECTORY_MODE,
   OWNER_FILE_MODE,
+  RECEIPTS_DIRECTORY_NAME,
+  RUN_ID_CLAIMS_DIRECTORY_NAME,
   SKIA_DIRECTORY_NAME,
   TMP_DIRECTORY_NAME,
 } from "./limits.js";
@@ -407,51 +410,60 @@ export function requireIgnoredSkiaOutputRoot(
 ): string {
   const resolvedRoot = resolveGitRepositoryRoot(repositoryRoot, options);
   const commandOptions = gitCommandOptions(resolvedRoot, options);
-  const result = spawnSync(
-    commandOptions.gitExecutable,
-    [
-      "-c",
-      "core.fsmonitor=false",
-      "check-ignore",
-      "--quiet",
-      "--no-index",
-      "--",
-      `${SKIA_DIRECTORY_NAME}/receipt-probe`,
-    ],
-    optionsWithOptionalEnv({
-      cwd: resolvedRoot,
-      env: buildGitEnvironment(commandOptions.processEnv),
-      maxBuffer: commandOptions.outputLimitBytes,
-      shell: false,
-      timeout: commandOptions.timeoutMs,
-    }),
-  );
+  const probes = [
+    `${SKIA_DIRECTORY_NAME}/${TMP_DIRECTORY_NAME}/snapshot-probe`,
+    `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/claim-probe.json`,
+    `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/behavior_cards/card-probe.json`,
+    `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/receipt-probe.json`,
+  ];
 
-  if (result.error !== undefined) {
-    throw new GitSnapshotError(
-      "git_process_failed",
-      gitSpawnFailureDetail(result.stderr, result.error),
+  for (const probe of probes) {
+    const result = spawnSync(
+      commandOptions.gitExecutable,
+      [
+        "-c",
+        "core.fsmonitor=false",
+        "check-ignore",
+        "--quiet",
+        "--no-index",
+        "--",
+        probe,
+      ],
+      optionsWithOptionalEnv({
+        cwd: resolvedRoot,
+        env: buildGitEnvironment(commandOptions.processEnv),
+        maxBuffer: commandOptions.outputLimitBytes,
+        shell: false,
+        timeout: commandOptions.timeoutMs,
+      }),
     );
+
+    if (result.error !== undefined) {
+      throw new GitSnapshotError(
+        "git_process_failed",
+        gitSpawnFailureDetail(result.stderr, result.error),
+      );
+    }
+
+    if (result.status === 1) {
+      throw new GitSnapshotError(
+        "output_root_not_ignored",
+        `${probe} is not ignored; add .skia/ to the repository .gitignore before running skia review`,
+      );
+    }
+
+    if (result.status !== 0) {
+      throw new GitSnapshotError(
+        mapGitFailureReason(
+          asBuffer(result.stderr as Uint8Array),
+          "git_process_failed",
+        ),
+        escapeDiagnosticBytes(asBuffer(result.stderr as Uint8Array)),
+      );
+    }
   }
 
-  if (result.status === 0) {
-    return resolvedRoot;
-  }
-
-  if (result.status === 1) {
-    throw new GitSnapshotError(
-      "output_root_not_ignored",
-      "add .skia/ to the repository .gitignore before running skia review",
-    );
-  }
-
-  throw new GitSnapshotError(
-    mapGitFailureReason(
-      asBuffer(result.stderr as Uint8Array),
-      "git_process_failed",
-    ),
-    escapeDiagnosticBytes(asBuffer(result.stderr as Uint8Array)),
-  );
+  return resolvedRoot;
 }
 
 function parseBranchState(commandOptions: GitCommandOptions): SnapshotCheckout {

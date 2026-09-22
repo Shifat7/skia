@@ -10,6 +10,8 @@ import {
 import {
   commitAll,
   createTempGitRepository,
+  removeRepoPath,
+  stageAll,
   stagePaths,
   writeRepoTextFile,
 } from "./git-test-helpers.js";
@@ -303,4 +305,60 @@ test("captured staged snapshot rejects more than 150 changed lines before analys
   assert.strictEqual(result.reason, "staged_budget_exceeded");
   assert.strictEqual(result.coverage.summary.total_units, 155);
   assert.strictEqual(result.coverage.summary.unsupported_units, 155);
+});
+
+test("deletion-only patches retain every deleted line for the staged budget", () => {
+  const repositoryRoot = createRepository();
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/removed.ts",
+    Array.from({ length: 200 }, (_, index) => `export const value${index} = ${index};`)
+      .join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/removed.ts");
+  commitAll(repositoryRoot, "add source");
+  removeRepoPath(repositoryRoot, "src/removed.ts");
+  stageAll(repositoryRoot);
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind !== "unsupported") {
+    return;
+  }
+  assert.strictEqual(result.reason, "staged_budget_exceeded");
+  assert.strictEqual(result.coverage.summary.total_units, 200);
+  assert.strictEqual(result.coverage.summary.unsupported_units, 200);
+});
+
+test("diff-suppressed TypeScript remains explicit unsupported coverage", () => {
+  const repositoryRoot = createRepository();
+  writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts -diff\n");
+  stagePaths(repositoryRoot, ".gitattributes");
+  commitAll(repositoryRoot, "disable TypeScript diffs");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind !== "unsupported") {
+    return;
+  }
+  assert.strictEqual(result.coverage.summary.total_units, 1);
+  assert.strictEqual(result.coverage.summary.unsupported_units, 1);
+  assert.strictEqual(result.coverage.events[0]?.coverage, "unsupported");
 });

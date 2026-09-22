@@ -30,7 +30,7 @@ interface MutablePatchLineChanges {
   readonly deletedLines: number[];
 }
 
-function patchPath(line: string): string | null {
+function patchPath(line: string, side: "a" | "b"): string | null {
   const value = line.slice(4);
 
   if (value === "/dev/null") {
@@ -41,7 +41,7 @@ function patchPath(line: string): string | null {
     ? decodeGitQuotedPath(value)
     : value;
 
-  return decoded?.startsWith("b/") === true ? decoded.slice(2) : null;
+  return decoded?.startsWith(`${side}/`) === true ? decoded.slice(2) : null;
 }
 
 function decodeGitQuotedPath(value: string): string | null {
@@ -130,6 +130,7 @@ function lineChangesFromPatch(
   }
 
   const changedByPath = new Map<string, MutablePatchLineChanges>();
+  let basePath: string | null = null;
   let currentPath: string | null = null;
   let nextBaseLine: number | null = null;
   let nextStagedLine: number | null = null;
@@ -167,14 +168,20 @@ function lineChangesFromPatch(
     }
 
     if (line.startsWith("diff --git ")) {
+      basePath = null;
       currentPath = null;
       nextBaseLine = null;
       nextStagedLine = null;
       continue;
     }
 
+    if (line.startsWith("--- ")) {
+      basePath = patchPath(line, "a");
+      continue;
+    }
+
     if (line.startsWith("+++ ")) {
-      currentPath = patchPath(line);
+      currentPath = patchPath(line, "b") ?? basePath;
       nextBaseLine = null;
       nextStagedLine = null;
 
@@ -365,6 +372,18 @@ export function analyzeCapturedStagedSnapshot(
     (entry) => entry.language === "typescript",
   );
 
+  if (capturedUnits > MAX_STAGED_CHANGED_LINES) {
+    return {
+      kind: "unsupported",
+      reason: "staged_budget_exceeded",
+      coverage: unsupportedCoverage(
+        "staged_budget_exceeded",
+        capturedUnits,
+        entries[0],
+      ),
+    };
+  }
+
   if (capture.raw_records.length !== 1 || entries.length !== 1) {
     return {
       kind: "unsupported",
@@ -429,13 +448,13 @@ export function analyzeCapturedStagedSnapshot(
   const deletedLines = lineChanges?.deletedLines ?? [];
   const changedUnitCount = changedLines.length + deletedLines.length;
 
-  if (changedUnitCount > MAX_STAGED_CHANGED_LINES) {
+  if (changedUnitCount === 0 && capture.raw_records.length > 0) {
     return {
       kind: "unsupported",
-      reason: "staged_budget_exceeded",
+      reason: "no_supported_staged_entity",
       coverage: unsupportedCoverage(
-        "staged_budget_exceeded",
-        changedUnitCount,
+        "no_supported_staged_entity",
+        capturedUnits,
         entry,
       ),
     };

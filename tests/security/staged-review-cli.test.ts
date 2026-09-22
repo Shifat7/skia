@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -166,4 +167,35 @@ test("executable runs when Node receives an installed-bin style symlink path", (
 
   assert.strictEqual(result.status, 0);
   assert.match(String(result.stdout), /Source check: source_derived_match/);
+});
+
+test("executable rejects malformed UTF-8 prediction bytes", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = spawnSync(
+    NODE_EXECUTABLE,
+    [path.join(process.cwd(), "dist/src/main.js"), "review"],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      input: Buffer.from([0x22, 0xff, 0x22, 0x0a]),
+    },
+  );
+
+  assert.strictEqual(result.status, 2);
+  assert.match(String(result.stdout), /valid JSON scalar/);
 });
