@@ -333,6 +333,36 @@ test("deletion-only patches retain every deleted line for the staged budget", ()
   assert.strictEqual(result.coverage.summary.unsupported_units, 200);
 });
 
+test("a no-hunk TypeScript record remains counted beside a textual file", () => {
+  const repositoryRoot = createRepository();
+  writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts -diff\n");
+  stagePaths(repositoryRoot, ".gitattributes");
+  commitAll(repositoryRoot, "disable TypeScript diffs");
+  writeRepoTextFile(repositoryRoot, "README.md", "changed\n");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "README.md", "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind !== "unsupported") {
+    return;
+  }
+  assert.strictEqual(result.coverage.summary.total_units, 2);
+  assert.strictEqual(result.coverage.summary.unsupported_units, 2);
+});
+
 test("diff-suppressed TypeScript remains explicit unsupported coverage", () => {
   const repositoryRoot = createRepository();
   writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts -diff\n");

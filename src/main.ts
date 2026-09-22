@@ -51,9 +51,25 @@ export function createCliShell(): CliShell {
 }
 
 export function runCli(
+  argv?: readonly string[],
+  options?: CliRunOptions & {
+    readonly read_input?: (prompt: string) => string;
+  },
+): CliResult;
+export function runCli(
+  argv: readonly string[],
+  options: CliRunOptions & {
+    readonly read_input: (prompt: string) => Promise<string>;
+  },
+): Promise<CliResult>;
+export function runCli(
+  argv?: readonly string[],
+  options?: CliRunOptions,
+): CliResult | Promise<CliResult>;
+export function runCli(
   argv: readonly string[] = [],
   options: CliRunOptions = {},
-): CliResult {
+): CliResult | Promise<CliResult> {
   if (argv.length === 1 && argv[0] === "review") {
     return runStagedReview(options);
   }
@@ -66,34 +82,50 @@ export function runCli(
   };
 }
 
-function readBoundedTerminalLine(): string {
-  const chunks: Buffer[] = [];
-  let totalBytes = 0;
+function readBoundedTerminalLine(): Promise<string> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    let settled = false;
 
-  while (totalBytes <= MAX_TERMINAL_INPUT_BYTES) {
-    const chunk = Buffer.alloc(
-      Math.min(256, MAX_TERMINAL_INPUT_BYTES + 1 - totalBytes),
-    );
-    const bytesRead = fs.readSync(0, chunk, 0, chunk.byteLength, null);
+    const finish = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      process.stdin.off("data", onData);
+      process.stdin.off("end", onEnd);
+      process.stdin.pause();
 
-    if (bytesRead === 0) {
-      break;
-    }
+      try {
+        resolve(TERMINAL_INPUT_DECODER.decode(Buffer.concat(chunks)));
+      } catch {
+        resolve("");
+      }
+    };
 
-    const bytes = chunk.subarray(0, bytesRead);
-    chunks.push(Buffer.from(bytes));
-    totalBytes += bytesRead;
+    const onData = (chunk: Uint8Array): void => {
+      const bytes = Buffer.from(chunk);
+      const newlineAt = bytes.indexOf(0x0a);
+      const line = newlineAt === -1 ? bytes : bytes.subarray(0, newlineAt + 1);
+      const remaining = MAX_TERMINAL_INPUT_BYTES + 1 - totalBytes;
+      const limited = line.subarray(0, Math.max(0, remaining));
+      chunks.push(Buffer.from(limited));
+      totalBytes += limited.byteLength;
 
-    if (bytes.includes(0x0a)) {
-      break;
-    }
-  }
+      if (newlineAt !== -1 || totalBytes > MAX_TERMINAL_INPUT_BYTES) {
+        finish();
+      }
+    };
 
-  try {
-    return TERMINAL_INPUT_DECODER.decode(Buffer.concat(chunks));
-  } catch {
-    return "";
-  }
+    const onEnd = (): void => {
+      finish();
+    };
+
+    process.stdin.on("data", onData);
+    process.stdin.on("end", onEnd);
+    process.stdin.resume();
+  });
 }
 
 const runtimeProcess = process as unknown as {
@@ -117,12 +149,13 @@ if (
   executablePath !== undefined &&
   resolvesToCliEntry(executablePath)
 ) {
-  const result = runCli(runtimeProcess.argv?.slice(2) ?? [], {
+  void Promise.resolve(runCli(runtimeProcess.argv?.slice(2) ?? [], {
     read_input: (prompt) => {
       process.stdout.write(prompt);
       return readBoundedTerminalLine();
     },
+  })).then((result) => {
+    process.stdout.write(result.output);
+    runtimeProcess.exitCode = result.exit_code;
   });
-  process.stdout.write(result.output);
-  runtimeProcess.exitCode = result.exit_code;
 }

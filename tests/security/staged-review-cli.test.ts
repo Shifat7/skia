@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
 
+import { listRuns } from "../../src/storage.js";
 import {
   commitAll,
   createTempGitRepository,
@@ -198,4 +199,52 @@ test("executable rejects malformed UTF-8 prediction bytes", () => {
 
   assert.strictEqual(result.status, 2);
   assert.match(String(result.stdout), /valid JSON scalar/);
+});
+
+test("executable removes the reserved run when prediction input is interrupted", async () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+  const child = spawn(
+    NODE_EXECUTABLE,
+    [path.join(process.cwd(), "dist/src/main.js"), "review"],
+    { cwd: repositoryRoot },
+  );
+  let output = "";
+  const timers = globalThis as unknown as {
+    clearTimeout(handle: number): void;
+    setTimeout(callback: () => void, delayMs: number): number;
+  };
+  const exit = await new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {
+    const timeout = timers.setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`prompt was not reached:\n${output}`));
+    }, 10_000);
+    child.stdout.on("data", (chunk) => {
+      output += Buffer.from(chunk).toString("utf8");
+      if (output.includes("Predict THEN")) {
+        child.kill("SIGINT");
+      }
+    });
+    child.on("exit", (code, signal) => {
+      timers.clearTimeout(timeout);
+      resolve({ code, signal });
+    });
+  });
+
+  assert.strictEqual(exit.code, 130);
+  assert.deepStrictEqual(listRuns(repositoryRoot), []);
+  assert.deepStrictEqual(listRuns(repositoryRoot), []);
 });

@@ -6,6 +6,7 @@ import type {
   CoverageEvent,
   CoverageEventId,
   GitCapturedBlob,
+  GitRawSnapshotRecord,
   SnapshotEntry,
   StableErrorReason,
   StagedSnapshotCapture,
@@ -366,17 +367,32 @@ function unsupportedCoverage(
   };
 }
 
+function recordChangedUnits(
+  record: GitRawSnapshotRecord,
+  patchChanges: ReadonlyMap<string, PatchLineChanges>,
+): number {
+  let recordPath: string;
+
+  try {
+    recordPath = UTF8_DECODER.decode(record.path_bytes);
+  } catch {
+    return 1;
+  }
+
+  const changes = patchChanges.get(recordPath);
+  const units =
+    (changes?.stagedLines.length ?? 0) + (changes?.deletedLines.length ?? 0);
+  return units > 0 ? units : 1;
+}
+
 export function analyzeCapturedStagedSnapshot(
   capture: StagedSnapshotCapture,
 ): StagedPipelineResult {
   const patchChanges = lineChangesFromPatch(capture.patch_bytes);
-  const patchUnits = [...patchChanges.values()].reduce(
-    (total, changes) =>
-      total + changes.stagedLines.length + changes.deletedLines.length,
+  const capturedUnits = capture.raw_records.reduce(
+    (total, record) => total + recordChangedUnits(record, patchChanges),
     0,
   );
-  const capturedUnits =
-    patchUnits > 0 ? patchUnits : capture.raw_records.length;
   const entries = capture.identity.entries.filter(
     (entry) => entry.language === "typescript",
   );

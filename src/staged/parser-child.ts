@@ -72,6 +72,33 @@ function topLevelFunctions(root: ParserNode): readonly ParserNode[] {
   return matches;
 }
 
+function mentionsIdentifier(node: ParserNode, name: string): boolean {
+  if (node.type === "identifier" && node.text === name) {
+    return true;
+  }
+
+  return node.children.some((child) => mentionsIdentifier(child, name));
+}
+
+function writesBinding(root: ParserNode, name: string): boolean {
+  const visit = (node: ParserNode): boolean => {
+    const target = node.type === "assignment_expression" ||
+        node.type === "augmented_assignment_expression"
+      ? node.childForFieldName("left")
+      : node.type === "update_expression"
+        ? node
+        : null;
+
+    if (target !== null && mentionsIdentifier(target, name)) {
+      return true;
+    }
+
+    return node.children.some(visit);
+  };
+
+  return visit(root);
+}
+
 function jsonScalar(text: string): JsonScalar | undefined {
   try {
     const value = JSON.parse(text) as unknown;
@@ -273,9 +300,15 @@ function parse(input: ParserInput): PilotParserResponse {
   }
 
   const functions = topLevelFunctions(tree.rootNode);
-  return functions.length === 1 && functions[0] !== undefined
-    ? parseFunction(functions[0])
-    : { kind: "unsupported" };
+  const functionNode = functions.length === 1 ? functions[0] : undefined;
+  if (functionNode === undefined) {
+    return { kind: "unsupported" };
+  }
+
+  const name = functionNode.childForFieldName("name")?.text.trim() ?? "";
+  return name.length > 0 && writesBinding(tree.rootNode, name)
+    ? { kind: "unsupported" }
+    : parseFunction(functionNode);
 }
 
 function main(): void {

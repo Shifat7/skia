@@ -208,9 +208,23 @@ declare module "node:process" {
     stdout: {
       write(value: string): void;
     };
+    stderr: {
+      write(value: string): void;
+    };
+    stdin: {
+      on(event: "data", listener: (chunk: Uint8Array) => void): void;
+      on(event: "end", listener: () => void): void;
+      off(event: "data", listener: (chunk: Uint8Array) => void): void;
+      off(event: "end", listener: () => void): void;
+      pause(): void;
+      resume(): void;
+    };
     readonly env: Readonly<Record<string, string | undefined>>;
     readonly pid: number;
     readonly platform: string;
+    on(event: "SIGINT", listener: () => void): void;
+    off(event: "SIGINT", listener: () => void): void;
+    exit(code: number): never;
   };
 
   export default process;
@@ -240,6 +254,26 @@ declare module "node:child_process" {
     readonly stdout: TStdout;
     readonly stderr: TStdout;
   }
+
+  export interface SpawnedProcess {
+    stdout: {
+      on(event: "data", listener: (chunk: Uint8Array) => void): void;
+    };
+    stderr: {
+      on(event: "data", listener: (chunk: Uint8Array) => void): void;
+    };
+    on(
+      event: "exit",
+      listener: (code: number | null, signal: string | null) => void,
+    ): void;
+    kill(signal?: string): boolean;
+  }
+
+  export function spawn(
+    command: string,
+    args?: readonly string[],
+    options?: SpawnSyncOptions,
+  ): SpawnedProcess;
 
   export function spawnSync(
     command: string,

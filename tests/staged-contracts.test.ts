@@ -144,6 +144,26 @@ test("pilot analyzer rejects nested, async, and generator functions", () => {
   });
 });
 
+test("pilot analyzer rejects later rebinding of the reviewed function", () => {
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1, 2, 3, 4, 5],
+    path: PATH,
+    source: [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      '(gateStatus as any) = (_code: string) => "evil";',
+    ].join("\n"),
+  });
+
+  assert.deepStrictEqual(result, {
+    kind: "unsupported",
+    reason: "no_supported_staged_entity",
+  });
+});
+
 test("pilot analyzer reports parser process failures as failed analysis", () => {
   const result = analyzeLiteralGuardFunction({
     blob_oid: BLOB_OID,
