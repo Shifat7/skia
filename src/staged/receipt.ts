@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { TOOL_VERSION } from "../limits.js";
 import { deriveStagedReceiptPath } from "../paths.js";
 import type {
   StagedArtifactWriteResult,
@@ -75,6 +76,7 @@ function receiptBase(
 ): Omit<StagedReceipt, "review"> {
   return {
     schema_version: 1,
+    tool_version: TOOL_VERSION,
     run_id: options.allocation.runId,
     session_id: options.allocation.sessionId,
     status: "complete",

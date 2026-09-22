@@ -197,6 +197,7 @@ export const stagedReceiptSchema = {
   additionalProperties: false,
   required: [
     "schema_version",
+    "tool_version",
     "run_id",
     "session_id",
     "status",
@@ -209,6 +210,12 @@ export const stagedReceiptSchema = {
   ],
   properties: {
     ...commonEnvelopeProperties,
+    tool_version: {
+      type: "string",
+      minLength: 1,
+      maxLength: 32,
+      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+    },
     session_id: {
       type: "string",
       pattern: "^[a-z0-9]{8,32}$",

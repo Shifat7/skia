@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
+import { TOOL_VERSION } from "../src/limits.js";
 import { captureStagedSnapshot } from "../src/git.js";
 import {
   deriveStagedReceiptPath,
@@ -111,6 +113,14 @@ test("staged run persists prediction artifact before completing validated receip
     return;
   }
 
+  const packageVersion = JSON.parse(
+    fs.readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "../../package.json"),
+      "utf8",
+    ),
+  ) as { readonly version: string };
+  assert.strictEqual(inspected.receipt.tool_version, TOOL_VERSION);
+  assert.strictEqual(inspected.receipt.tool_version, packageVersion.version);
   assert.strictEqual(inspected.receipt.review?.card_status, "complete");
   assert.deepStrictEqual(inspected.receipt.review?.session_counts, {
     prompts_presented: 1,

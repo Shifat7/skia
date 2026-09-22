@@ -17,6 +17,7 @@ export const MAX_GIT_CAPTURED_BLOB_BYTES = 16 * 1024 * 1024;
 export const MAX_TERMINAL_INPUT_BYTES = 4_096;
 export const MAX_STAGED_TEXT_CHARACTERS = 4_096;
 export const MAX_STAGED_CHANGED_LINES = 150;
+export const TOOL_VERSION = "0.0.0";
 
 export const LOCAL_RETENTION_CAVEAT =
   "There is no age-based automatic retention or background cleanup. Complete runs remain local until explicit exact-ID deletion succeeds.";

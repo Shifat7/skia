@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 
+import { resolveLanguageRegistration } from "../languages/registry.js";
 import { MAX_STAGED_CHANGED_LINES } from "../limits.js";
 import type {
   CoverageEnvelope,
@@ -51,17 +52,25 @@ function decodeGitQuotedPath(value: string): string | null {
   }
 
   const bytes: number[] = [];
+  const body = value.slice(1, -1);
 
-  for (let index = 1; index < value.length - 1; index += 1) {
-    const character = value[index];
+  for (let index = 0; index < body.length; ) {
+    const codePoint = body.codePointAt(index);
+
+    if (codePoint === undefined) {
+      return null;
+    }
+
+    const character = String.fromCodePoint(codePoint);
 
     if (character !== "\\") {
-      bytes.push(...Buffer.from(character ?? "", "utf8"));
+      bytes.push(...Buffer.from(character, "utf8"));
+      index += character.length;
       continue;
     }
 
     index += 1;
-    const escaped = value[index];
+    const escaped = body[index];
 
     if (escaped === undefined) {
       return null;
@@ -82,6 +91,7 @@ function decodeGitQuotedPath(value: string): string | null {
 
     if (simple !== undefined) {
       bytes.push(simple);
+      index += 1;
       continue;
     }
 
@@ -92,13 +102,14 @@ function decodeGitQuotedPath(value: string): string | null {
     let octal = escaped;
     while (
       octal.length < 3 &&
-      index + 1 < value.length - 1 &&
-      /[0-7]/.test(value[index + 1] ?? "")
+      index + 1 < body.length &&
+      /[0-7]/.test(body[index + 1] ?? "")
     ) {
       index += 1;
-      octal += value[index];
+      octal += body[index];
     }
     bytes.push(Number.parseInt(octal, 8));
+    index += 1;
   }
 
   try {
@@ -367,6 +378,18 @@ function unsupportedCoverage(
   };
 }
 
+function isSupportedLanguageRecord(record: GitRawSnapshotRecord): boolean {
+  let recordPath: string;
+
+  try {
+    recordPath = UTF8_DECODER.decode(record.path_bytes);
+  } catch {
+    return false;
+  }
+
+  return resolveLanguageRegistration(recordPath) !== null;
+}
+
 function recordChangedUnits(
   record: GitRawSnapshotRecord,
   patchChanges: ReadonlyMap<string, PatchLineChanges>,
@@ -393,11 +416,18 @@ export function analyzeCapturedStagedSnapshot(
     (total, record) => total + recordChangedUnits(record, patchChanges),
     0,
   );
+  const budgetUnits = capture.raw_records.reduce(
+    (total, record) =>
+      isSupportedLanguageRecord(record)
+        ? total + recordChangedUnits(record, patchChanges)
+        : total,
+    0,
+  );
   const entries = capture.identity.entries.filter(
     (entry) => entry.language === "typescript",
   );
 
-  if (capturedUnits > MAX_STAGED_CHANGED_LINES) {
+  if (budgetUnits > MAX_STAGED_CHANGED_LINES) {
     return {
       kind: "unsupported",
       reason: "staged_budget_exceeded",

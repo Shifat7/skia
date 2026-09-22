@@ -390,6 +390,7 @@ export interface StagedReviewDetails {
 
 export interface StagedReceipt {
   readonly schema_version: 1;
+  readonly tool_version: string;
   readonly run_id: RunId;
   readonly session_id: SessionId;
   readonly status: RunState;

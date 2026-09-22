@@ -63,6 +63,23 @@ test("changed-line parser decodes Git-quoted UTF-8 paths", () => {
   );
 });
 
+test("changed-line parser decodes astral characters inside Git-quoted paths", () => {
+  const encoded = "emoji\u{1F600}\\\"gate.ts";
+  const patch = [
+    `diff --git "a/${encoded}" "b/${encoded}"`,
+    `--- "a/${encoded}"`,
+    `+++ "b/${encoded}"`,
+    "@@ -0,0 +1 @@",
+    "+export function gate() {}",
+    "",
+  ].join("\n");
+
+  assert.deepStrictEqual(
+    changedLinesFromPatch(Buffer.from(patch, "utf8")),
+    new Map([["emoji\u{1F600}\"gate.ts", [1]]]),
+  );
+});
+
 test("changed-line parser keeps added source lines beginning with plus signs", () => {
   const patch = [
     "diff --git a/src/gate.ts b/src/gate.ts",
@@ -303,6 +320,38 @@ test("captured staged snapshot rejects more than 150 changed lines before analys
     return;
   }
   assert.strictEqual(result.reason, "staged_budget_exceeded");
+  assert.strictEqual(result.coverage.summary.total_units, 155);
+  assert.strictEqual(result.coverage.summary.unsupported_units, 155);
+});
+
+test("unsupported-language changes do not consume the staged review budget", () => {
+  const repositoryRoot = createRepository();
+  writeRepoTextFile(
+    repositoryRoot,
+    "README.md",
+    `${Array.from({ length: 151 }, (_, index) => `line ${index + 1}`).join("\n")}\n`,
+  );
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "README.md", "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind !== "unsupported") {
+    return;
+  }
+  assert.strictEqual(result.reason, "no_supported_staged_entity");
   assert.strictEqual(result.coverage.summary.total_units, 155);
   assert.strictEqual(result.coverage.summary.unsupported_units, 155);
 });

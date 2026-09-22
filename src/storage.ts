@@ -368,6 +368,10 @@ function parseRegularJson<T>(
   return parseJson<T>(filePath);
 }
 
+function isExistingPathError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EEXIST";
+}
+
 function writeNewFile(filePath: string, data: string | Uint8Array): void {
   const bytes = asBytes(data);
   const fileDescriptor = fs.openSync(filePath, "wx", OWNER_FILE_MODE);
@@ -1110,9 +1114,7 @@ export function allocateRepositoryRun(
     try {
       claimPath = writeRunIdClaim(repositoryRoot, runId, "repo_review");
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-
-      if (/exist/i.test(message)) {
+      if (isExistingPathError(error)) {
         continue;
       }
 
@@ -1131,14 +1133,12 @@ export function allocateRepositoryRun(
     try {
       fs.mkdirSync(runDirectoryPath, { mode: OWNER_DIRECTORY_MODE });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      releaseRunIdClaim(claimPath);
 
-      if (/exist/i.test(message)) {
-        releaseRunIdClaim(claimPath);
+      if (isExistingPathError(error)) {
         continue;
       }
 
-      releaseRunIdClaim(claimPath);
       throw error;
     }
 
@@ -1271,9 +1271,7 @@ export function allocateStagedRun(
         validatedSessionId,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-
-      if (/exist/i.test(message)) {
+      if (isExistingPathError(error)) {
         continue;
       }
 
@@ -1509,9 +1507,7 @@ export function writeStagedReceipt(
       validation.value.session_id,
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    if (/exist/i.test(message)) {
+    if (isExistingPathError(error)) {
       throw createStorageError(
         `run ${validation.value.run_id} already reserves run_id space beneath .skia`,
       );

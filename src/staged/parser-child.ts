@@ -83,7 +83,8 @@ function mentionsIdentifier(node: ParserNode, name: string): boolean {
 function writesBinding(root: ParserNode, name: string): boolean {
   const visit = (node: ParserNode): boolean => {
     const target = node.type === "assignment_expression" ||
-        node.type === "augmented_assignment_expression"
+        node.type === "augmented_assignment_expression" ||
+        node.type === "for_in_statement"
       ? node.childForFieldName("left")
       : node.type === "update_expression"
         ? node

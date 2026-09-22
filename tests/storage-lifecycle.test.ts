@@ -22,6 +22,7 @@ import {
   RUN_METADATA_FILENAME,
   setStorageTestHooks,
   allocateRepositoryRun,
+  allocateStagedRun,
   completeRepositoryRun,
   deleteRun,
   inspectRun,
@@ -750,6 +751,36 @@ test("repository completion writes a manifest only after validated artifacts, an
     throw new Error("expected staged receipt inspection");
   }
   assert.strictEqual(inspectedReceiptRun.receipt.run_id, "20260810T020304Z");
+});
+
+test("allocation does not treat a non-collision error as an exhausted run id", () => {
+  const repositoryRoot = createTempRepository();
+  const denied = Object.assign(
+    new Error("could not use the existing directory"),
+    { code: "EACCES" },
+  );
+
+  setStorageTestHooks({
+    afterRunIdClaim: () => {
+      throw denied;
+    },
+  });
+
+  let thrown: unknown = null;
+
+  try {
+    allocateStagedRun(
+      repositoryRoot,
+      validateSessionId("8f5d1a2c"),
+      new Date("2026-08-10T01:02:03Z"),
+    );
+  } catch (error) {
+    thrown = error;
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  assert.strictEqual(thrown, denied);
 });
 
 test("staged receipt run-id claims stay unique under interleaved writers", () => {

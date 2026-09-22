@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -410,11 +410,12 @@ export function requireIgnoredSkiaOutputRoot(
 ): string {
   const resolvedRoot = resolveGitRepositoryRoot(repositoryRoot, options);
   const commandOptions = gitCommandOptions(resolvedRoot, options);
+  const probeToken = randomBytes(8).toString("hex");
   const probes = [
-    `${SKIA_DIRECTORY_NAME}/${TMP_DIRECTORY_NAME}/snapshot-probe`,
-    `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/claim-probe.json`,
-    `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/probe-probe-behavior_cards.json`,
-    `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/receipt-probe.json`,
+    `${SKIA_DIRECTORY_NAME}/${TMP_DIRECTORY_NAME}/${probeToken}-snapshot`,
+    `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${probeToken}.json`,
+    `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${probeToken}-${probeToken}-behavior_cards.json`,
+    `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/${probeToken}-${probeToken}-session.json`,
   ];
 
   for (const probe of probes) {
