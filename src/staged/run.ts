@@ -92,6 +92,24 @@ function parsePrediction(input: string): ParsedPrediction {
   }
 }
 
+function formatCoverageSummary(summary: {
+  readonly supported_units: number;
+  readonly partial_units: number;
+  readonly unmapped_units: number;
+  readonly unsupported_units: number;
+  readonly failed_units: number;
+  readonly unchecked_units: number;
+}): string {
+  return (
+    `supported=${summary.supported_units} ` +
+    `partial=${summary.partial_units} ` +
+    `unmapped=${summary.unmapped_units} ` +
+    `unsupported=${summary.unsupported_units} ` +
+    `failed=${summary.failed_units} ` +
+    `unchecked=${summary.unchecked_units}`
+  );
+}
+
 function promptOutput(
   analysis: ReturnType<typeof analyzeCapturedStagedSnapshot> & {
     readonly kind: "supported";
@@ -102,12 +120,7 @@ function promptOutput(
   return [
     "Skia staged review",
     `Evidence: ${escapeTerminalText(analysis.analysis.evidence.relation)}`,
-    "Coverage: " +
-      `supported=${summary.supported_units} ` +
-      `partial=${summary.partial_units} ` +
-      `unmapped=${summary.unmapped_units} ` +
-      `unsupported=${summary.unsupported_units} ` +
-      `failed=${summary.failed_units}`,
+    `Coverage: ${formatCoverageSummary(summary)}`,
     `GIVEN ${escapeTerminalText(analysis.analysis.scenario.given.parameter)} = ` +
       escapeTerminalText(
         JSON.stringify(analysis.analysis.scenario.given.value),
@@ -391,7 +404,7 @@ export function runStagedReview(
         kind: "review_failed",
         output:
           `Skia staged review failed: ${pipeline.reason}\n` +
-          `Coverage: failed=${pipeline.coverage.summary.failed_units}\n`,
+          `Coverage: ${formatCoverageSummary(pipeline.coverage.summary)}\n`,
       };
     }
 
@@ -402,12 +415,7 @@ export function runStagedReview(
         kind: "review_unsupported",
         output:
           `Skia staged review unavailable: ${pipeline.reason}\n` +
-          "Coverage: " +
-          `supported=${summary.supported_units} ` +
-          `partial=${summary.partial_units} ` +
-          `unmapped=${summary.unmapped_units} ` +
-          `unsupported=${summary.unsupported_units} ` +
-          `failed=${summary.failed_units}\n`,
+          `Coverage: ${formatCoverageSummary(summary)}\n`,
       };
     }
 

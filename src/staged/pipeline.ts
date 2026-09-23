@@ -593,7 +593,21 @@ export function analyzeCapturedStagedSnapshot(
     };
   }
 
+  const baseBlob = entry.base_blob_oid === null
+    ? null
+    : capture.captured_blobs.find((candidate) => candidate.oid === entry.base_blob_oid) ??
+      null;
+  let baseSource: string | null = null;
+  if (baseBlob !== null && !baseBlob.bytes.includes(0)) {
+    try {
+      baseSource = UTF8_DECODER.decode(baseBlob.bytes);
+    } catch {
+      baseSource = null;
+    }
+  }
+
   const analysis = analyzeLiteralGuardFunction({
+    base_source: baseSource,
     blob_oid: blob.oid,
     changed_lines: changedLines,
     path: entry.path,

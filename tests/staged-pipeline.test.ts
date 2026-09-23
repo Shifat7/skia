@@ -244,6 +244,32 @@ test("captured staged snapshot supports a modified guard line", () => {
   assert.strictEqual(result.coverage.summary.unmapped_units, 1);
 });
 
+test("captured staged snapshot refuses a same-line fallback edit", () => {
+  const repositoryRoot = createRepository();
+  const source = [
+    'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }',
+    "",
+  ].join("\n");
+  writeRepoTextFile(repositoryRoot, "src/gate-status.ts", source);
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+  commitAll(repositoryRoot, "add one-line function");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    source.replace('return "hold"', 'return "stop"'),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind === "unsupported") {
+    assert.strictEqual(result.reason, "unmapped_region");
+  }
+});
+
 test("captured staged snapshot refuses a function when only unrelated lines changed", () => {
   const repositoryRoot = createRepository();
   const initial = [

@@ -210,6 +210,112 @@ function hasNonWhitespace(bytes: Uint8Array): boolean {
   return false;
 }
 
+function isExportPrefix(bytes: Uint8Array): boolean {
+  const text = Buffer.from(bytes).toString("utf8").trim();
+  return text === "" || text === "export";
+}
+
+function spanBytes(
+  source: string,
+  range: PilotParserNodeRange,
+): Uint8Array | null {
+  const lines = sourceLineBytes(source);
+  const chunks: Uint8Array[] = [];
+
+  for (let lineNumber = range.start_line; lineNumber <= range.end_line; lineNumber += 1) {
+    const line = lines[lineNumber - 1];
+    if (line === undefined) {
+      return null;
+    }
+
+    const start = lineNumber === range.start_line ? range.start_column : 0;
+    const end = lineNumber === range.end_line ? range.end_column : line.length;
+    if (start < 0 || end > line.length || start > end) {
+      return null;
+    }
+
+    chunks.push(line.subarray(start, end));
+    if (lineNumber !== range.end_line) {
+      chunks.push(Buffer.from("\n"));
+    }
+  }
+
+  return Buffer.concat(chunks);
+}
+
+function spansMatch(
+  stagedSource: string,
+  baseSource: string,
+  range: PilotParserNodeRange,
+): boolean {
+  const staged = spanBytes(stagedSource, range);
+  const base = spanBytes(baseSource, range);
+  if (staged === null || base === null || staged.byteLength !== base.byteLength) {
+    return false;
+  }
+
+  for (let index = 0; index < staged.byteLength; index += 1) {
+    if (staged[index] !== base[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function columnSpan(
+  lineNumber: number,
+  range: PilotParserNodeRange,
+  lineLength: number,
+): { readonly start: number; readonly end: number } | null {
+  if (lineNumber < range.start_line || lineNumber > range.end_line) {
+    return null;
+  }
+
+  return {
+    start: lineNumber === range.start_line ? range.start_column : 0,
+    end: lineNumber === range.end_line ? range.end_column : lineLength,
+  };
+}
+
+function changedLineOutsideEvidence(
+  source: string,
+  lineNumber: number,
+  entity: PilotParserNodeRange,
+  guard: PilotParserNodeRange,
+  matchedReturn: PilotParserNodeRange,
+): boolean {
+  const line = sourceLineBytes(source)[lineNumber - 1];
+  if (line === undefined) {
+    return false;
+  }
+
+  const entitySpan = columnSpan(lineNumber, entity, line.length);
+  if (entitySpan === null) {
+    return false;
+  }
+
+  const covered = [guard, matchedReturn]
+    .map((range) => columnSpan(lineNumber, range, line.length))
+    .filter((span) => span !== null);
+
+  for (let index = entitySpan.start; index < entitySpan.end; index += 1) {
+    const byte = line[index];
+    if (byte === undefined || byte === 0x09 || byte === 0x0b || byte === 0x0c || byte === 0x20) {
+      continue;
+    }
+
+    const insideEvidence = covered.some(
+      (span) => span !== null && index >= span.start && index < span.end,
+    );
+    if (!insideEvidence) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function changedLineLeavesEntity(
   source: string,
   lineNumber: number,
@@ -223,7 +329,7 @@ function changedLineLeavesEntity(
   const start = lineNumber === entity.start_line ? entity.start_column : 0;
   const end = lineNumber === entity.end_line ? entity.end_column : line.length;
   return (
-    hasNonWhitespace(line.subarray(0, Math.max(0, start))) ||
+    !isExportPrefix(line.subarray(0, Math.max(0, start))) ||
     hasNonWhitespace(line.subarray(Math.min(line.length, Math.max(0, end))))
   );
 }
@@ -263,15 +369,38 @@ export function analyzeLiteralGuardFunction(
     };
   }
 
+  const evidenceUnchanged =
+    options.base_source !== undefined &&
+    options.base_source !== null &&
+    spansMatch(options.source, options.base_source, parsed.guard_range) &&
+    spansMatch(options.source, options.base_source, parsed.return_range);
+
   for (const line of changedLines) {
     const overlapsGuardOrReturn =
       (line >= parsed.guard_range.start_line &&
         line <= parsed.guard_range.end_line) ||
       (line >= parsed.return_range.start_line &&
         line <= parsed.return_range.end_line);
+    if (!overlapsGuardOrReturn) {
+      continue;
+    }
+
+    if (changedLineLeavesEntity(options.source, line, parsed.entity_range)) {
+      return {
+        kind: "unsupported",
+        reason: "unmapped_region",
+      };
+    }
+
     if (
-      overlapsGuardOrReturn &&
-      changedLineLeavesEntity(options.source, line, parsed.entity_range)
+      evidenceUnchanged &&
+      changedLineOutsideEvidence(
+        options.source,
+        line,
+        parsed.entity_range,
+        parsed.guard_range,
+        parsed.return_range,
+      )
     ) {
       return {
         kind: "unsupported",

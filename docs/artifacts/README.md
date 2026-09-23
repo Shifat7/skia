@@ -31,7 +31,7 @@ The implemented pilot surface is intentionally smaller:
 ```text
 Skia staged review
 Evidence: code === "ready" -> return "ok"
-Coverage: supported=2 partial=0 unmapped=5 unsupported=0 failed=0
+Coverage: supported=2 partial=0 unmapped=5 unsupported=0 failed=0 unchecked=0
 GIVEN code = "ready"
 WHEN gateStatus("ready")
 Predict THEN as JSON, or type "skip":

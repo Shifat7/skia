@@ -70,6 +70,7 @@ export interface AnalyzeLiteralGuardFunctionOptions {
   readonly changed_lines: readonly number[];
   readonly path: RepositoryRelativePath;
   readonly source: string;
+  readonly base_source?: string | null;
   readonly parser_command?: {
     readonly command: string;
     readonly args: readonly string[];
