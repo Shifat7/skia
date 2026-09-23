@@ -1177,6 +1177,8 @@ function captureStagedAttempt(
     );
     const patchBytes = runGit(
       [
+        "-c",
+        "diff.suppressBlankEmpty=false",
         "diff-index",
         "--cached",
         "-p",

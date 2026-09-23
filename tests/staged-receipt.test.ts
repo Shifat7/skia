@@ -658,6 +658,49 @@ test("completing a staged run rejects a receipt without pilot review details", (
   );
 });
 
+test("completing a staged run rejects a different tool version", () => {
+  const prepared = preparedMismatchReceipt();
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
+    tool_version: string;
+  };
+  forged.tool_version = "1.2.3";
+  const rewritten = receiptWithSelfHash(forged as unknown as StagedReceipt);
+
+  assert.strictEqual(validateStagedReceipt(rewritten).valid, true);
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, rewritten),
+    /current tool version/,
+  );
+});
+
+test("completing a staged run rejects extra artifact kinds", () => {
+  const prepared = preparedMismatchReceipt();
+  const extra = writeStagedArtifactFile(
+    prepared.allocation,
+    "hld",
+    "{}\n",
+  );
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
+    artifact_hashes: {
+      kind: string;
+      path: string;
+      sha256: string;
+    }[];
+  };
+  forged.artifact_hashes.push({
+    kind: "hld",
+    path: extra.artifactPath,
+    sha256: extra.sha256,
+  });
+  const rewritten = receiptWithSelfHash(forged as unknown as StagedReceipt);
+
+  assert.strictEqual(validateStagedReceipt(rewritten).valid, true);
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, rewritten),
+    /behavior card and receipt/,
+  );
+});
+
 test("completing a staged run rejects coverage that differs from allocation", () => {
   const prepared = preparedMismatchReceipt();
   const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {

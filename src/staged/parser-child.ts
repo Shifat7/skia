@@ -464,7 +464,10 @@ function containsSameNameFunction(
       return false;
     }
 
-    if (node.type === "function_declaration") {
+    if (
+      node.type === "function_declaration" ||
+      node.type === "generator_function_declaration"
+    ) {
       const declared = node.childForFieldName("name")?.text ?? "";
       if (decodedIdentifier(declared) === expectedName) {
         return true;

@@ -25,6 +25,25 @@ function createRepository(): string {
   return repositoryRoot;
 }
 
+test("changed-line parser keeps additions after a blank context line", () => {
+  const patch = [
+    "diff --git a/src/gate.ts b/src/gate.ts",
+    "index 1111111..2222222 100644",
+    "--- a/src/gate.ts",
+    "+++ b/src/gate.ts",
+    "@@ -1,4 +1,4 @@",
+    " export function gate(code: string) {",
+    "",
+    '-  return "old";',
+    '+  return "ok";',
+    " }",
+    "",
+  ].join("\n");
+  const changes = changedLinesFromPatch(Buffer.from(`${patch}\n`));
+
+  assert.deepStrictEqual(changes.get("src/gate.ts"), [3]);
+});
+
 test("changed-line parser returns only staged-side added lines", () => {
   const patch = [
     "diff --git a/src/gate.ts b/src/gate.ts",

@@ -441,6 +441,52 @@ test("terminal prediction input settles when the input stream errors", async () 
   }
 });
 
+test("terminal prediction input excludes a carriage return split from the line feed", async () => {
+  const listeners: {
+    data?: (chunk: Uint8Array) => void;
+  } = {};
+  const stream = {
+    on(
+      event: "data" | "end" | "error",
+      listener: ((chunk: Uint8Array) => void) | (() => void) | ((error: Error) => void),
+    ): void {
+      if (event === "data") {
+        listeners.data = listener as (chunk: Uint8Array) => void;
+      }
+    },
+    off(): void {},
+    pause(): void {},
+    resume(): void {},
+  };
+  const prediction = Buffer.from(`"${"x".repeat(4_094)}"`);
+  assert.strictEqual(prediction.byteLength, 4_096);
+  const pending = readBoundedTerminalLineFrom(stream);
+  listeners.data?.(Buffer.concat([prediction, Buffer.from("\r")]));
+  listeners.data?.(Buffer.from("\n"));
+
+  assert.strictEqual(Buffer.from(await pending).byteLength, 4_096);
+});
+
+test("skia review rechecks ignore status immediately before allocation", () => {
+  const repositoryRoot = createSupportedRepository();
+  const result = runCli(["review"], {
+    before_allocation: () => {
+      writeRepoTextFile(repositoryRoot, ".gitignore", "\n");
+    },
+    input: '"ok"\n',
+    now: () => new Date("2026-09-22T01:02:03Z"),
+    repository_root: repositoryRoot,
+    session_id: "8f5d1a2c",
+  });
+
+  assert.strictEqual(result.exit_code, 2);
+  assert.match(result.output, /output_root_not_ignored/);
+  assert.strictEqual(
+    fs.existsSync(path.join(repositoryRoot, ".skia", "run-ids")),
+    false,
+  );
+});
+
 test("skia review accepts a maximum-length prediction before its line terminator", () => {
   const repositoryRoot = createSupportedRepository();
   const prediction = `"${"x".repeat(4_094)}"`;

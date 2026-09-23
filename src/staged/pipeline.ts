@@ -165,7 +165,7 @@ function lineChangesFromPatch(
         continue;
       }
 
-      if (line.startsWith(" ")) {
+      if (line.startsWith(" ") || line === "") {
         if (nextBaseLine !== null) {
           nextBaseLine += 1;
         }

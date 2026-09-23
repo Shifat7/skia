@@ -35,6 +35,7 @@ export interface StagedReviewRunOptions {
   readonly read_input?: (prompt: string) => string | Promise<string>;
   readonly repository_root?: string;
   readonly session_id?: string;
+  readonly before_allocation?: () => void;
 }
 
 export interface StagedReviewRunResult {
@@ -404,6 +405,13 @@ export function runStagedReview(
       };
     }
 
+    options.before_allocation?.();
+    requireIgnoredSkiaOutputRoot(
+      repositoryRoot,
+      createdAt,
+      sessionId,
+      temporaryStamp,
+    );
     const activeAllocation = allocateStagedRun(
       repositoryRoot,
       sessionId,

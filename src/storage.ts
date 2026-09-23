@@ -18,6 +18,7 @@ import {
   RUN_ID_CLAIMS_DIRECTORY_NAME,
   RUN_METADATA_FILENAME,
   SKIA_DIRECTORY_NAME,
+  TOOL_VERSION,
 } from "./limits.js";
 import {
   createdAtFromRunId,
@@ -1584,6 +1585,10 @@ export function completeStagedRun(
 ): { readonly receiptPath: string; readonly artifactBytes: number } {
   assertCompleteStagedReceipt(receipt);
 
+  if (receipt.tool_version !== TOOL_VERSION) {
+    throw createStorageError("staged run completion requires the current tool version");
+  }
+
   if (receipt.review === undefined) {
     throw createStorageError("staged run completion requires pilot review details");
   }
@@ -1648,6 +1653,18 @@ export function completeStagedRun(
   ) {
     throw createStorageError(
       "staged receipt coverage does not match the allocated coverage",
+    );
+  }
+
+  const artifactKinds = validation.value.artifact_hashes
+    .map((artifact) => artifact.kind)
+    .sort();
+
+  if (
+    !isDeepStrictEqual(artifactKinds, ["behavior_cards", "receipt"])
+  ) {
+    throw createStorageError(
+      "staged run completion requires only the behavior card and receipt",
     );
   }
 

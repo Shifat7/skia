@@ -113,6 +113,7 @@ export function readBoundedTerminalLineFrom(
     const chunks: Buffer[] = [];
     let totalBytes = 0;
     let settled = false;
+    let heldCarriageReturn = false;
 
     const stop = (): void => {
       stream.off("data", onData);
@@ -145,14 +146,33 @@ export function readBoundedTerminalLineFrom(
     };
 
     const onData = (chunk: Uint8Array): void => {
-      const bytes = Buffer.from(chunk);
+      let bytes = Buffer.from(chunk);
+      if (heldCarriageReturn) {
+        heldCarriageReturn = false;
+        if (bytes.byteLength === 0 || bytes[0] !== 0x0a) {
+          bytes = Buffer.concat([Buffer.from([0x0d]), bytes]);
+        }
+      }
+
       const newlineAt = bytes.indexOf(0x0a);
       const line = newlineAt === -1 ? bytes : bytes.subarray(0, newlineAt + 1);
-      const payload = terminalPredictionPayload(line);
+      let payload = terminalPredictionPayload(line);
+
+      if (
+        newlineAt === -1 &&
+        payload.byteLength > 0 &&
+        payload[payload.byteLength - 1] === 0x0d
+      ) {
+        heldCarriageReturn = true;
+        payload = payload.subarray(0, payload.byteLength - 1);
+      }
+
       const remaining = MAX_TERMINAL_INPUT_BYTES + 1 - totalBytes;
       const limited = payload.subarray(0, Math.max(0, remaining));
-      chunks.push(Buffer.from(limited));
-      totalBytes += limited.byteLength;
+      if (limited.byteLength > 0) {
+        chunks.push(Buffer.from(limited));
+        totalBytes += limited.byteLength;
+      }
 
       if (newlineAt !== -1 || totalBytes > MAX_TERMINAL_INPUT_BYTES) {
         finish();
@@ -160,6 +180,9 @@ export function readBoundedTerminalLineFrom(
     };
 
     const onEnd = (): void => {
+      if (heldCarriageReturn) {
+        chunks.push(Buffer.from([0x0d]));
+      }
       finish();
     };
 
