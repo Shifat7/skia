@@ -131,16 +131,50 @@ export function changedLinesFromPatch(
   );
 }
 
+function decodePatchLine(lineBytes: Uint8Array): string {
+  try {
+    return UTF8_DECODER.decode(lineBytes);
+  } catch {
+    const prefix = lineBytes[0];
+    if (prefix === 0x2b) {
+      return "+";
+    }
+    if (prefix === 0x2d) {
+      return "-";
+    }
+    if (prefix === 0x20) {
+      return " ";
+    }
+    if (prefix === 0x5c) {
+      return "\\ No newline at end of file";
+    }
+    return "\u0000";
+  }
+}
+
+function patchTextLines(patchBytes: Uint8Array): readonly string[] {
+  const lines: string[] = [];
+  let start = 0;
+
+  for (let index = 0; index <= patchBytes.length; index += 1) {
+    if (index < patchBytes.length && patchBytes[index] !== 0x0a) {
+      continue;
+    }
+
+    lines.push(decodePatchLine(patchBytes.subarray(start, index)));
+    if (index === patchBytes.length) {
+      break;
+    }
+    start = index + 1;
+  }
+
+  return lines;
+}
+
 function lineChangesFromPatch(
   patchBytes: Uint8Array,
 ): ReadonlyMap<string, PatchLineChanges> {
-  let patch: string;
-
-  try {
-    patch = UTF8_DECODER.decode(patchBytes);
-  } catch {
-    return new Map();
-  }
+  const patchLines = patchTextLines(patchBytes);
 
   const changedByPath = new Map<string, MutablePatchLineChanges>();
   let basePath: string | null = null;
@@ -148,7 +182,7 @@ function lineChangesFromPatch(
   let nextBaseLine: number | null = null;
   let nextStagedLine: number | null = null;
 
-  for (const line of patch.split("\n")) {
+  for (const line of patchLines) {
     if (currentPath !== null && nextStagedLine !== null) {
       if (line.startsWith("+")) {
         changedByPath.get(currentPath)?.stagedLines.push(nextStagedLine);

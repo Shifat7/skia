@@ -14,6 +14,7 @@ import {
   runGit,
   stageAll,
   stagePaths,
+  writeRepoBinaryFile,
   writeRepoTextFile,
 } from "./git-test-helpers.js";
 
@@ -42,6 +43,54 @@ test("changed-line parser keeps additions after a blank context line", () => {
   const changes = changedLinesFromPatch(Buffer.from(`${patch}\n`));
 
   assert.deepStrictEqual(changes.get("src/gate.ts"), [3]);
+});
+
+test("changed-line parser keeps additions when a deleted line is not UTF-8", () => {
+  const patch = Buffer.concat([
+    Buffer.from(
+      [
+        "diff --git a/src/gate.ts b/src/gate.ts",
+        "index 1111111..2222222 100644",
+        "--- a/src/gate.ts",
+        "+++ b/src/gate.ts",
+        "@@ -1,1 +1,1 @@",
+        "",
+      ].join("\n"),
+    ),
+    Buffer.from([0x2d, 0xff, 0x0a]),
+    Buffer.from('+return "ok";\n'),
+  ]);
+
+  assert.deepStrictEqual(changedLinesFromPatch(patch).get("src/gate.ts"), [1]);
+});
+
+test("captured staged snapshot analyzes a UTF-8 replacement of non-UTF-8 source", () => {
+  const repositoryRoot = createRepository();
+  writeRepoBinaryFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    Buffer.from([0xff, 0x0a]),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+  commitAll(repositoryRoot, "add non-utf8 source");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "supported");
 });
 
 test("changed-line parser returns only staged-side added lines", () => {

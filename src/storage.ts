@@ -156,6 +156,9 @@ export interface ArtifactWriteResult {
   readonly sha256: Sha256Hex;
 }
 
+export const STAGED_RECEIPT_PRIVACY_CAVEAT =
+  "Local receipt contains code-derived evidence and a developer prediction; inspect and delete it when no longer needed.";
+
 export interface StagedRunAllocation {
   readonly repositoryRoot: string;
   readonly runId: RunId;
@@ -170,6 +173,8 @@ export interface StagedArtifactWriteResult extends ArtifactWriteResult {
 
 export interface StorageTestHooks {
   readonly afterCreateNewFile?: () => void;
+  readonly closeNewFile?: (fileDescriptor: number) => void;
+  readonly unlinkStagedReceiptTemporary?: (temporaryPath: string) => void;
   readonly afterRunIdClaim?: (claim: {
     readonly mode: RunMode;
     readonly runId: RunId;
@@ -429,9 +434,28 @@ function writeNewFile(filePath: string, data: string | Uint8Array): void {
     fs.fsyncSync(fileDescriptor);
     completed = true;
   } finally {
-    fs.closeSync(fileDescriptor);
+    let closeError: unknown;
+    try {
+      if (storageTestHooks?.closeNewFile !== undefined) {
+        storageTestHooks.closeNewFile(fileDescriptor);
+      } else {
+        fs.closeSync(fileDescriptor);
+      }
+    } catch (error) {
+      closeError = error;
+      completed = false;
+    }
+
     if (!completed) {
-      fs.rmSync(filePath, { force: true });
+      try {
+        fs.rmSync(filePath, { force: true });
+      } catch (error) {
+        closeError ??= error;
+      }
+    }
+
+    if (closeError !== undefined) {
+      throw closeError;
     }
   }
 }
@@ -447,6 +471,8 @@ function writeNewFileAtomically(
     `.${filename}.tmp-${allocateStagedReceiptTemporarySuffix()}`,
   );
 
+  let published = false;
+
   try {
     writeNewFile(temporaryPath, data);
     storageTestHooks?.beforeStagedReceiptPublish?.({
@@ -454,9 +480,20 @@ function writeNewFileAtomically(
       receiptPath: filePath,
     });
     fs.linkSync(temporaryPath, filePath);
+    published = true;
   } finally {
     if (fs.existsSync(temporaryPath)) {
-      fs.unlinkSync(temporaryPath);
+      try {
+        if (storageTestHooks?.unlinkStagedReceiptTemporary !== undefined) {
+          storageTestHooks.unlinkStagedReceiptTemporary(temporaryPath);
+        } else {
+          fs.unlinkSync(temporaryPath);
+        }
+      } catch (error) {
+        if (!published) {
+          throw error;
+        }
+      }
     }
   }
 }
@@ -1417,13 +1454,15 @@ export function allocateStagedRun(
         continue;
       }
 
-      return {
+      const allocation = {
         repositoryRoot: path.resolve(repositoryRoot),
         runId,
         sessionId: validatedSessionId,
         skiaRootPath,
         artifactsRootPath,
       };
+      rememberStagedAllocation(allocation);
+      return allocation;
     } catch (error) {
       releaseRunIdClaim(claimPath);
       throw error;
@@ -1437,6 +1476,23 @@ const stagedArtifactsCreatedByAllocation = new WeakMap<
   StagedRunAllocation,
   Set<string>
 >();
+
+const stagedAllocationIdentity = new WeakMap<
+  StagedRunAllocation,
+  {
+    readonly repositoryRoot: string;
+    readonly skiaRootPath: string;
+    readonly artifactsRootPath: string;
+  }
+>();
+
+function rememberStagedAllocation(allocation: StagedRunAllocation): void {
+  stagedAllocationIdentity.set(allocation, {
+    repositoryRoot: allocation.repositoryRoot,
+    skiaRootPath: allocation.skiaRootPath,
+    artifactsRootPath: allocation.artifactsRootPath,
+  });
+}
 
 function rememberCreatedStagedArtifact(
   allocation: StagedRunAllocation,
@@ -1477,11 +1533,16 @@ function removeCreatedStagedArtifacts(
 }
 
 function assertStagedAllocationPaths(allocation: StagedRunAllocation): void {
+  const held = stagedAllocationIdentity.get(allocation);
   const repositoryRoot = path.resolve(allocation.repositoryRoot);
   const skiaRootPath = path.join(repositoryRoot, SKIA_DIRECTORY_NAME);
   const artifactsRootPath = path.join(skiaRootPath, ARTIFACTS_DIRECTORY_NAME);
 
   if (
+    held === undefined ||
+    held.repositoryRoot !== repositoryRoot ||
+    held.skiaRootPath !== skiaRootPath ||
+    held.artifactsRootPath !== artifactsRootPath ||
     path.resolve(allocation.skiaRootPath) !== skiaRootPath ||
     path.resolve(allocation.artifactsRootPath) !== artifactsRootPath
   ) {
@@ -1613,6 +1674,12 @@ export function completeStagedRun(
 
   if (receipt.errors.length !== 0) {
     throw createStorageError("staged run completion requires an empty error list");
+  }
+
+  if (receipt.privacy_caveat !== STAGED_RECEIPT_PRIVACY_CAVEAT) {
+    throw createStorageError(
+      "staged run completion requires the canonical privacy caveat",
+    );
   }
 
   if (

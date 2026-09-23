@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 
 import { TOOL_VERSION } from "../limits.js";
 import { deriveStagedReceiptPath } from "../paths.js";
-import type {
-  StagedArtifactWriteResult,
-  StagedRunAllocation,
+import {
+  STAGED_RECEIPT_PRIVACY_CAVEAT,
+  type StagedArtifactWriteResult,
+  type StagedRunAllocation,
 } from "../storage.js";
 import { formatRfc3339UtcSeconds } from "../time.js";
 import type {
@@ -18,9 +19,6 @@ import type {
   SealedPrediction,
   SourceCheckResult,
 } from "./types.js";
-
-const PRIVACY_CAVEAT =
-  "Local receipt contains code-derived evidence and a developer prediction; inspect and delete it when no longer needed.";
 
 export interface CreateStagedReviewReceiptOptions {
   readonly allocation: StagedRunAllocation;
@@ -91,7 +89,7 @@ function receiptBase(
       },
     ],
     errors: [],
-    privacy_caveat: PRIVACY_CAVEAT,
+    privacy_caveat: STAGED_RECEIPT_PRIVACY_CAVEAT,
   };
 }
 

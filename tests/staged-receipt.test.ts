@@ -451,6 +451,40 @@ test("staged run allocation resolves collisions before any interaction", () => {
   );
 });
 
+test("a failed file close removes the artifact it just created", () => {
+  const repositoryRoot = createSupportedRepository();
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const absolutePath = path.join(
+    allocation.skiaRootPath,
+    deriveStagedArtifactPath(
+      allocation.runId,
+      allocation.sessionId,
+      "behavior_cards",
+    ),
+  );
+  setStorageTestHooks({
+    closeNewFile: () => {
+      throw new Error("EIO");
+    },
+  });
+
+  try {
+    assert.throws(
+      () => writeStagedArtifactFile(allocation, "behavior_cards", "{}\n"),
+      /EIO/,
+    );
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  assert.strictEqual(fs.existsSync(absolutePath), false);
+  abortStagedRun(allocation);
+});
+
 test("a failed artifact write removes the file it just created", () => {
   const repositoryRoot = createSupportedRepository();
   const allocation = allocateStagedRun(
@@ -673,6 +707,24 @@ test("completing a staged run rejects a different tool version", () => {
   );
 });
 
+test("writing a staged artifact rejects a copied allocation with a new repository root", () => {
+  const prepared = preparedMismatchReceipt();
+  const otherRoot = createTempGitRepository();
+  const forged = {
+    ...prepared.allocation,
+    repositoryRoot: otherRoot,
+    skiaRootPath: path.join(otherRoot, ".skia"),
+    artifactsRootPath: path.join(otherRoot, ".skia", "artifacts"),
+  };
+  fs.mkdirSync(forged.artifactsRootPath, { recursive: true });
+
+  assert.throws(
+    () => writeStagedArtifactFile(forged, "hld", "{}\n"),
+    /repository \.skia/,
+  );
+  assert.deepStrictEqual(fs.readdirSync(forged.artifactsRootPath), []);
+});
+
 test("writing a staged artifact rejects an allocation root outside the repository", () => {
   const prepared = preparedMismatchReceipt();
   const outside = fs.mkdtempSync(path.join(path.dirname(prepared.repositoryRoot), "outside-"));
@@ -695,6 +747,28 @@ test("writing a staged artifact rejects an allocation root outside the repositor
     fs.existsSync(path.join(prepared.repositoryRoot, ".skia", "receipts")),
     false,
   );
+});
+
+test("completing a staged run rejects a replaced privacy caveat", () => {
+  const prepared = preparedMismatchReceipt();
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
+    privacy_caveat: string;
+  };
+  forged.privacy_caveat = "no sensitive data is retained";
+  const rewritten = receiptWithSelfHash(forged as unknown as StagedReceipt);
+  const receiptPath = path.join(
+    prepared.repositoryRoot,
+    ".skia",
+    "receipts",
+    `${prepared.allocation.runId}-${prepared.allocation.sessionId}-session.json`,
+  );
+
+  assert.strictEqual(validateStagedReceipt(rewritten).valid, true);
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, rewritten),
+    /privacy caveat/,
+  );
+  assert.strictEqual(fs.existsSync(receiptPath), false);
 });
 
 test("completing a staged run rejects fabricated errors", () => {
@@ -996,6 +1070,28 @@ test("staged receipt publication keeps the canonical path absent until atomic pu
     )),
     true,
   );
+});
+
+test("completing a staged run stays complete when temporary cleanup fails", () => {
+  const prepared = preparedMismatchReceipt();
+  setStorageTestHooks({
+    unlinkStagedReceiptTemporary: () => {
+      throw new Error("EIO");
+    },
+  });
+
+  try {
+    const completed = completeStagedRun(prepared.allocation, prepared.receipt);
+    assert.strictEqual(fs.existsSync(completed.receiptPath), true);
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  const inspected = inspectRun(
+    prepared.repositoryRoot,
+    prepared.allocation.runId,
+  );
+  assert.strictEqual(inspected.kind, "review");
 });
 
 test("deleting a completed run removes interrupted receipt hard-link temporaries", () => {
