@@ -90,9 +90,8 @@ function preparedMismatchReceipt(): {
   readonly repositoryRoot: string;
 } {
   const repositoryRoot = createSupportedRepository();
-  const pipeline = analyzeCapturedStagedSnapshot(
-    captureStagedSnapshot(repositoryRoot),
-  );
+  const capture = captureStagedSnapshot(repositoryRoot);
+  const pipeline = analyzeCapturedStagedSnapshot(capture);
   assert.strictEqual(pipeline.kind, "supported");
   if (pipeline.kind !== "supported") {
     throw new Error("expected a supported staged snapshot");
@@ -104,6 +103,7 @@ function preparedMismatchReceipt(): {
     new Date("2026-09-22T01:02:03Z"),
     pipeline.snapshot,
     pipeline.coverage,
+    capture.captured_blobs,
   );
   const session = createPredictionSession(pipeline.analysis);
   let cardArtifact: ReturnType<typeof writeStagedArtifactFile> | undefined;
@@ -530,6 +530,62 @@ test("completing a staged run stats artifacts before publishing the receipt", ()
   }
 
   assert.strictEqual(fs.existsSync(receiptPath), false);
+});
+
+test("completing a staged run uses the captured blob after the git object disappears", () => {
+  const prepared = preparedMismatchReceipt();
+  const oid = prepared.receipt.snapshot.entries[0]?.snapshot_blob_oid;
+  if (typeof oid !== "string") {
+    throw new Error("expected staged blob");
+  }
+  fs.rmSync(path.join(
+    prepared.repositoryRoot,
+    ".git",
+    "objects",
+    oid.slice(0, 2),
+    oid.slice(2),
+  ));
+
+  const completed = completeStagedRun(prepared.allocation, prepared.receipt);
+  assert.strictEqual(fs.existsSync(completed.receiptPath), true);
+});
+
+test("completing a staged run rejects an evidence anchor outside the source", () => {
+  const prepared = preparedMismatchReceipt();
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
+    review: {
+      entity: {
+        evidence: { anchors: { end_line: number }[] };
+      };
+    };
+  };
+  const anchor = forged.review.entity.evidence.anchors[0];
+  if (anchor === undefined) {
+    throw new Error("expected evidence anchor");
+  }
+  anchor.end_line = 1e20;
+  const rewritten = receiptWithSelfHash(forged as unknown as StagedReceipt);
+
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, rewritten),
+    /staged snapshot source/,
+  );
+});
+
+test("completing a staged run rejects a completion before the allocated run", () => {
+  const prepared = preparedMismatchReceipt();
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
+    completed_at: string;
+    review: { entity: { prediction: { sealed_at: string } } };
+  };
+  forged.completed_at = "2026-09-22T01:02:02Z";
+  forged.review.entity.prediction.sealed_at = "2026-09-22T01:02:01Z";
+  const rewritten = receiptWithSelfHash(forged as unknown as StagedReceipt);
+
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, rewritten),
+    /allocated run/,
+  );
 });
 
 test("staged run allocation resolves collisions before any interaction", () => {

@@ -1025,9 +1025,25 @@ function assertCompleteStagedReceipt(receipt: StagedReceipt): void {
   }
 }
 
+function sourceLineCount(source: string): number {
+  if (source.length === 0) {
+    return 0;
+  }
+
+  let lines = 1;
+  for (let index = 0; index < source.length; index += 1) {
+    if (source.charCodeAt(index) === 0x0a) {
+      lines += 1;
+    }
+  }
+
+  return source.charCodeAt(source.length - 1) === 0x0a ? lines - 1 : lines;
+}
+
 function assertReviewMatchesSnapshot(
   repositoryRoot: string,
   receipt: StagedReceipt,
+  capturedBlobs?: ReadonlyMap<string, Uint8Array>,
 ): void {
   const review = receipt.review;
 
@@ -1047,8 +1063,9 @@ function assertReviewMatchesSnapshot(
   let source: string;
 
   try {
+    const held = capturedBlobs?.get(anchor.blob_oid);
     source = new TextDecoder("utf-8", { fatal: true }).decode(
-      readRepositoryBlob(repositoryRoot, anchor.blob_oid),
+      held ?? readRepositoryBlob(repositoryRoot, anchor.blob_oid),
     );
   } catch {
     throw createStorageError(
@@ -1056,9 +1073,22 @@ function assertReviewMatchesSnapshot(
     );
   }
 
+  const lineCount = sourceLineCount(source);
   const changedLines: number[] = [];
 
   for (const evidenceAnchor of review.entity.evidence.anchors) {
+    if (
+      !Number.isSafeInteger(evidenceAnchor.start_line) ||
+      !Number.isSafeInteger(evidenceAnchor.end_line) ||
+      evidenceAnchor.start_line < 1 ||
+      evidenceAnchor.end_line < evidenceAnchor.start_line ||
+      evidenceAnchor.end_line > lineCount
+    ) {
+      throw createStorageError(
+        "source check expected value must match the staged snapshot source",
+      );
+    }
+
     for (
       let line = evidenceAnchor.start_line;
       line <= evidenceAnchor.end_line;
@@ -1104,6 +1134,7 @@ function assertReviewMatchesSnapshot(
 function validateStagedBehaviorCardArtifact(
   skiaRootPath: string,
   receipt: StagedReceipt,
+  earliestInstant?: string,
 ): void {
   if (receipt.review === undefined) {
     return;
@@ -1164,6 +1195,16 @@ function validateStagedBehaviorCardArtifact(
   ) {
     throw createStorageError(
       "skip sealed_at must not follow receipt completion",
+    );
+  }
+
+  if (
+    earliestInstant !== undefined &&
+    typeof skip.sealed_at === "string" &&
+    skip.sealed_at < earliestInstant
+  ) {
+    throw createStorageError(
+      "staged run completion must not precede the allocated run",
     );
   }
 }
@@ -1427,6 +1468,7 @@ export function allocateStagedRun(
   createdAt: Date = new Date(),
   stagedSnapshot?: StagedSnapshotIdentity,
   stagedCoverage?: CoverageEnvelope,
+  capturedBlobs: readonly { readonly oid: string; readonly bytes: Uint8Array }[] = [],
 ): StagedRunAllocation {
   const validatedSessionId = validateSessionId(sessionId);
   const { skiaRootPath, leafRootPath: artifactsRootPath } =
@@ -1473,7 +1515,7 @@ export function allocateStagedRun(
         skiaRootPath,
         artifactsRootPath,
       };
-      rememberStagedAllocation(allocation);
+      rememberStagedAllocation(allocation, capturedBlobs);
       return allocation;
     } catch (error) {
       releaseRunIdClaim(claimPath);
@@ -1497,17 +1539,33 @@ const stagedAllocationIdentity = new WeakMap<
     readonly sessionId: StagedRunAllocation["sessionId"];
     readonly skiaRootPath: string;
     readonly artifactsRootPath: string;
+    readonly capturedBlobs: ReadonlyMap<string, Uint8Array>;
   }
 >();
 
-function rememberStagedAllocation(allocation: StagedRunAllocation): void {
+function rememberStagedAllocation(
+  allocation: StagedRunAllocation,
+  capturedBlobs: readonly { readonly oid: string; readonly bytes: Uint8Array }[],
+): void {
   stagedAllocationIdentity.set(allocation, {
     repositoryRoot: allocation.repositoryRoot,
     runId: allocation.runId,
     sessionId: allocation.sessionId,
     skiaRootPath: allocation.skiaRootPath,
     artifactsRootPath: allocation.artifactsRootPath,
+    capturedBlobs: new Map(
+      capturedBlobs.map((blob) => [blob.oid, Uint8Array.from(blob.bytes)]),
+    ),
   });
+}
+
+function allocatedRunInstant(runId: string): string | null {
+  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/.exec(runId);
+  if (match === null) {
+    return null;
+  }
+
+  return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`;
 }
 
 function rememberCreatedStagedArtifact(
@@ -1709,6 +1767,20 @@ export function completeStagedRun(
     );
   }
 
+  const runInstant = allocatedRunInstant(allocation.runId);
+  const completedAt = receipt.completed_at;
+  const sealedAt = receipt.review.entity.prediction?.sealed_at;
+  if (
+    runInstant === null ||
+    completedAt === null ||
+    completedAt < runInstant ||
+    (sealedAt !== undefined && sealedAt < runInstant)
+  ) {
+    throw createStorageError(
+      "staged run completion must not precede the allocated run",
+    );
+  }
+
   const validation = validateStagedReceipt(receipt);
 
   if (!validation.valid) {
@@ -1779,8 +1851,13 @@ export function completeStagedRun(
   validateStagedBehaviorCardArtifact(
     allocation.skiaRootPath,
     validation.value,
+    runInstant ?? undefined,
   );
-  assertReviewMatchesSnapshot(allocation.repositoryRoot, validation.value);
+  assertReviewMatchesSnapshot(
+    allocation.repositoryRoot,
+    validation.value,
+    stagedAllocationIdentity.get(allocation)?.capturedBlobs,
+  );
   const artifactBytes = receiptOwnedArtifactBytes(
     allocation.skiaRootPath,
     validation.value,

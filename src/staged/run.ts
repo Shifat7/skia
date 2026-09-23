@@ -432,6 +432,7 @@ export function runStagedReview(
       createdAt,
       pipeline.snapshot,
       pipeline.coverage,
+      capture.captured_blobs,
     );
     allocation = activeAllocation;
     const prompt = promptOutput(pipeline);
