@@ -229,6 +229,7 @@ test("skia review probes receipt temporary names before writing", () => {
 test("skia review unbinds interrupt cleanup when prediction input throws", () => {
   const repositoryRoot = createSupportedRepository();
   const before = process.listenerCount("SIGINT");
+  const beforeTerm = process.listenerCount("SIGTERM");
   const result = runCli(["review"], {
     now: () => new Date("2026-09-22T01:02:03Z"),
     read_input: () => {
@@ -241,6 +242,7 @@ test("skia review unbinds interrupt cleanup when prediction input throws", () =>
   assert.strictEqual(result.kind, "review_failed");
   assert.match(result.output, /prediction input failed/);
   assert.strictEqual(process.listenerCount("SIGINT"), before);
+  assert.strictEqual(process.listenerCount("SIGTERM"), beforeTerm);
   assert.deepStrictEqual(listRuns(repositoryRoot), []);
 });
 

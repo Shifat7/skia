@@ -132,8 +132,10 @@ function bindInterruptCleanup(allocation: StagedRunAllocation): () => void {
     process.exit(130);
   };
   process.on("SIGINT", onInterrupt);
+  process.on("SIGTERM", onInterrupt);
   return () => {
     process.off("SIGINT", onInterrupt);
+    process.off("SIGTERM", onInterrupt);
   };
 }
 
@@ -406,6 +408,7 @@ export function runStagedReview(
       repositoryRoot,
       sessionId,
       createdAt,
+      pipeline.snapshot,
     );
     allocation = activeAllocation;
     const prompt = promptOutput(pipeline);

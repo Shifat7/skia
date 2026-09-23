@@ -102,6 +102,7 @@ function preparedMismatchReceipt(): {
     repositoryRoot,
     validateSessionId("8f5d1a2c"),
     new Date("2026-09-22T01:02:03Z"),
+    pipeline.snapshot,
   );
   const session = createPredictionSession(pipeline.analysis);
   let cardArtifact: ReturnType<typeof writeStagedArtifactFile> | undefined;
@@ -151,6 +152,7 @@ test("staged run persists prediction artifact before completing validated receip
     repositoryRoot,
     sessionId,
     new Date("2026-09-22T01:02:03Z"),
+    pipeline.snapshot,
   );
   const session = createPredictionSession(pipeline.analysis);
   const cardArtifacts: ReturnType<typeof writeStagedArtifactFile>[] = [];
@@ -386,6 +388,7 @@ test("skipped behavior cards reject impossible sealed_at timestamps", () => {
     repositoryRoot,
     validateSessionId("8f5d1a2c"),
     new Date("2026-09-22T01:02:03Z"),
+    pipeline.snapshot,
   );
   const artifact = writeStagedArtifactFile(
     allocation,
@@ -585,6 +588,7 @@ test("completing a skipped staged run rejects rewritten deterministic evidence",
     repositoryRoot,
     validateSessionId("8f5d1a2c"),
     new Date("2026-09-22T01:02:03Z"),
+    pipeline.snapshot,
   );
   const artifact = writeStagedArtifactFile(
     allocation,
@@ -633,6 +637,35 @@ test("completing a skipped staged run rejects rewritten deterministic evidence",
   assert.throws(
     () => completeStagedRun(allocation, rewritten),
     /staged snapshot source/,
+  );
+});
+
+test("completing a staged run rejects a receipt without pilot review details", () => {
+  const prepared = preparedMismatchReceipt();
+  const { review: _review, ...withoutReview } = JSON.parse(
+    JSON.stringify(prepared.receipt),
+  ) as StagedReceipt;
+  const rewritten = receiptWithSelfHash(withoutReview);
+
+  assert.strictEqual(validateStagedReceipt(rewritten).valid, true);
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, rewritten),
+    /pilot review details/,
+  );
+});
+
+test("completing a staged run rejects a receipt snapshot that differs from allocation", () => {
+  const prepared = preparedMismatchReceipt();
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
+    snapshot: { diff_sha256: string };
+  };
+  forged.snapshot.diff_sha256 = "a".repeat(64);
+  const rewritten = receiptWithSelfHash(forged as unknown as StagedReceipt);
+
+  assert.strictEqual(validateStagedReceipt(rewritten).valid, true);
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, rewritten),
+    /allocated snapshot/,
   );
 });
 
@@ -725,6 +758,7 @@ test("staged completion rejects a behavior-card artifact that differs from the r
     repositoryRoot,
     validateSessionId("8f5d1a2c"),
     new Date("2026-09-22T01:02:03Z"),
+    pipeline.snapshot,
   );
   const session = createPredictionSession(pipeline.analysis);
   const sealed = session.persistPrediction(
@@ -770,6 +804,7 @@ test("staged receipt publication keeps the canonical path absent until atomic pu
     repositoryRoot,
     validateSessionId("8f5d1a2c"),
     new Date("2026-09-22T01:02:03Z"),
+    pipeline.snapshot,
   );
   const session = createPredictionSession(pipeline.analysis);
   const artifacts: ReturnType<typeof writeStagedArtifactFile>[] = [];
@@ -845,6 +880,7 @@ test("deleting a completed run removes interrupted receipt hard-link temporaries
     repositoryRoot,
     validateSessionId("8f5d1a2c"),
     new Date("2026-09-22T01:02:03Z"),
+    pipeline.snapshot,
   );
   const session = createPredictionSession(pipeline.analysis);
   const artifacts: ReturnType<typeof writeStagedArtifactFile>[] = [];

@@ -55,6 +55,7 @@ import type {
   Sha256Hex,
   CoverageEnvelope,
   StagedReceipt,
+  StagedSnapshotIdentity,
 } from "./types.js";
 
 export { RUN_METADATA_FILENAME } from "./limits.js";
@@ -183,6 +184,7 @@ interface RunIdClaimRecord {
   readonly run_id: RunId;
   readonly mode: RunMode;
   readonly storage_path: RunArtifactPath;
+  readonly staged_snapshot?: StagedSnapshotIdentity;
 }
 
 interface ExistingRunTargets {
@@ -833,6 +835,7 @@ function writeRunIdClaim(
   runId: RunId,
   mode: RunMode,
   sessionId?: string,
+  stagedSnapshot?: StagedSnapshotIdentity,
 ): string {
   const claimPath = runIdClaimFilePath(repositoryRoot, runId);
   const claimRecord: RunIdClaimRecord = {
@@ -840,6 +843,7 @@ function writeRunIdClaim(
     run_id: runId,
     mode,
     storage_path: claimStoragePathForMode(runId, mode, sessionId),
+    ...(stagedSnapshot === undefined ? {} : { staged_snapshot: stagedSnapshot }),
   };
 
   writeNewFile(claimPath, `${JSON.stringify(claimRecord, null, 2)}\n`);
@@ -1368,6 +1372,7 @@ export function allocateStagedRun(
   repositoryRoot: string,
   sessionId: SessionId,
   createdAt: Date = new Date(),
+  stagedSnapshot?: StagedSnapshotIdentity,
 ): StagedRunAllocation {
   const validatedSessionId = validateSessionId(sessionId);
   const { skiaRootPath, leafRootPath: artifactsRootPath } =
@@ -1385,6 +1390,7 @@ export function allocateStagedRun(
         runId,
         "review",
         validatedSessionId,
+        stagedSnapshot,
       );
     } catch (error) {
       if (isExistingPathError(error)) {
@@ -1573,6 +1579,10 @@ export function completeStagedRun(
 ): { readonly receiptPath: string; readonly artifactBytes: number } {
   assertCompleteStagedReceipt(receipt);
 
+  if (receipt.review === undefined) {
+    throw createStorageError("staged run completion requires pilot review details");
+  }
+
   if (
     receipt.run_id !== allocation.runId ||
     receipt.session_id !== allocation.sessionId
@@ -1615,6 +1625,15 @@ export function completeStagedRun(
   ) {
     throw createStorageError(
       "staged run allocation claim does not match the receipt identity",
+    );
+  }
+
+  if (
+    claim.staged_snapshot === undefined ||
+    !isDeepStrictEqual(claim.staged_snapshot, validation.value.snapshot)
+  ) {
+    throw createStorageError(
+      "staged receipt snapshot does not match the allocated snapshot",
     );
   }
 

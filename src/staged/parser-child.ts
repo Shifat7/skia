@@ -461,7 +461,7 @@ function containsCallOutside(
       return false;
     }
 
-    if (node.type === "call_expression") {
+    if (node.type === "call_expression" || node.type === "new_expression") {
       return true;
     }
 

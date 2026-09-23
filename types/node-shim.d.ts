@@ -224,9 +224,9 @@ declare module "node:process" {
     readonly env: Readonly<Record<string, string | undefined>>;
     readonly pid: number;
     readonly platform: string;
-    on(event: "SIGINT", listener: () => void): void;
-    off(event: "SIGINT", listener: () => void): void;
-    listenerCount(event: "SIGINT"): number;
+    on(event: "SIGINT" | "SIGTERM", listener: () => void): void;
+    off(event: "SIGINT" | "SIGTERM", listener: () => void): void;
+    listenerCount(event: "SIGINT" | "SIGTERM"): number;
     exit(code: number): never;
   };
 
