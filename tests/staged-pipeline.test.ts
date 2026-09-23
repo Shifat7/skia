@@ -64,6 +64,71 @@ test("changed-line parser keeps additions when a deleted line is not UTF-8", () 
   assert.deepStrictEqual(changedLinesFromPatch(patch).get("src/gate.ts"), [1]);
 });
 
+test("captured staged snapshot analyzes a text replacement of NUL source", () => {
+  const repositoryRoot = createRepository();
+  writeRepoBinaryFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    Buffer.from([0x00, 0x0a]),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+  commitAll(repositoryRoot, "add nul source");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "supported");
+});
+
+test("captured staged snapshot analyzes a source file marked binary by attributes", () => {
+  const repositoryRoot = createRepository();
+  writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts binary\n");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, ".gitattributes", "src/gate-status.ts");
+  commitAll(repositoryRoot, "mark typescript binary");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "go") return "ok";',
+      '  return "hold";',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "supported");
+});
+
 test("captured staged snapshot analyzes a UTF-8 replacement of non-UTF-8 source", () => {
   const repositoryRoot = createRepository();
   writeRepoBinaryFile(

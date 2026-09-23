@@ -1751,6 +1751,9 @@ export function abortStagedRun(allocation: StagedRunAllocation): void {
       `could not abort staged run; remaining paths: ${claimResult.remaining_paths.join(", ")}`,
     );
   }
+
+  stagedAllocationIdentity.delete(allocation);
+  stagedArtifactsCreatedByAllocation.delete(allocation);
 }
 
 export function completeStagedRun(

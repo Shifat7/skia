@@ -374,6 +374,9 @@ export function analyzeLiteralGuardFunction(
     options.base_source !== null &&
     spansMatch(options.source, options.base_source, parsed.guard_range) &&
     spansMatch(options.source, options.base_source, parsed.return_range);
+  const newSingleLine =
+    (options.base_source === undefined || options.base_source === null) &&
+    parsed.entity_range.start_line === parsed.entity_range.end_line;
 
   for (const line of changedLines) {
     const overlapsGuardOrReturn =
@@ -393,7 +396,7 @@ export function analyzeLiteralGuardFunction(
     }
 
     if (
-      evidenceUnchanged &&
+      (evidenceUnchanged || newSingleLine) &&
       changedLineOutsideEvidence(
         options.source,
         line,

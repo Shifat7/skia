@@ -76,6 +76,21 @@ test("pilot analyzer refuses a same-line edit outside the evidence anchors", () 
   }
 });
 
+test("pilot analyzer refuses a new one-line function with text outside the evidence anchors", () => {
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1],
+    path: PATH,
+    source:
+      'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }\n',
+  });
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind === "unsupported") {
+    assert.strictEqual(result.reason, "unmapped_region");
+  }
+});
+
 test("pilot analyzer keeps a same-line guard edit supported", () => {
   const base =
     'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }\n';

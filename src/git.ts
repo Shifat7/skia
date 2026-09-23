@@ -831,6 +831,143 @@ function detectLanguage(pathBytes: Uint8Array): SourceLanguage | null {
   return resolveLanguageRegistration(relativePath)?.language ?? null;
 }
 
+function recordPath(bytes: Uint8Array | null): string | null {
+  if (bytes === null || !roundTripsUtf8(bytes)) {
+    return null;
+  }
+
+  try {
+    return bytesToUtf8(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function concatPatchBytes(parts: readonly Uint8Array[]): Uint8Array {
+  const present = parts.filter((part) => part.byteLength > 0);
+  if (present.length === 1) {
+    return present[0] ?? Buffer.alloc(0);
+  }
+
+  const chunks: Uint8Array[] = [];
+  for (const part of present) {
+    const previous = chunks[chunks.length - 1];
+    if (previous !== undefined && previous[previous.length - 1] !== 0x0a) {
+      chunks.push(Buffer.from("\n"));
+    }
+    chunks.push(part);
+  }
+
+  return Buffer.concat(chunks);
+}
+
+function blobContainsNul(
+  commandOptions: GitCommandOptions,
+  oid: GitObjectId | null,
+): boolean {
+  if (oid === null) {
+    return false;
+  }
+
+  return runGit(["cat-file", "blob", oid], commandOptions).stdout.includes(0);
+}
+
+function textAttributeUnset(
+  commandOptions: GitCommandOptions,
+  extraEnv: Readonly<Record<string, string | undefined>>,
+  relativePath: string,
+): boolean {
+  const stdout = bytesToUtf8(runGit(
+    ["check-attr", "--cached", "text", "--", relativePath],
+    commandOptions,
+    extraEnv,
+  ).stdout).trim();
+
+  return stdout === `${relativePath}: text: unset`;
+}
+
+function patchSectionHasHunk(patch: Uint8Array, relativePath: string): boolean {
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(patch);
+  const header = `diff --git a/${relativePath} b/${relativePath}`;
+  const start = text.indexOf(header);
+  if (start < 0) {
+    return false;
+  }
+
+  const next = text.indexOf("\ndiff --git ", start + header.length);
+  const section = next < 0 ? text.slice(start) : text.slice(start, next);
+  return section.includes("\n@@");
+}
+
+function stagedPatchBytes(
+  commandOptions: GitCommandOptions,
+  extraEnv: Readonly<Record<string, string | undefined>>,
+  comparisonBase: string,
+  rawRecords: readonly GitRawSnapshotRecord[],
+): Uint8Array {
+  const binaryArgv = [
+    "-c",
+    "diff.suppressBlankEmpty=false",
+    "diff-index",
+    "--cached",
+    "-p",
+    "--binary",
+    "--full-index",
+    "--no-ext-diff",
+    "--no-textconv",
+    "-M",
+    comparisonBase,
+  ];
+  const binaryPatch = runGit(binaryArgv, commandOptions, extraEnv).stdout;
+  const textPaths: string[] = [];
+
+  for (const record of rawRecords) {
+    if (!isSupportedRecord(record)) {
+      continue;
+    }
+
+    const relativePath = recordPath(record.path_bytes);
+    if (relativePath === null || patchSectionHasHunk(binaryPatch, relativePath)) {
+      continue;
+    }
+
+    if (
+      blobContainsNul(commandOptions, record.base_blob_oid) ||
+      blobContainsNul(commandOptions, record.staged_blob_oid) ||
+      textAttributeUnset(commandOptions, extraEnv, relativePath)
+    ) {
+      textPaths.push(relativePath);
+    }
+  }
+
+  if (textPaths.length === 0) {
+    return binaryPatch;
+  }
+
+  return concatPatchBytes([
+    binaryPatch,
+    runGit(
+      [
+        "-c",
+        "diff.suppressBlankEmpty=false",
+        "diff-index",
+        "--cached",
+        "-p",
+        "--text",
+        "--full-index",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-M",
+        comparisonBase,
+        "--",
+        ...textPaths,
+      ],
+      commandOptions,
+      extraEnv,
+    ).stdout,
+  ]);
+}
+
 function isSupportedRecord(record: GitRawSnapshotRecord): boolean {
   if (record.status !== "A" && record.status !== "M") {
     return false;
@@ -1175,23 +1312,12 @@ function captureStagedAttempt(
       ).stdout,
       objectIdLength,
     );
-    const patchBytes = runGit(
-      [
-        "-c",
-        "diff.suppressBlankEmpty=false",
-        "diff-index",
-        "--cached",
-        "-p",
-        "--binary",
-        "--full-index",
-        "--no-ext-diff",
-        "--no-textconv",
-        "-M",
-        comparisonBase,
-      ],
+    const patchBytes = stagedPatchBytes(
       commandOptions,
       copiedIndexEnv,
-    ).stdout;
+      comparisonBase,
+      rawRecords,
+    );
     const supportedEntries = rawRecords
       .filter((record) => isSupportedRecord(record))
       .map((record) => toSnapshotEntry(record));
