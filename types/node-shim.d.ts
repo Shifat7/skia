@@ -194,7 +194,7 @@ declare module "node:crypto" {
     digest(encoding: "hex"): string;
   }
 
-  export function createHash(algorithm: "sha256"): Hash;
+  export function createHash(algorithm: "sha1" | "sha256"): Hash;
   export function randomBytes(size: number): import("node:buffer").Buffer;
 }
 

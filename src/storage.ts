@@ -1543,10 +1543,30 @@ const stagedAllocationIdentity = new WeakMap<
   }
 >();
 
+function capturedBlobMatchesOid(oid: string, bytes: Uint8Array): boolean {
+  const algorithm = oid.length === 40 ? "sha1" : oid.length === 64 ? "sha256" : null;
+  if (algorithm === null) {
+    return false;
+  }
+
+  return createHash(algorithm)
+    .update(`blob ${bytes.byteLength}\0`)
+    .update(bytes)
+    .digest("hex") === oid;
+}
+
 function rememberStagedAllocation(
   allocation: StagedRunAllocation,
   capturedBlobs: readonly { readonly oid: string; readonly bytes: Uint8Array }[],
 ): void {
+  for (const blob of capturedBlobs) {
+    if (!capturedBlobMatchesOid(blob.oid, blob.bytes)) {
+      throw createStorageError(
+        "captured blob bytes do not match their Git object id",
+      );
+    }
+  }
+
   stagedAllocationIdentity.set(allocation, {
     repositoryRoot: allocation.repositoryRoot,
     runId: allocation.runId,

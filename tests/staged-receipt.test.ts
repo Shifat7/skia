@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -548,6 +549,42 @@ test("completing a staged run uses the captured blob after the git object disapp
 
   const completed = completeStagedRun(prepared.allocation, prepared.receipt);
   assert.strictEqual(fs.existsSync(completed.receiptPath), true);
+});
+
+test("staged allocation rejects captured bytes that do not hash to their Git object id", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const bytes = Buffer.from(
+    "export function gateStatus(code: string): string { return \"ok\"; }\n",
+  );
+  const oid = createHash("sha1")
+    .update(`blob ${bytes.byteLength}\0`)
+    .update(bytes)
+    .digest("hex");
+  const sessionId = validateSessionId("8f5d1a2c");
+  const createdAt = new Date("2026-09-22T01:02:03Z");
+
+  allocateStagedRun(
+    repositoryRoot,
+    sessionId,
+    createdAt,
+    undefined,
+    undefined,
+    [{ oid, bytes }],
+  );
+  assert.throws(
+    () => allocateStagedRun(
+      repositoryRoot,
+      sessionId,
+      createdAt,
+      undefined,
+      undefined,
+      [{ oid, bytes: Buffer.from(bytes.toString("utf8").replace("ok", "no")) }],
+    ),
+    /Git object id/,
+  );
 });
 
 test("completing a staged run rejects an evidence anchor outside the source", () => {
