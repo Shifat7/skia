@@ -27,7 +27,8 @@ files as untrusted. Staged mode has no network capability and does not modify
 source, Git state, hooks, package configuration, or project documentation.
 A receipt can contain code-derived evidence and a developer prediction. It is
 local output, not a correctness verdict and not an equivalence proof.
-Lifecycle commands refuse a staged receipt larger than 1 MiB before parsing it.
+Lifecycle commands refuse a staged receipt or run-id claim larger than 1 MiB
+before parsing it, and refuse to publish a receipt above that size.
 
 Reports are still welcome for:
 

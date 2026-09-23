@@ -338,6 +338,78 @@ function changedLineLeavesEntity(
   );
 }
 
+function lineOutsideAnchors(
+  source: string,
+  lineNumber: number,
+  entity: PilotParserNodeRange,
+  guard: PilotParserNodeRange,
+  matchedReturn: PilotParserNodeRange,
+): string | null {
+  const line = sourceLineBytes(source)[lineNumber - 1];
+  if (line === undefined) {
+    return null;
+  }
+
+  const entitySpan = columnSpan(lineNumber, entity, line.length);
+  if (entitySpan === null) {
+    return "";
+  }
+
+  const covered = [guard, matchedReturn]
+    .map((range) => columnSpan(lineNumber, range, line.length))
+    .filter((span) => span !== null);
+  const kept: number[] = [];
+
+  for (let index = entitySpan.start; index < entitySpan.end; index += 1) {
+    const insideEvidence = covered.some(
+      (span) => span !== null && index >= span.start && index < span.end,
+    );
+    if (insideEvidence) {
+      continue;
+    }
+
+    const byte = line[index];
+    if (byte !== undefined) {
+      kept.push(byte);
+    }
+  }
+
+  return Buffer.from(kept).toString("utf8");
+}
+
+function outsideAnchorTextChanged(
+  baseSource: string | null | undefined,
+  stagedSource: string,
+  staged: PilotParserSuccess,
+  lineNumber: number,
+): boolean {
+  if (baseSource === undefined || baseSource === null) {
+    return false;
+  }
+
+  const parsed = parsePilotSource({ source: baseSource });
+  if (typeof parsed !== "object" || parsed.kind !== "supported") {
+    return false;
+  }
+
+  const baseOutside = lineOutsideAnchors(
+    baseSource,
+    lineNumber,
+    parsed.entity_range,
+    parsed.guard_range,
+    parsed.return_range,
+  );
+  const stagedOutside = lineOutsideAnchors(
+    stagedSource,
+    lineNumber,
+    staged.entity_range,
+    staged.guard_range,
+    staged.return_range,
+  );
+
+  return baseOutside === null || stagedOutside === null || baseOutside !== stagedOutside;
+}
+
 function baseRelationShifted(
   baseSource: string | null | undefined,
   staged: PilotParserSuccess,
@@ -439,6 +511,21 @@ export function analyzeLiteralGuardFunction(
         parsed.entity_range,
         parsed.guard_range,
         parsed.return_range,
+      )
+    ) {
+      return {
+        kind: "unsupported",
+        reason: "unmapped_region",
+      };
+    }
+
+    if (
+      !evidenceUnchanged &&
+      outsideAnchorTextChanged(
+        options.base_source,
+        options.source,
+        parsed,
+        line,
       )
     ) {
       return {

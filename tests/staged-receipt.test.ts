@@ -6,7 +6,11 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { MAX_STAGED_RECEIPT_BYTES, TOOL_VERSION } from "../src/limits.js";
+import {
+  MAX_RUN_ID_CLAIM_BYTES,
+  MAX_STAGED_RECEIPT_BYTES,
+  TOOL_VERSION,
+} from "../src/limits.js";
 import type { Sha256Hex, StagedReceipt } from "../src/types.js";
 import { captureStagedSnapshot } from "../src/git.js";
 import {
@@ -22,6 +26,7 @@ import {
   completeStagedRun,
   deleteRun,
   inspectRun,
+  writeStagedReceipt,
   listRuns,
   setStorageTestHooks,
   writeStagedArtifactFile,
@@ -1124,6 +1129,106 @@ test("completing a staged run rejects a behavior card replaced after validation"
     setStorageTestHooks(null);
   }
 
+  assert.strictEqual(fs.existsSync(receiptPath), false);
+});
+
+test("completing a staged run rejects a behavior card replaced while the receipt is published", () => {
+  const prepared = preparedMismatchReceipt();
+  const card = prepared.receipt.artifact_hashes.find(
+    (artifact) => artifact.kind === "behavior_cards",
+  );
+  if (card === undefined) {
+    throw new Error("expected behavior-card artifact");
+  }
+  const cardPath = path.join(prepared.allocation.skiaRootPath, card.path);
+  const receiptPath = path.join(
+    prepared.repositoryRoot,
+    ".skia",
+    deriveStagedReceiptPath(
+      prepared.allocation.runId,
+      prepared.allocation.sessionId,
+    ),
+  );
+  setStorageTestHooks({
+    beforeStagedReceiptPublish: () => {
+      fs.writeFileSync(cardPath, "{\"replaced\":true}\n");
+    },
+  });
+
+  try {
+    assert.throws(
+      () => completeStagedRun(prepared.allocation, prepared.receipt),
+      /sha256 does not match/,
+    );
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  assert.strictEqual(fs.existsSync(receiptPath), false);
+});
+
+test("inspecting an incomplete run rejects a claim above the byte limit", () => {
+  const repositoryRoot = createSupportedRepository();
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const claimPath = path.join(
+    repositoryRoot,
+    ".skia",
+    "run-ids",
+    `${allocation.runId}.json`,
+  );
+  fs.writeFileSync(claimPath, Buffer.alloc(MAX_RUN_ID_CLAIM_BYTES + 1));
+
+  assert.throws(
+    () => inspectRun(repositoryRoot, allocation.runId),
+    /exceeds/,
+  );
+});
+
+test("publishing a staged receipt rejects a serialized envelope above the byte limit", () => {
+  const prepared = preparedMismatchReceipt();
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as StagedReceipt & {
+    coverage: {
+      summary: { total_units: number; unsupported_units: number };
+      events: Array<Record<string, unknown>>;
+    };
+  };
+  forged.coverage.events.push({
+    id: "x".repeat(MAX_STAGED_RECEIPT_BYTES),
+    coverage: "unsupported",
+    units: 1,
+    reason: "syntax_error",
+    path: null,
+    language: null,
+    anchors: [],
+  });
+  forged.coverage.summary.unsupported_units += 1;
+  forged.coverage.summary.total_units += 1;
+  const rewritten = receiptWithSelfHash(forged);
+  const claimPath = path.join(
+    prepared.repositoryRoot,
+    ".skia",
+    "run-ids",
+    `${prepared.allocation.runId}.json`,
+  );
+  fs.rmSync(claimPath);
+  const receiptPath = path.join(
+    prepared.repositoryRoot,
+    ".skia",
+    deriveStagedReceiptPath(
+      prepared.allocation.runId,
+      prepared.allocation.sessionId,
+    ),
+  );
+
+  assert.strictEqual(validateStagedReceipt(rewritten).valid, true);
+  assert.throws(
+    () => writeStagedReceipt(prepared.repositoryRoot, rewritten),
+    /exceeds/,
+  );
   assert.strictEqual(fs.existsSync(receiptPath), false);
 });
 

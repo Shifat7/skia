@@ -11,6 +11,7 @@ import {
   LOCAL_DURABILITY_CAVEAT,
   LOCAL_RETENTION_CAVEAT,
   MAX_RUN_ID_COLLISION_SUFFIX,
+  MAX_RUN_ID_CLAIM_BYTES,
   MAX_STAGED_RECEIPT_BYTES,
   OWNER_DIRECTORY_MODE,
   OWNER_FILE_MODE,
@@ -401,6 +402,28 @@ function assertRegularStorageFile(
   }
 }
 
+function assertSerializedReceiptBytes(serialized: string): void {
+  if (asBytes(serialized).byteLength > MAX_STAGED_RECEIPT_BYTES) {
+    throw createStorageError(
+      `staged receipt exceeds ${MAX_STAGED_RECEIPT_BYTES} bytes`,
+    );
+  }
+}
+
+function parseRunIdClaim(
+  rootPath: string,
+  filePath: string,
+): RunIdClaimRecord {
+  assertRegularStorageFile(rootPath, filePath, "run-id claim");
+  if (fs.lstatSync(filePath).size > MAX_RUN_ID_CLAIM_BYTES) {
+    throw createStorageError(
+      `run-id claim exceeds ${MAX_RUN_ID_CLAIM_BYTES} bytes`,
+    );
+  }
+
+  return parseRegularJson<RunIdClaimRecord>(rootPath, filePath, "run-id claim");
+}
+
 function parseRegularJson<T>(
   rootPath: string,
   filePath: string,
@@ -465,6 +488,7 @@ function writeNewFile(filePath: string, data: string | Uint8Array): void {
 function writeNewFileAtomically(
   filePath: string,
   data: string | Uint8Array,
+  beforeLink?: () => void,
 ): void {
   const directoryPath = path.dirname(filePath);
   const filename = filePath.slice(directoryPath.length + 1);
@@ -483,6 +507,7 @@ function writeNewFileAtomically(
       temporaryPath,
       receiptPath: filePath,
     });
+    beforeLink?.();
     fs.linkSync(temporaryPath, filePath);
     published = true;
   } finally {
@@ -1880,11 +1905,7 @@ export function completeStagedRun(
     throw createStorageError("staged run allocation claim is missing");
   }
 
-  const claim = parseRegularJson<RunIdClaimRecord>(
-    allocation.skiaRootPath,
-    claimPath,
-    "staged run allocation claim",
-  );
+  const claim = parseRunIdClaim(allocation.skiaRootPath, claimPath);
 
   if (
     claim.run_id !== allocation.runId ||
@@ -1955,7 +1976,15 @@ export function completeStagedRun(
     validation.value,
   );
   const serializedReceipt = serializeStagedReceipt(validation.value);
-  writeNewFileAtomically(absolutePath, serializedReceipt);
+  assertSerializedReceiptBytes(serializedReceipt);
+  writeNewFileAtomically(absolutePath, serializedReceipt, () => {
+    validateStagedArtifactHashes(allocation.skiaRootPath, validation.value);
+    validateStagedBehaviorCardArtifact(
+      allocation.skiaRootPath,
+      validation.value,
+      runInstant ?? undefined,
+    );
+  });
   stagedAllocationIdentity.delete(allocation);
   stagedArtifactsCreatedByAllocation.delete(allocation);
 
@@ -2024,7 +2053,11 @@ export function writeStagedReceipt(
 
     const absolutePath = receiptFilePath(repositoryRoot, validation.value);
     const serializedReceipt = serializeStagedReceipt(validation.value);
-    writeNewFileAtomically(absolutePath, serializedReceipt);
+    assertSerializedReceiptBytes(serializedReceipt);
+    writeNewFileAtomically(absolutePath, serializedReceipt, () => {
+      validateStagedArtifactHashes(skiaRootPath, validation.value);
+      validateStagedBehaviorCardArtifact(skiaRootPath, validation.value);
+    });
 
     return {
       path: absolutePath,
@@ -2137,10 +2170,9 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
         continue;
       }
 
-      const claim = parseRegularJson<RunIdClaimRecord>(
+      const claim = parseRunIdClaim(
         claimRoots.skiaRootPath,
         path.join(claimRoots.leafRootPath, entryName),
-        "run-id claim",
       );
 
       if (claim.run_id !== runId || claim.mode !== "review") {
@@ -2253,11 +2285,7 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
       throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
     }
 
-    const claim = parseRegularJson<RunIdClaimRecord>(
-      claimRoots.skiaRootPath,
-      targets.claimPath,
-      "run-id claim",
-    );
+    const claim = parseRunIdClaim(claimRoots.skiaRootPath, targets.claimPath);
 
     if (claim.mode === "review" && claim.run_id === runId) {
       return {
@@ -2381,11 +2409,7 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
       throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
     }
 
-    const claim = parseRegularJson<RunIdClaimRecord>(
-      claimRoots.skiaRootPath,
-      targets.claimPath,
-      "run-id claim",
-    );
+    const claim = parseRunIdClaim(claimRoots.skiaRootPath, targets.claimPath);
 
     if (claim.mode === "review") {
       const receiptName = claim.storage_path.split("/").at(-1);
