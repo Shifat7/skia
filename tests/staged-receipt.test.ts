@@ -673,6 +673,53 @@ test("completing a staged run rejects a different tool version", () => {
   );
 });
 
+test("writing a staged artifact rejects an allocation root outside the repository", () => {
+  const prepared = preparedMismatchReceipt();
+  const outside = fs.mkdtempSync(path.join(path.dirname(prepared.repositoryRoot), "outside-"));
+  const forged = {
+    ...prepared.allocation,
+    skiaRootPath: outside,
+    artifactsRootPath: path.join(outside, "artifacts"),
+  };
+
+  assert.throws(
+    () => writeStagedArtifactFile(forged, "hld", "{}\n"),
+    /repository \.skia/,
+  );
+  assert.strictEqual(fs.existsSync(path.join(outside, "artifacts")), false);
+  assert.throws(
+    () => completeStagedRun(forged, prepared.receipt),
+    /repository \.skia/,
+  );
+  assert.strictEqual(
+    fs.existsSync(path.join(prepared.repositoryRoot, ".skia", "receipts")),
+    false,
+  );
+});
+
+test("completing a staged run rejects fabricated errors", () => {
+  const prepared = preparedMismatchReceipt();
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
+    errors: { reason: string; path: null; detail: string }[];
+  };
+  forged.errors = [
+    {
+      reason: "parse_failed",
+      path: null,
+      detail: "forged operational error",
+    },
+  ];
+  const rewritten = receiptWithSelfHash(forged as unknown as StagedReceipt);
+
+  assert.strictEqual(validateStagedReceipt(rewritten).valid, true);
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, rewritten),
+    /empty error list/,
+  );
+  const inspected = inspectRun(prepared.repositoryRoot, prepared.allocation.runId);
+  assert.strictEqual(inspected.kind, "review_incomplete");
+});
+
 test("completing a staged run rejects extra artifact kinds", () => {
   const prepared = preparedMismatchReceipt();
   const extra = writeStagedArtifactFile(

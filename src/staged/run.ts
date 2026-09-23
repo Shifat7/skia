@@ -124,19 +124,25 @@ interface PredictionInput {
 }
 
 function bindInterruptCleanup(allocation: StagedRunAllocation): () => void {
-  const onInterrupt = (): void => {
+  const abortAndExit = (exitCode: number): void => {
     try {
       abortStagedRun(allocation);
     } catch {
       // Process exit leaves no caller to report cleanup failure.
     }
-    process.exit(130);
+    process.exit(exitCode);
   };
-  process.on("SIGINT", onInterrupt);
-  process.on("SIGTERM", onInterrupt);
+  const onSigint = (): void => {
+    abortAndExit(130);
+  };
+  const onSigterm = (): void => {
+    abortAndExit(143);
+  };
+  process.on("SIGINT", onSigint);
+  process.on("SIGTERM", onSigterm);
   return () => {
-    process.off("SIGINT", onInterrupt);
-    process.off("SIGTERM", onInterrupt);
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
   };
 }
 

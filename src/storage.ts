@@ -1476,11 +1476,27 @@ function removeCreatedStagedArtifacts(
   };
 }
 
+function assertStagedAllocationPaths(allocation: StagedRunAllocation): void {
+  const repositoryRoot = path.resolve(allocation.repositoryRoot);
+  const skiaRootPath = path.join(repositoryRoot, SKIA_DIRECTORY_NAME);
+  const artifactsRootPath = path.join(skiaRootPath, ARTIFACTS_DIRECTORY_NAME);
+
+  if (
+    path.resolve(allocation.skiaRootPath) !== skiaRootPath ||
+    path.resolve(allocation.artifactsRootPath) !== artifactsRootPath
+  ) {
+    throw createStorageError(
+      "staged allocation paths must stay under the repository .skia root",
+    );
+  }
+}
+
 export function writeStagedArtifactFile(
   allocation: StagedRunAllocation,
   kind: Exclude<HashedArtifactKind, "receipt">,
   contents: string | Uint8Array,
 ): StagedArtifactWriteResult {
+  assertStagedAllocationPaths(allocation);
   const artifactPath = deriveStagedArtifactPath(
     allocation.runId,
     allocation.sessionId,
@@ -1549,6 +1565,7 @@ function removeIncompleteStagedArtifacts(
 }
 
 export function abortStagedRun(allocation: StagedRunAllocation): void {
+  assertStagedAllocationPaths(allocation);
   const targets = existingRunTargets(
     allocation.repositoryRoot,
     allocation.runId,
@@ -1584,6 +1601,7 @@ export function completeStagedRun(
   receipt: StagedReceipt,
 ): { readonly receiptPath: string; readonly artifactBytes: number } {
   assertCompleteStagedReceipt(receipt);
+  assertStagedAllocationPaths(allocation);
 
   if (receipt.tool_version !== TOOL_VERSION) {
     throw createStorageError("staged run completion requires the current tool version");
@@ -1591,6 +1609,10 @@ export function completeStagedRun(
 
   if (receipt.review === undefined) {
     throw createStorageError("staged run completion requires pilot review details");
+  }
+
+  if (receipt.errors.length !== 0) {
+    throw createStorageError("staged run completion requires an empty error list");
   }
 
   if (

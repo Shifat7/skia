@@ -406,6 +406,30 @@ test("a sole supported-language file outside the TypeScript pilot keeps coverage
   }
 });
 
+test("budget refusal leaves mixed-record coverage unattributed", () => {
+  const repositoryRoot = createRepository();
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    `${Array.from({ length: 151 }, (_, index) => `export const value${index} = ${index};`).join("\n")}\n`,
+  );
+  writeRepoTextFile(repositoryRoot, "README.md", "notes\n");
+  stagePaths(repositoryRoot, "src/gate-status.ts", "README.md");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind !== "unsupported") {
+    return;
+  }
+  assert.strictEqual(result.reason, "staged_budget_exceeded");
+  assert.strictEqual(result.coverage.summary.total_units > 151, true);
+  assert.strictEqual(result.coverage.events[0]?.path ?? null, null);
+  assert.strictEqual(result.coverage.events[0]?.language ?? null, null);
+});
+
 test("unsupported-language changes do not consume the staged review budget", () => {
   const repositoryRoot = createRepository();
   writeRepoTextFile(

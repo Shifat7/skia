@@ -479,7 +479,9 @@ export function analyzeCapturedStagedSnapshot(
       coverage: unsupportedCoverage(
         "staged_budget_exceeded",
         capturedUnits,
-        entries[0] ?? soleCoverageIdentity,
+        capture.raw_records.length === 1
+          ? (entries[0] ?? soleCoverageIdentity)
+          : undefined,
       ),
     };
   }

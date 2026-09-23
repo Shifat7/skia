@@ -226,6 +226,40 @@ test("skia review probes receipt temporary names before writing", () => {
   assert.strictEqual(fs.existsSync(path.join(repositoryRoot, ".skia")), false);
 });
 
+test("skia review uses the signal-specific status when prediction input is interrupted", () => {
+  for (const [signal, exitCode] of [
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ] as const) {
+    const repositoryRoot = createSupportedRepository();
+    const originalExit = process.exit;
+    let observedExit: number | undefined;
+    process.exit = ((code: number): never => {
+      observedExit = code;
+      throw new Error(`process exit ${code}`);
+    }) as typeof process.exit;
+
+    try {
+      runCli(["review"], {
+        now: () => new Date("2026-09-22T01:02:03Z"),
+        read_input: () => {
+          (process as unknown as {
+            emit(event: "SIGINT" | "SIGTERM"): boolean;
+          }).emit(signal);
+          return '"ok"\n';
+        },
+        repository_root: repositoryRoot,
+        session_id: "8f5d1a2c",
+      });
+    } finally {
+      process.exit = originalExit;
+    }
+
+    assert.strictEqual(observedExit, exitCode);
+    assert.deepStrictEqual(listRuns(repositoryRoot), []);
+  }
+});
+
 test("skia review unbinds interrupt cleanup when prediction input throws", () => {
   const repositoryRoot = createSupportedRepository();
   const before = process.listenerCount("SIGINT");
