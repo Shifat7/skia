@@ -6,7 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import test from "node:test";
 
-import { MAX_GIT_CAPTURED_BLOB_BYTES } from "../src/limits.js";
+import { MAX_GIT_CAPTURED_BLOB_BYTES, TMP_DIRECTORY_NAME } from "../src/limits.js";
 import {
   captureRepositorySnapshot,
   captureStagedSnapshot,
@@ -34,6 +34,28 @@ import {
   writeRepoBinaryFile,
   writeRepoTextFile,
 } from "./git-test-helpers.js";
+
+test("git snapshot leaves a pre-existing copied index in place", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const value = 1;\n");
+  stagePaths(repositoryRoot, "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_000;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
+  fs.mkdirSync(path.dirname(copiedIndexPath), { recursive: true });
+  fs.writeFileSync(copiedIndexPath, "kept\n");
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, { temporary_stamp: stamp }),
+    /EEXIST|already exists/,
+  );
+  assert.strictEqual(fs.readFileSync(copiedIndexPath, "utf8"), "kept\n");
+});
 
 test("git snapshot captures explicit branch state, raw staged records, and canonical full-index patch bytes", () => {
   const repositoryRoot = createTempGitRepository();

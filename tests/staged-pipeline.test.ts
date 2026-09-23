@@ -128,6 +128,40 @@ test("captured staged snapshot keeps an explicit -diff quoted path unsupported w
   }
 });
 
+test("captured staged snapshot keeps an explicit -diff backslash path unsupported when its base contains NUL", () => {
+  const repositoryRoot = createRepository();
+  const relativePath = "src/back\\slash.ts";
+  writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts -diff\n");
+  writeRepoBinaryFile(
+    repositoryRoot,
+    relativePath,
+    Buffer.from([0x00, 0x0a]),
+  );
+  stagePaths(repositoryRoot, ".gitattributes", relativePath);
+  commitAll(repositoryRoot, "suppress backslash typescript diffs");
+  writeRepoTextFile(
+    repositoryRoot,
+    relativePath,
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, relativePath);
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind === "unsupported") {
+    assert.strictEqual(result.reason, "no_supported_staged_entity");
+  }
+});
+
 test("captured staged snapshot refuses a copied typescript file", () => {
   const repositoryRoot = createRepository();
   const source = [

@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { TOOL_VERSION } from "../src/limits.js";
+import { MAX_STAGED_RECEIPT_BYTES, TOOL_VERSION } from "../src/limits.js";
 import type { Sha256Hex, StagedReceipt } from "../src/types.js";
 import { captureStagedSnapshot } from "../src/git.js";
 import {
@@ -1066,6 +1066,81 @@ test("completing a staged run rejects coverage that differs from allocation", ()
   );
 });
 
+test("completing a staged run rejects a snapshot rewritten in both the claim and the receipt", () => {
+  const prepared = preparedMismatchReceipt();
+  const claimPath = path.join(
+    prepared.repositoryRoot,
+    ".skia",
+    "run-ids",
+    `${prepared.allocation.runId}.json`,
+  );
+  const claim = JSON.parse(fs.readFileSync(claimPath, "utf8")) as {
+    staged_snapshot: { diff_sha256: string };
+  };
+  claim.staged_snapshot.diff_sha256 = "b".repeat(64);
+  fs.writeFileSync(claimPath, `${JSON.stringify(claim)}\n`);
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
+    snapshot: { diff_sha256: string };
+  };
+  forged.snapshot.diff_sha256 = "b".repeat(64);
+  const rewritten = receiptWithSelfHash(forged as unknown as StagedReceipt);
+
+  assert.strictEqual(validateStagedReceipt(rewritten).valid, true);
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, rewritten),
+    /allocated snapshot/,
+  );
+});
+
+test("completing a staged run rejects a behavior card replaced after validation", () => {
+  const prepared = preparedMismatchReceipt();
+  const card = prepared.receipt.artifact_hashes.find(
+    (artifact) => artifact.kind === "behavior_cards",
+  );
+  if (card === undefined) {
+    throw new Error("expected behavior-card artifact");
+  }
+  const cardPath = path.join(prepared.allocation.skiaRootPath, card.path);
+  const receiptPath = path.join(
+    prepared.repositoryRoot,
+    ".skia",
+    deriveStagedReceiptPath(
+      prepared.allocation.runId,
+      prepared.allocation.sessionId,
+    ),
+  );
+  setStorageTestHooks({
+    beforeReceiptArtifactStat: () => {
+      fs.writeFileSync(cardPath, "{\"replaced\":true}\n");
+    },
+  });
+
+  try {
+    assert.throws(
+      () => completeStagedRun(prepared.allocation, prepared.receipt),
+      /sha256 does not match/,
+    );
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  assert.strictEqual(fs.existsSync(receiptPath), false);
+});
+
+test("inspecting a staged run rejects a receipt above the byte limit", () => {
+  const prepared = preparedMismatchReceipt();
+  const completed = completeStagedRun(prepared.allocation, prepared.receipt);
+  fs.writeFileSync(
+    completed.receiptPath,
+    Buffer.alloc(MAX_STAGED_RECEIPT_BYTES + 1),
+  );
+
+  assert.throws(
+    () => inspectRun(prepared.repositoryRoot, prepared.allocation.runId),
+    /exceeds/,
+  );
+});
+
 test("completing a staged run rejects a receipt snapshot that differs from allocation", () => {
   const prepared = preparedMismatchReceipt();
   const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
@@ -1450,10 +1525,16 @@ test("deleting a completed run removes interrupted receipt hard-link temporaries
     `.${receiptName}.tmp-12345-1`,
   );
   fs.linkSync(completed.receiptPath, temporaryPath);
+  const randomizedTemporaryPath = path.join(
+    completed.receiptPath.slice(0, -(receiptName.length + 1)),
+    `.${receiptName}.tmp-${"ab".repeat(16)}`,
+  );
+  fs.linkSync(completed.receiptPath, randomizedTemporaryPath);
 
   assert.deepStrictEqual(deleteRun(repositoryRoot, allocation.runId), {
     deleted: true,
     remaining_paths: [],
   });
   assert.strictEqual(fs.existsSync(temporaryPath), false);
+  assert.strictEqual(fs.existsSync(randomizedTemporaryPath), false);
 });

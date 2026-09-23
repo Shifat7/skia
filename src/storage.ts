@@ -11,6 +11,7 @@ import {
   LOCAL_DURABILITY_CAVEAT,
   LOCAL_RETENTION_CAVEAT,
   MAX_RUN_ID_COLLISION_SUFFIX,
+  MAX_STAGED_RECEIPT_BYTES,
   OWNER_DIRECTORY_MODE,
   OWNER_FILE_MODE,
   OWNER_PERMISSION_CAVEAT,
@@ -613,6 +614,13 @@ function validateStagedReceiptFile(
   skiaRootPath: string,
   filePath: string,
 ): StagedReceipt {
+  assertRegularStorageFile(skiaRootPath, filePath, "staged receipt");
+  if (fs.lstatSync(filePath).size > MAX_STAGED_RECEIPT_BYTES) {
+    throw createStorageError(
+      `staged receipt exceeds ${MAX_STAGED_RECEIPT_BYTES} bytes`,
+    );
+  }
+
   const receipt = parseRegularJson<unknown>(
     skiaRootPath,
     filePath,
@@ -1545,7 +1553,12 @@ export function allocateStagedRun(
         skiaRootPath,
         artifactsRootPath,
       };
-      rememberStagedAllocation(allocation, capturedBlobs);
+      rememberStagedAllocation(
+        allocation,
+        capturedBlobs,
+        stagedSnapshot,
+        stagedCoverage,
+      );
       return allocation;
     } catch (error) {
       releaseRunIdClaim(claimPath);
@@ -1570,6 +1583,8 @@ const stagedAllocationIdentity = new WeakMap<
     readonly skiaRootPath: string;
     readonly artifactsRootPath: string;
     readonly capturedBlobs: ReadonlyMap<string, Uint8Array>;
+    readonly stagedSnapshot?: StagedSnapshotIdentity;
+    readonly stagedCoverage?: CoverageEnvelope;
   }
 >();
 
@@ -1585,9 +1600,15 @@ function capturedBlobMatchesOid(oid: string, bytes: Uint8Array): boolean {
     .digest("hex") === oid;
 }
 
+function cloneAllocationValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 function rememberStagedAllocation(
   allocation: StagedRunAllocation,
   capturedBlobs: readonly { readonly oid: string; readonly bytes: Uint8Array }[],
+  stagedSnapshot?: StagedSnapshotIdentity,
+  stagedCoverage?: CoverageEnvelope,
 ): void {
   for (const blob of capturedBlobs) {
     if (!capturedBlobMatchesOid(blob.oid, blob.bytes)) {
@@ -1606,6 +1627,12 @@ function rememberStagedAllocation(
     capturedBlobs: new Map(
       capturedBlobs.map((blob) => [blob.oid, Uint8Array.from(blob.bytes)]),
     ),
+    ...(stagedSnapshot === undefined
+      ? {}
+      : { stagedSnapshot: cloneAllocationValue(stagedSnapshot) }),
+    ...(stagedCoverage === undefined
+      ? {}
+      : { stagedCoverage: cloneAllocationValue(stagedCoverage) }),
   });
 }
 
@@ -1870,9 +1897,11 @@ export function completeStagedRun(
     );
   }
 
+  const heldAllocation = stagedAllocationIdentity.get(allocation);
+
   if (
-    claim.staged_snapshot === undefined ||
-    !isDeepStrictEqual(claim.staged_snapshot, validation.value.snapshot)
+    heldAllocation?.stagedSnapshot === undefined ||
+    !isDeepStrictEqual(heldAllocation.stagedSnapshot, validation.value.snapshot)
   ) {
     throw createStorageError(
       "staged receipt snapshot does not match the allocated snapshot",
@@ -1880,8 +1909,8 @@ export function completeStagedRun(
   }
 
   if (
-    claim.staged_coverage === undefined ||
-    !isDeepStrictEqual(claim.staged_coverage, validation.value.coverage)
+    heldAllocation.stagedCoverage === undefined ||
+    !isDeepStrictEqual(heldAllocation.stagedCoverage, validation.value.coverage)
   ) {
     throw createStorageError(
       "staged receipt coverage does not match the allocated coverage",
@@ -1914,6 +1943,12 @@ export function completeStagedRun(
   const artifactBytes = receiptOwnedArtifactBytes(
     allocation.skiaRootPath,
     validation.value,
+  );
+  validateStagedArtifactHashes(allocation.skiaRootPath, validation.value);
+  validateStagedBehaviorCardArtifact(
+    allocation.skiaRootPath,
+    validation.value,
+    runInstant ?? undefined,
   );
   const absolutePath = receiptFilePath(
     allocation.repositoryRoot,
@@ -2249,7 +2284,7 @@ function removeStagedReceiptTemporaries(
 
     if (
       entryName.startsWith(temporaryPrefix) &&
-      /^[0-9]+-[0-9]+$/.test(suffix)
+      /^(?:[0-9]+-[0-9]+|[0-9a-f]{32})$/.test(suffix)
     ) {
       const result = deleteTree(
         roots.skiaRootPath,

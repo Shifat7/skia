@@ -890,21 +890,57 @@ function decodeQuotedGitAttributePath(value: string): string | null {
 
   const bytes: number[] = [];
   const body = value.slice(1, -1);
+  const simpleEscapes: Readonly<Record<string, number>> = {
+    "\\": 0x5c,
+    "\"": 0x22,
+    n: 0x0a,
+    r: 0x0d,
+    t: 0x09,
+    b: 0x08,
+    f: 0x0c,
+    v: 0x0b,
+    a: 0x07,
+  };
 
-  for (let index = 0; index < body.length; index += 1) {
+  for (let index = 0; index < body.length; ) {
     const character = body[index];
+    if (character === undefined) {
+      return null;
+    }
     if (character !== "\\") {
-      bytes.push(...Buffer.from(character ?? "", "utf8"));
+      bytes.push(...Buffer.from(character, "utf8"));
+      index += 1;
       continue;
     }
 
-    const octal = body.slice(index + 1, index + 4);
-    if (!/^[0-7]{3}$/.test(octal)) {
+    const escaped = body[index + 1];
+    if (escaped === undefined) {
       return null;
     }
 
+    const simple = simpleEscapes[escaped];
+    if (simple !== undefined) {
+      bytes.push(simple);
+      index += 2;
+      continue;
+    }
+
+    if (!/[0-7]/.test(escaped)) {
+      return null;
+    }
+
+    let octal = escaped;
+    let cursor = index + 1;
+    while (
+      octal.length < 3 &&
+      cursor + 1 < body.length &&
+      /[0-7]/.test(body[cursor + 1] ?? "")
+    ) {
+      cursor += 1;
+      octal += body[cursor];
+    }
     bytes.push(Number.parseInt(octal, 8));
-    index += 3;
+    index = cursor + 1;
   }
 
   return Buffer.from(bytes).toString("utf8");
@@ -1344,12 +1380,14 @@ function captureStagedAttempt(
     )
     : null;
   let attributeWorkTree: string | null = null;
+  let copiedIndexCreated = false;
 
   try {
     attributeWorkTree = createTemporaryAttributeWorkTree(tmpRoot, attemptNumber);
 
     if (copiedIndexPath !== null) {
       createNewProtectedFile(copiedIndexPath, liveIndexBytes);
+      copiedIndexCreated = true;
     }
 
     options?.test_hooks?.after_copied_index_created?.();
@@ -1431,7 +1469,7 @@ function captureStagedAttempt(
       captured_blobs: capturedBlobs,
     };
   } finally {
-    if (copiedIndexPath !== null && fs.existsSync(copiedIndexPath)) {
+    if (copiedIndexCreated && copiedIndexPath !== null && fs.existsSync(copiedIndexPath)) {
       fs.rmSync(copiedIndexPath, { force: true });
     }
     if (attributeWorkTree !== null) {
