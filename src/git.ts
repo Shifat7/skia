@@ -151,6 +151,7 @@ function ensureGitTempRoot(repositoryRoot: string): string {
 
 function createNewProtectedFile(filePath: string, bytes: Uint8Array): void {
   const fileDescriptor = fs.openSync(filePath, "wx", OWNER_FILE_MODE);
+  let published = false;
 
   try {
     let offset = 0;
@@ -166,8 +167,18 @@ function createNewProtectedFile(filePath: string, bytes: Uint8Array): void {
     }
 
     fs.fsyncSync(fileDescriptor);
-  } finally {
     fs.closeSync(fileDescriptor);
+    published = true;
+  } catch (error) {
+    if (!published) {
+      try {
+        fs.closeSync(fileDescriptor);
+      } catch {
+        // The descriptor may already be closed.
+      }
+      fs.rmSync(filePath, { force: true });
+    }
+    throw error;
   }
 }
 
@@ -872,18 +883,19 @@ function blobContainsNul(
   return runGit(["cat-file", "blob", oid], commandOptions).stdout.includes(0);
 }
 
-function textAttributeUnset(
+function cachedAttribute(
   commandOptions: GitCommandOptions,
   extraEnv: Readonly<Record<string, string | undefined>>,
   relativePath: string,
-): boolean {
+  attribute: "diff" | "text",
+): string | null {
   const stdout = bytesToUtf8(runGit(
-    ["check-attr", "--cached", "text", "--", relativePath],
+    ["check-attr", "--cached", attribute, "--", relativePath],
     commandOptions,
     extraEnv,
   ).stdout).trim();
-
-  return stdout === `${relativePath}: text: unset`;
+  const prefix = `${relativePath}: ${attribute}: `;
+  return stdout.startsWith(prefix) ? stdout.slice(prefix.length) : null;
 }
 
 function patchSectionHasHunk(patch: Uint8Array, relativePath: string): boolean {
@@ -916,6 +928,8 @@ function stagedPatchBytes(
     "--no-ext-diff",
     "--no-textconv",
     "-M",
+    "-C",
+    "--find-copies-harder",
     comparisonBase,
   ];
   const binaryPatch = runGit(binaryArgv, commandOptions, extraEnv).stdout;
@@ -931,10 +945,26 @@ function stagedPatchBytes(
       continue;
     }
 
+    const diffAttribute = cachedAttribute(
+      commandOptions,
+      extraEnv,
+      relativePath,
+      "diff",
+    );
+    const textAttribute = cachedAttribute(
+      commandOptions,
+      extraEnv,
+      relativePath,
+      "text",
+    );
+    if (diffAttribute === "unset" && textAttribute !== "unset") {
+      continue;
+    }
+
     if (
       blobContainsNul(commandOptions, record.base_blob_oid) ||
       blobContainsNul(commandOptions, record.staged_blob_oid) ||
-      textAttributeUnset(commandOptions, extraEnv, relativePath)
+      textAttribute === "unset"
     ) {
       textPaths.push(relativePath);
     }
@@ -958,6 +988,8 @@ function stagedPatchBytes(
         "--no-ext-diff",
         "--no-textconv",
         "-M",
+        "-C",
+        "--find-copies-harder",
         comparisonBase,
         "--",
         ...textPaths,
@@ -1274,13 +1306,15 @@ function captureStagedAttempt(
       options?.temporary_stamp ?? Date.now(),
     )
     : null;
-  const attributeWorkTree = createTemporaryAttributeWorkTree(tmpRoot, attemptNumber);
-
-  if (copiedIndexPath !== null) {
-    createNewProtectedFile(copiedIndexPath, liveIndexBytes);
-  }
+  let attributeWorkTree: string | null = null;
 
   try {
+    attributeWorkTree = createTemporaryAttributeWorkTree(tmpRoot, attemptNumber);
+
+    if (copiedIndexPath !== null) {
+      createNewProtectedFile(copiedIndexPath, liveIndexBytes);
+    }
+
     options?.test_hooks?.after_copied_index_created?.();
 
     const comparisonBase =
@@ -1299,14 +1333,14 @@ function captureStagedAttempt(
         };
     const statusEntries = parseStatusEntries(
       runGit(
-        ["diff-index", "--cached", "--name-status", "-z", "-M", comparisonBase],
+        ["diff-index", "--cached", "--name-status", "-z", "-M", "-C", "--find-copies-harder", comparisonBase],
         commandOptions,
         copiedIndexEnv,
       ).stdout,
     );
     const rawRecords = parseRawRecords(
       runGit(
-        ["diff-index", "--cached", "--raw", "-z", "-M", "--full-index", comparisonBase],
+        ["diff-index", "--cached", "--raw", "-z", "-M", "-C", "--find-copies-harder", "--full-index", comparisonBase],
         commandOptions,
         copiedIndexEnv,
       ).stdout,
@@ -1363,7 +1397,9 @@ function captureStagedAttempt(
     if (copiedIndexPath !== null && fs.existsSync(copiedIndexPath)) {
       fs.rmSync(copiedIndexPath, { force: true });
     }
-    fs.rmSync(attributeWorkTree, { force: true, recursive: true });
+    if (attributeWorkTree !== null) {
+      fs.rmSync(attributeWorkTree, { force: true, recursive: true });
+    }
   }
 }
 

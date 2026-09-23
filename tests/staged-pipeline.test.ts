@@ -64,6 +64,61 @@ test("changed-line parser keeps additions when a deleted line is not UTF-8", () 
   assert.deepStrictEqual(changedLinesFromPatch(patch).get("src/gate.ts"), [1]);
 });
 
+test("captured staged snapshot keeps an explicit -diff file unsupported when its base contains NUL", () => {
+  const repositoryRoot = createRepository();
+  writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts -diff\n");
+  writeRepoBinaryFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    Buffer.from([0x00, 0x0a]),
+  );
+  stagePaths(repositoryRoot, ".gitattributes", "src/gate-status.ts");
+  commitAll(repositoryRoot, "suppress typescript diffs");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
+});
+
+test("captured staged snapshot refuses a copied typescript file", () => {
+  const repositoryRoot = createRepository();
+  const source = [
+    "export function gateStatus(code: string): string {",
+    '  if (code === "ready") return "ok";',
+    '  return "hold";',
+    "}",
+    "",
+  ].join("\n");
+  writeRepoTextFile(repositoryRoot, "src/gate-status.ts", source);
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+  commitAll(repositoryRoot, "add source");
+  writeRepoTextFile(repositoryRoot, "src/gate-copy.ts", source);
+  stagePaths(repositoryRoot, "src/gate-copy.ts");
+
+  const capture = captureStagedSnapshot(repositoryRoot);
+  assert.strictEqual(capture.raw_records[0]?.status.startsWith("C"), true);
+
+  const result = analyzeCapturedStagedSnapshot(capture);
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind === "unsupported") {
+    assert.strictEqual(result.reason, "no_supported_staged_entity");
+  }
+});
+
 test("captured staged snapshot analyzes a text replacement of NUL source", () => {
   const repositoryRoot = createRepository();
   writeRepoBinaryFile(

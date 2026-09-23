@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { MAX_TERMINAL_INPUT_BYTES } from "./limits.js";
 import {
+  escapeTerminalText,
   runStagedReview,
   type StagedReviewRunOptions,
   type StagedReviewRunResult,
@@ -78,7 +79,10 @@ export function runCli(
     argv: [...argv],
     exit_code: 2,
     kind: "unimplemented_shell",
-    output: `Command is not implemented: ${argv.join(" ") || "(none)"}\n`,
+    output:
+      `Command is not implemented: ${
+        argv.map((argument) => escapeTerminalText(argument)).join(" ") || "(none)"
+      }\n`,
   };
 }
 

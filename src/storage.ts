@@ -1075,6 +1075,8 @@ function assertReviewMatchesSnapshot(
 
   const lineCount = sourceLineCount(source);
   const changedLines: number[] = [];
+  const maxEvidenceLines = 4_096;
+  let expandedLines = 0;
 
   for (const evidenceAnchor of review.entity.evidence.anchors) {
     if (
@@ -1084,6 +1086,13 @@ function assertReviewMatchesSnapshot(
       evidenceAnchor.end_line < evidenceAnchor.start_line ||
       evidenceAnchor.end_line > lineCount
     ) {
+      throw createStorageError(
+        "source check expected value must match the staged snapshot source",
+      );
+    }
+
+    expandedLines += evidenceAnchor.end_line - evidenceAnchor.start_line + 1;
+    if (expandedLines > maxEvidenceLines) {
       throw createStorageError(
         "source check expected value must match the staged snapshot source",
       );
@@ -1891,6 +1900,8 @@ export function completeStagedRun(
   );
   const serializedReceipt = serializeStagedReceipt(validation.value);
   writeNewFileAtomically(absolutePath, serializedReceipt);
+  stagedAllocationIdentity.delete(allocation);
+  stagedArtifactsCreatedByAllocation.delete(allocation);
 
   return {
     receiptPath: absolutePath,

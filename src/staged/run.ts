@@ -57,7 +57,7 @@ type ParsedPrediction =
 const TERMINAL_FORMATTING_PATTERN =
   /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 
-function escapeTerminalText(value: string): string {
+export function escapeTerminalText(value: string): string {
   return value.replace(
     TERMINAL_FORMATTING_PATTERN,
     (character) =>

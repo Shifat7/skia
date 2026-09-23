@@ -1113,6 +1113,29 @@ test("aborting a staged run leaves an artifact it did not create", () => {
   assert.strictEqual(fs.readFileSync(absolutePath, "utf8"), "orphan\n");
 });
 
+test("completing a staged run retires the allocation", () => {
+  const prepared = preparedMismatchReceipt();
+  completeStagedRun(prepared.allocation, prepared.receipt);
+
+  assert.throws(
+    () => writeStagedArtifactFile(prepared.allocation, "hld", "# hld\n"),
+    /repository \.skia/,
+  );
+  deleteRun(prepared.repositoryRoot, prepared.allocation.runId);
+
+  const replacement = allocateStagedRun(
+    prepared.repositoryRoot,
+    prepared.allocation.sessionId,
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  assert.strictEqual(replacement.runId, prepared.allocation.runId);
+  assert.throws(() => abortStagedRun(prepared.allocation), /repository \.skia/);
+  assert.deepStrictEqual(
+    fs.readdirSync(`${prepared.repositoryRoot}/.skia/run-ids`),
+    [`${replacement.runId}.json`],
+  );
+});
+
 test("aborting a staged run retires the allocation before its run id is reused", () => {
   const repositoryRoot = createSupportedRepository();
   const sessionId = validateSessionId("8f5d1a2c");

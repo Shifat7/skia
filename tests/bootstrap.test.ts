@@ -30,6 +30,17 @@ test("bootstrap shell exposes the frozen command surfaces without side effects",
   });
 });
 
+test("runCli escapes control characters in unimplemented command output", () => {
+  const result = runCli(["repo", "review\u001b[31m"]);
+
+  assert.strictEqual(result.kind, "unimplemented_shell");
+  if (result.kind !== "unimplemented_shell") {
+    return;
+  }
+  assert.strictEqual(result.output.includes("\u001b"), false);
+  assert.match(result.output, /\\u001b/);
+});
+
 test("runCli rejects unimplemented command surfaces and copies argv", () => {
   const argv = ["review", "--repo", "/tmp/example"];
   const result = runCli(argv);

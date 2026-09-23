@@ -114,7 +114,11 @@ function normalizeTimeout(timeoutMs: number | undefined): number {
 }
 
 function parsePilotSource(
-  options: AnalyzeLiteralGuardFunctionOptions,
+  options: {
+    readonly source: string;
+    readonly parser_command?: AnalyzeLiteralGuardFunctionOptions["parser_command"];
+    readonly timeout_ms?: number;
+  },
 ): PilotParserResponse | "parse_failed" | "parse_timeout" {
   const command = options.parser_command ?? {
     command: NODE_EXECUTABLE,
@@ -334,6 +338,35 @@ function changedLineLeavesEntity(
   );
 }
 
+function baseRelationShifted(
+  baseSource: string | null | undefined,
+  staged: PilotParserSuccess,
+): boolean {
+  if (
+    baseSource === undefined ||
+    baseSource === null ||
+    staged.entity_range.start_line !== staged.entity_range.end_line
+  ) {
+    return false;
+  }
+
+  const parsed = parsePilotSource({ source: baseSource });
+  if (typeof parsed !== "object" || parsed.kind !== "supported") {
+    return false;
+  }
+
+  const sameRelation =
+    parsed.guard_text === staged.guard_text &&
+    parsed.return_text === staged.return_text &&
+    parsed.guard_value === staged.guard_value &&
+    parsed.return_value === staged.return_value;
+  const shifted =
+    parsed.guard_range.start_column !== staged.guard_range.start_column ||
+    parsed.return_range.start_column !== staged.return_range.start_column;
+
+  return sameRelation && shifted;
+}
+
 export function analyzeLiteralGuardFunction(
   options: AnalyzeLiteralGuardFunctionOptions,
 ): PilotAnalysis {
@@ -363,6 +396,13 @@ export function analyzeLiteralGuardFunction(
     !overlapsChangedLine(parsed.guard_range, changedLines) &&
     !overlapsChangedLine(parsed.return_range, changedLines)
   ) {
+    return {
+      kind: "unsupported",
+      reason: "unmapped_region",
+    };
+  }
+
+  if (baseRelationShifted(options.base_source, parsed)) {
     return {
       kind: "unsupported",
       reason: "unmapped_region",
