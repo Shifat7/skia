@@ -175,6 +175,7 @@ export interface StorageTestHooks {
   readonly afterCreateNewFile?: () => void;
   readonly closeNewFile?: (fileDescriptor: number) => void;
   readonly unlinkStagedReceiptTemporary?: (temporaryPath: string) => void;
+  readonly beforeReceiptArtifactStat?: () => void;
   readonly afterRunIdClaim?: (claim: {
     readonly mode: RunMode;
     readonly runId: RunId;
@@ -1155,12 +1156,23 @@ function validateStagedBehaviorCardArtifact(
       "behavior-card artifact does not match the persisted skip in the receipt",
     );
   }
+
+  if (
+    receipt.completed_at !== null &&
+    typeof skip.sealed_at === "string" &&
+    skip.sealed_at > receipt.completed_at
+  ) {
+    throw createStorageError(
+      "skip sealed_at must not follow receipt completion",
+    );
+  }
 }
 
 function receiptOwnedArtifactBytes(
   skiaRootPath: string,
   receipt: StagedReceipt,
 ): number {
+  storageTestHooks?.beforeReceiptArtifactStat?.();
   let totalBytes = 0;
 
   for (const artifact of receipt.artifact_hashes) {
@@ -1481,6 +1493,8 @@ const stagedAllocationIdentity = new WeakMap<
   StagedRunAllocation,
   {
     readonly repositoryRoot: string;
+    readonly runId: StagedRunAllocation["runId"];
+    readonly sessionId: StagedRunAllocation["sessionId"];
     readonly skiaRootPath: string;
     readonly artifactsRootPath: string;
   }
@@ -1489,6 +1503,8 @@ const stagedAllocationIdentity = new WeakMap<
 function rememberStagedAllocation(allocation: StagedRunAllocation): void {
   stagedAllocationIdentity.set(allocation, {
     repositoryRoot: allocation.repositoryRoot,
+    runId: allocation.runId,
+    sessionId: allocation.sessionId,
     skiaRootPath: allocation.skiaRootPath,
     artifactsRootPath: allocation.artifactsRootPath,
   });
@@ -1541,6 +1557,8 @@ function assertStagedAllocationPaths(allocation: StagedRunAllocation): void {
   if (
     held === undefined ||
     held.repositoryRoot !== repositoryRoot ||
+    held.runId !== allocation.runId ||
+    held.sessionId !== allocation.sessionId ||
     held.skiaRootPath !== skiaRootPath ||
     held.artifactsRootPath !== artifactsRootPath ||
     path.resolve(allocation.skiaRootPath) !== skiaRootPath ||
@@ -1763,6 +1781,10 @@ export function completeStagedRun(
     validation.value,
   );
   assertReviewMatchesSnapshot(allocation.repositoryRoot, validation.value);
+  const artifactBytes = receiptOwnedArtifactBytes(
+    allocation.skiaRootPath,
+    validation.value,
+  );
   const absolutePath = receiptFilePath(
     allocation.repositoryRoot,
     validation.value,
@@ -1772,9 +1794,7 @@ export function completeStagedRun(
 
   return {
     receiptPath: absolutePath,
-    artifactBytes:
-      asBytes(serializedReceipt).byteLength +
-      receiptOwnedArtifactBytes(allocation.skiaRootPath, validation.value),
+    artifactBytes: asBytes(serializedReceipt).byteLength + artifactBytes,
   };
 }
 

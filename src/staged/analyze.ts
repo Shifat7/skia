@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -175,6 +176,58 @@ function overlapsChangedLine(
   return false;
 }
 
+function sourceLineBytes(source: string): readonly Uint8Array[] {
+  const bytes = Buffer.from(source, "utf8");
+  const lines: Uint8Array[] = [];
+  let start = 0;
+
+  for (let index = 0; index <= bytes.length; index += 1) {
+    if (index < bytes.length && bytes[index] !== 0x0a) {
+      continue;
+    }
+
+    let end = index;
+    if (end > start && bytes[end - 1] === 0x0d) {
+      end -= 1;
+    }
+    lines.push(bytes.subarray(start, end));
+    if (index === bytes.length) {
+      break;
+    }
+    start = index + 1;
+  }
+
+  return lines;
+}
+
+function hasNonWhitespace(bytes: Uint8Array): boolean {
+  for (const byte of bytes) {
+    if (byte !== 0x09 && byte !== 0x0b && byte !== 0x0c && byte !== 0x20) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function changedLineLeavesEntity(
+  source: string,
+  lineNumber: number,
+  entity: PilotParserNodeRange,
+): boolean {
+  const line = sourceLineBytes(source)[lineNumber - 1];
+  if (line === undefined) {
+    return false;
+  }
+
+  const start = lineNumber === entity.start_line ? entity.start_column : 0;
+  const end = lineNumber === entity.end_line ? entity.end_column : line.length;
+  return (
+    hasNonWhitespace(line.subarray(0, Math.max(0, start))) ||
+    hasNonWhitespace(line.subarray(Math.min(line.length, Math.max(0, end))))
+  );
+}
+
 export function analyzeLiteralGuardFunction(
   options: AnalyzeLiteralGuardFunctionOptions,
 ): PilotAnalysis {
@@ -208,6 +261,23 @@ export function analyzeLiteralGuardFunction(
       kind: "unsupported",
       reason: "unmapped_region",
     };
+  }
+
+  for (const line of changedLines) {
+    const overlapsGuardOrReturn =
+      (line >= parsed.guard_range.start_line &&
+        line <= parsed.guard_range.end_line) ||
+      (line >= parsed.return_range.start_line &&
+        line <= parsed.return_range.end_line);
+    if (
+      overlapsGuardOrReturn &&
+      changedLineLeavesEntity(options.source, line, parsed.entity_range)
+    ) {
+      return {
+        kind: "unsupported",
+        reason: "unmapped_region",
+      };
+    }
   }
 
   const guardAnchor = anchor(options, parsed.guard_range);

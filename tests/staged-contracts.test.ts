@@ -43,6 +43,21 @@ function analyzeFixture(
   return result;
 }
 
+test("pilot analyzer refuses a same-line edit outside the reviewed function", () => {
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1],
+    path: PATH,
+    source:
+      'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; } const marker = 2;\n',
+  });
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind === "unsupported") {
+    assert.strictEqual(result.reason, "unmapped_region");
+  }
+});
+
 test("pilot analyzer derives one anchored relation and deterministic scenario", () => {
   const analysis = analyzeFixture();
 

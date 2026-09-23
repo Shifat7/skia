@@ -546,6 +546,17 @@ function validateStagedReview(
       keyword: "rfc3339_calendar",
       message: "sealed_at must be a real UTC calendar timestamp",
     });
+  } else if (
+    prediction !== null &&
+    value.completed_at !== null &&
+    validRfc3339Utc(value.completed_at) &&
+    prediction.sealed_at > value.completed_at
+  ) {
+    errors.push({
+      instance_path: "/review/entity/prediction/sealed_at",
+      keyword: "sealed_before_completion",
+      message: "prediction sealed_at must not follow receipt completion",
+    });
   }
 
   if (review.card_status === "complete") {

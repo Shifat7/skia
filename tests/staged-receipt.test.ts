@@ -417,6 +417,121 @@ test("skipped behavior cards reject impossible sealed_at timestamps", () => {
   );
 });
 
+test("aborting a staged run rejects a rewritten run identity", () => {
+  const repositoryRoot = createSupportedRepository();
+  const instant = new Date("2026-09-22T01:02:03Z");
+  const first = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    instant,
+  );
+  const second = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("9f6e2b3d"),
+    instant,
+  );
+  const firstRunId = first.runId;
+  const mutable = first as {
+    runId: typeof second.runId;
+    sessionId: typeof second.sessionId;
+  };
+  mutable.runId = second.runId;
+  mutable.sessionId = second.sessionId;
+
+  assert.throws(() => abortStagedRun(first), /repository \.skia/);
+  assert.deepStrictEqual(
+    listRuns(repositoryRoot).map((run) => run.run_id).sort(),
+    [firstRunId, second.runId].sort(),
+  );
+});
+
+test("staged receipts reject a prediction sealed after completion", () => {
+  const prepared = preparedMismatchReceipt();
+  const forged = JSON.parse(JSON.stringify(prepared.receipt)) as {
+    review: { entity: { prediction: { sealed_at: string } } };
+  };
+  forged.review.entity.prediction.sealed_at = "2026-09-22T01:02:06Z";
+  const rewritten = receiptWithSelfHash(forged as unknown as StagedReceipt);
+  const validation = validateStagedReceipt(rewritten);
+
+  assert.strictEqual(validation.valid, false);
+  if (!validation.valid) {
+    assert.match(
+      validation.errors.map((error) => error.message).join("\n"),
+      /must not follow receipt completion/,
+    );
+  }
+});
+
+test("skipped behavior cards reject a seal after completion", () => {
+  const repositoryRoot = createSupportedRepository();
+  const pipeline = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+  assert.strictEqual(pipeline.kind, "supported");
+  if (pipeline.kind !== "supported") {
+    return;
+  }
+
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+    pipeline.snapshot,
+    pipeline.coverage,
+  );
+  const artifact = writeStagedArtifactFile(
+    allocation,
+    "behavior_cards",
+    `${JSON.stringify({
+      action: "skip",
+      scenario: pipeline.analysis.scenario,
+      sealed_at: "2026-09-22T01:02:06Z",
+    })}\n`,
+  );
+  const receipt = createSkippedStagedReviewReceipt({
+    allocation,
+    analysis: pipeline.analysis,
+    behavior_card_artifact: artifact,
+    completed_at: new Date("2026-09-22T01:02:05Z"),
+    coverage: pipeline.coverage,
+    snapshot: pipeline.snapshot,
+  });
+
+  assert.throws(
+    () => completeStagedRun(allocation, receipt),
+    /must not follow receipt completion/,
+  );
+});
+
+test("completing a staged run stats artifacts before publishing the receipt", () => {
+  const prepared = preparedMismatchReceipt();
+  const receiptPath = path.join(
+    prepared.repositoryRoot,
+    ".skia",
+    deriveStagedReceiptPath(
+      prepared.allocation.runId,
+      prepared.allocation.sessionId,
+    ),
+  );
+  setStorageTestHooks({
+    beforeReceiptArtifactStat: () => {
+      throw new Error("EIO");
+    },
+  });
+
+  try {
+    assert.throws(
+      () => completeStagedRun(prepared.allocation, prepared.receipt),
+      /EIO/,
+    );
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  assert.strictEqual(fs.existsSync(receiptPath), false);
+});
+
 test("staged run allocation resolves collisions before any interaction", () => {
   const repositoryRoot = createSupportedRepository();
   const sessionId = validateSessionId("8f5d1a2c");
@@ -1123,6 +1238,7 @@ test("deleting a completed run removes interrupted receipt hard-link temporaries
         ),
       );
     },
+    new Date("2026-09-22T01:02:04Z"),
   );
   const artifact = artifacts[0];
   if (artifact === undefined) {
