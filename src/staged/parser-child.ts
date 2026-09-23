@@ -446,10 +446,35 @@ function parse(input: ParserInput): PilotParserResponse {
       (
         writesBinding(tree.rootNode, name) ||
         containsDirectEval(tree.rootNode) ||
-        containsCallOutside(tree.rootNode, functionNode)
+        containsCallOutside(tree.rootNode, functionNode) ||
+        containsSameNameFunction(tree.rootNode, functionNode, name)
       )
     ? { kind: "unsupported" }
     : parseFunction(functionNode);
+}
+
+function containsSameNameFunction(
+  root: ParserNode,
+  functionNode: ParserNode,
+  name: string,
+): boolean {
+  const expectedName = decodedIdentifier(name);
+  const visit = (node: ParserNode): boolean => {
+    if (node === functionNode) {
+      return false;
+    }
+
+    if (node.type === "function_declaration") {
+      const declared = node.childForFieldName("name")?.text ?? "";
+      if (decodedIdentifier(declared) === expectedName) {
+        return true;
+      }
+    }
+
+    return node.children.some(visit);
+  };
+
+  return visit(root);
 }
 
 function containsCallOutside(

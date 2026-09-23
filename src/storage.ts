@@ -185,6 +185,7 @@ interface RunIdClaimRecord {
   readonly mode: RunMode;
   readonly storage_path: RunArtifactPath;
   readonly staged_snapshot?: StagedSnapshotIdentity;
+  readonly staged_coverage?: CoverageEnvelope;
 }
 
 interface ExistingRunTargets {
@@ -836,6 +837,7 @@ function writeRunIdClaim(
   mode: RunMode,
   sessionId?: string,
   stagedSnapshot?: StagedSnapshotIdentity,
+  stagedCoverage?: CoverageEnvelope,
 ): string {
   const claimPath = runIdClaimFilePath(repositoryRoot, runId);
   const claimRecord: RunIdClaimRecord = {
@@ -844,6 +846,7 @@ function writeRunIdClaim(
     mode,
     storage_path: claimStoragePathForMode(runId, mode, sessionId),
     ...(stagedSnapshot === undefined ? {} : { staged_snapshot: stagedSnapshot }),
+    ...(stagedCoverage === undefined ? {} : { staged_coverage: stagedCoverage }),
   };
 
   writeNewFile(claimPath, `${JSON.stringify(claimRecord, null, 2)}\n`);
@@ -1373,6 +1376,7 @@ export function allocateStagedRun(
   sessionId: SessionId,
   createdAt: Date = new Date(),
   stagedSnapshot?: StagedSnapshotIdentity,
+  stagedCoverage?: CoverageEnvelope,
 ): StagedRunAllocation {
   const validatedSessionId = validateSessionId(sessionId);
   const { skiaRootPath, leafRootPath: artifactsRootPath } =
@@ -1391,6 +1395,7 @@ export function allocateStagedRun(
         "review",
         validatedSessionId,
         stagedSnapshot,
+        stagedCoverage,
       );
     } catch (error) {
       if (isExistingPathError(error)) {
@@ -1634,6 +1639,15 @@ export function completeStagedRun(
   ) {
     throw createStorageError(
       "staged receipt snapshot does not match the allocated snapshot",
+    );
+  }
+
+  if (
+    claim.staged_coverage === undefined ||
+    !isDeepStrictEqual(claim.staged_coverage, validation.value.coverage)
+  ) {
+    throw createStorageError(
+      "staged receipt coverage does not match the allocated coverage",
     );
   }
 

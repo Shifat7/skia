@@ -409,6 +409,7 @@ export function runStagedReview(
       sessionId,
       createdAt,
       pipeline.snapshot,
+      pipeline.coverage,
     );
     allocation = activeAllocation;
     const prompt = promptOutput(pipeline);
