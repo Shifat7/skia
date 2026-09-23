@@ -14,6 +14,7 @@ import {
   deriveStagedReceiptPath,
   validateSessionId,
 } from "../src/paths.js";
+import { nextStagedReceiptTemporarySuffix } from "../src/receipt-temporary.js";
 import { validateStagedReceipt } from "../src/schema.js";
 import {
   abortStagedRun,
@@ -1111,6 +1112,52 @@ test("aborting a staged run leaves an artifact it did not create", () => {
   );
   abortStagedRun(allocation);
   assert.strictEqual(fs.readFileSync(absolutePath, "utf8"), "orphan\n");
+});
+
+test("inspecting an incomplete run rejects a claim path outside the receipt root", () => {
+  const repositoryRoot = createSupportedRepository();
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const claimPath = path.join(
+    repositoryRoot,
+    ".skia",
+    "run-ids",
+    `${allocation.runId}.json`,
+  );
+  const claim = JSON.parse(fs.readFileSync(claimPath, "utf8")) as {
+    storage_path: string;
+  };
+  claim.storage_path = "../../outside.json";
+  fs.writeFileSync(claimPath, `${JSON.stringify(claim)}\n`);
+
+  assert.throws(
+    () => inspectRun(repositoryRoot, allocation.runId),
+    /invalid storage path/,
+  );
+});
+
+test("completing a staged run leaves a pre-existing receipt temporary in place", () => {
+  const prepared = preparedMismatchReceipt();
+  const suffix = nextStagedReceiptTemporarySuffix();
+  const receiptName =
+    `${prepared.allocation.runId}-${prepared.allocation.sessionId}-session.json`;
+  const temporaryPath = path.join(
+    prepared.repositoryRoot,
+    ".skia",
+    "receipts",
+    `.${receiptName}.tmp-${suffix}`,
+  );
+  fs.mkdirSync(path.dirname(temporaryPath), { recursive: true });
+  fs.writeFileSync(temporaryPath, "kept\n");
+
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, prepared.receipt),
+    /EEXIST|already exists/,
+  );
+  assert.strictEqual(fs.readFileSync(temporaryPath, "utf8"), "kept\n");
 });
 
 test("completing a staged run retires the allocation", () => {

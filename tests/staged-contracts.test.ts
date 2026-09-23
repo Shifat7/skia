@@ -108,6 +108,27 @@ test("pilot analyzer refuses an export-only edit of a one-line function", () => 
   }
 });
 
+test("pilot analyzer refuses an export-only edit of a multiline function whose guard starts on the signature line", () => {
+  const base = [
+    "function gateStatus(code: string): string { if (code === \"ready\") return \"ok\";",
+    "  return \"hold\";",
+    "}",
+    "",
+  ].join("\n");
+  const result = analyzeLiteralGuardFunction({
+    base_source: base,
+    blob_oid: BLOB_OID,
+    changed_lines: [1],
+    path: PATH,
+    source: `export ${base}`,
+  });
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind === "unsupported") {
+    assert.strictEqual(result.reason, "unmapped_region");
+  }
+});
+
 test("pilot analyzer keeps a same-line guard edit supported", () => {
   const base =
     'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }\n';

@@ -473,9 +473,11 @@ function writeNewFileAtomically(
   );
 
   let published = false;
+  let created = false;
 
   try {
     writeNewFile(temporaryPath, data);
+    created = true;
     storageTestHooks?.beforeStagedReceiptPublish?.({
       temporaryPath,
       receiptPath: filePath,
@@ -483,7 +485,7 @@ function writeNewFileAtomically(
     fs.linkSync(temporaryPath, filePath);
     published = true;
   } finally {
-    if (fs.existsSync(temporaryPath)) {
+    if (created && fs.existsSync(temporaryPath)) {
       try {
         if (storageTestHooks?.unlinkStagedReceiptTemporary !== undefined) {
           storageTestHooks.unlinkStagedReceiptTemporary(temporaryPath);
@@ -760,6 +762,25 @@ function receiptFilePath(repositoryRoot: string, receipt: StagedReceipt): string
     skiaRootPath,
     deriveStagedReceiptPath(receipt.run_id, receipt.session_id),
   );
+}
+
+function canonicalStagedClaimPath(
+  runId: RunId,
+  storagePath: string,
+): RunArtifactPath {
+  const receiptName = storagePath.split("/").at(-1);
+  const parsedReceipt =
+    receiptName === undefined ? null : parseStagedReceiptFileName(receiptName);
+
+  if (
+    parsedReceipt === null ||
+    parsedReceipt.runId !== runId ||
+    storagePath !== deriveStagedReceiptPath(runId, parsedReceipt.sessionId)
+  ) {
+    throw createStorageError("staged run claim has an invalid storage path");
+  }
+
+  return deriveStagedReceiptPath(runId, parsedReceipt.sessionId);
 }
 
 function parseStagedReceiptFileName(entryName: string): ParsedReceiptFileName | null {
@@ -2208,7 +2229,7 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
         kind: "review_incomplete",
         run_id: runId,
         status: "incomplete",
-        receipt_path: claim.storage_path,
+        receipt_path: canonicalStagedClaimPath(runId, claim.storage_path),
       };
     }
   }

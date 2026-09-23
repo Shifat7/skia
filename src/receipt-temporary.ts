@@ -1,12 +1,18 @@
-import process from "node:process";
+import { randomBytes } from "node:crypto";
 
-let stagedReceiptTemporaryCounter = 0;
+let reservedStagedReceiptTemporarySuffix: string | null = null;
+
+function randomStagedReceiptTemporarySuffix(): string {
+  return randomBytes(16).toString("hex");
+}
 
 export function nextStagedReceiptTemporarySuffix(): string {
-  return `${process.pid}-${stagedReceiptTemporaryCounter + 1}`;
+  reservedStagedReceiptTemporarySuffix ??= randomStagedReceiptTemporarySuffix();
+  return reservedStagedReceiptTemporarySuffix;
 }
 
 export function allocateStagedReceiptTemporarySuffix(): string {
-  stagedReceiptTemporaryCounter += 1;
-  return `${process.pid}-${stagedReceiptTemporaryCounter}`;
+  const suffix = reservedStagedReceiptTemporarySuffix ?? randomStagedReceiptTemporarySuffix();
+  reservedStagedReceiptTemporarySuffix = null;
+  return suffix;
 }

@@ -883,6 +883,33 @@ function blobContainsNul(
   return runGit(["cat-file", "blob", oid], commandOptions).stdout.includes(0);
 }
 
+function decodeQuotedGitAttributePath(value: string): string | null {
+  if (!value.startsWith("\"") || !value.endsWith("\"")) {
+    return null;
+  }
+
+  const bytes: number[] = [];
+  const body = value.slice(1, -1);
+
+  for (let index = 0; index < body.length; index += 1) {
+    const character = body[index];
+    if (character !== "\\") {
+      bytes.push(...Buffer.from(character ?? "", "utf8"));
+      continue;
+    }
+
+    const octal = body.slice(index + 1, index + 4);
+    if (!/^[0-7]{3}$/.test(octal)) {
+      return null;
+    }
+
+    bytes.push(Number.parseInt(octal, 8));
+    index += 3;
+  }
+
+  return Buffer.from(bytes).toString("utf8");
+}
+
 function cachedAttribute(
   commandOptions: GitCommandOptions,
   extraEnv: Readonly<Record<string, string | undefined>>,
@@ -894,8 +921,18 @@ function cachedAttribute(
     commandOptions,
     extraEnv,
   ).stdout).trim();
-  const prefix = `${relativePath}: ${attribute}: `;
-  return stdout.startsWith(prefix) ? stdout.slice(prefix.length) : null;
+  const marker = `: ${attribute}: `;
+  const markerIndex = stdout.lastIndexOf(marker);
+  if (markerIndex < 0) {
+    return null;
+  }
+
+  const rawPath = stdout.slice(0, markerIndex);
+  const decodedPath = rawPath.startsWith("\"")
+    ? decodeQuotedGitAttributePath(rawPath)
+    : rawPath;
+
+  return decodedPath === relativePath ? stdout.slice(markerIndex + marker.length) : null;
 }
 
 function patchSectionHasHunk(patch: Uint8Array, relativePath: string): boolean {

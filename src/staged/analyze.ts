@@ -342,11 +342,7 @@ function baseRelationShifted(
   baseSource: string | null | undefined,
   staged: PilotParserSuccess,
 ): boolean {
-  if (
-    baseSource === undefined ||
-    baseSource === null ||
-    staged.entity_range.start_line !== staged.entity_range.end_line
-  ) {
+  if (baseSource === undefined || baseSource === null) {
     return false;
   }
 
