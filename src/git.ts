@@ -55,6 +55,7 @@ export interface GitSnapshotTestHooks {
   readonly after_copied_index_created?: () => void;
   readonly before_capture_temporary_removal?: () => void;
   readonly before_live_index_revalidation?: () => void;
+  readonly force_path_temporary_removal?: boolean;
 }
 
 export interface CaptureGitSnapshotOptions {
@@ -1795,6 +1796,7 @@ interface CaptureCleanupRecord {
   tmpIno: number;
   paths: string[];
   beforeDelete: (() => void) | null;
+  forcePathDeletion: boolean;
 }
 
 function rememberCaptureTemporary(
@@ -1826,18 +1828,68 @@ function rememberCaptureTemporary(
   record.paths.push(createdPath);
 }
 
+function openCaptureTemporaryDirectory(tmpRoot: string): number | null {
+  const flags = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
+  try {
+    return fs.openSync(tmpRoot, flags | fs.constants.O_DIRECTORY);
+  } catch {
+    try {
+      return fs.openSync(tmpRoot, flags);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function directoryStillAtPath(directory: number, tmpRoot: string): boolean {
+  try {
+    const stats = fs.lstatSync(tmpRoot);
+    const viaDescriptor = fs.fstatSync(directory);
+    return (
+      !stats.isSymbolicLink() &&
+      stats.isDirectory() &&
+      stats.dev === viaDescriptor.dev &&
+      stats.ino === viaDescriptor.ino
+    );
+  } catch {
+    return false;
+  }
+}
+
+function captureTemporaryDeletionRoot(
+  directory: number,
+  tmpRoot: string,
+  forcePathDeletion: boolean,
+): string | null {
+  if (!forcePathDeletion) {
+    const magic = `/proc/self/fd/${directory}`;
+    try {
+      const linkStats = fs.lstatSync(magic);
+      if (linkStats.isSymbolicLink()) {
+        const followed = fs.statSync(magic);
+        const viaDescriptor = fs.fstatSync(directory);
+        if (
+          followed.dev === viaDescriptor.dev &&
+          followed.ino === viaDescriptor.ino
+        ) {
+          return magic;
+        }
+      }
+    } catch {
+      // Platforms without this magic link use the checked path below.
+    }
+  }
+
+  return directoryStillAtPath(directory, tmpRoot) ? tmpRoot : null;
+}
+
 function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
   if (record.tmpRoot === null) {
     return;
   }
 
-  let directory: number;
-  try {
-    directory = fs.openSync(
-      record.tmpRoot,
-      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY,
-    );
-  } catch {
+  const directory = openCaptureTemporaryDirectory(record.tmpRoot);
+  if (directory === null) {
     return;
   }
 
@@ -1851,22 +1903,24 @@ function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
       return;
     }
 
-    const deletionRoot = `/proc/self/fd/${directory}`;
-    let deletionRootStats: ReturnType<typeof fs.lstatSync>;
-    try {
-      deletionRootStats = fs.lstatSync(deletionRoot);
-    } catch {
-      return;
-    }
-    if (!deletionRootStats.isSymbolicLink()) {
+    const deletionRoot = captureTemporaryDeletionRoot(
+      directory,
+      record.tmpRoot,
+      record.forcePathDeletion,
+    );
+    if (deletionRoot === null) {
       return;
     }
 
+    const descriptorRelative = deletionRoot !== record.tmpRoot;
     record.beforeDelete?.();
 
     for (const target of record.paths) {
       if (path.dirname(target) !== record.tmpRoot) {
         continue;
+      }
+      if (!descriptorRelative && !directoryStillAtPath(directory, record.tmpRoot)) {
+        return;
       }
 
       const childName = target.slice(record.tmpRoot.length + path.sep.length);
@@ -1929,6 +1983,7 @@ export function captureStagedSnapshot(
     tmpIno: 0,
     paths: [],
     beforeDelete: options?.test_hooks?.before_capture_temporary_removal ?? null,
+    forcePathDeletion: options?.test_hooks?.force_path_temporary_removal === true,
   };
   const unbindCaptureInterruptCleanup = bindCaptureInterruptCleanup(cleanup);
 

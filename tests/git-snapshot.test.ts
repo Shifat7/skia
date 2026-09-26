@@ -369,6 +369,57 @@ test("git snapshot cleanup stays on the checked temporary directory after it is 
   assert.strictEqual(fs.existsSync(path.join(displaced, copiedName)), false);
 });
 
+test("git snapshot path cleanup removes temporaries when the directory is unchanged", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_004;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
+
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      force_path_temporary_removal: true,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(copiedIndexPath), false);
+});
+
+test("git snapshot path cleanup stops when the temporary directory is replaced", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_005;
+  const copiedName = `copied-index-${process.pid}-${stamp}-1.bin`;
+  const victimRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-victim-path-"));
+  const victimFile = path.join(victimRoot, copiedName);
+  fs.writeFileSync(victimFile, "keep\n");
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      force_path_temporary_removal: true,
+      before_capture_temporary_removal: () => {
+        fs.renameSync(tmpRoot, `${tmpRoot}.real`);
+        fs.symlinkSync(victimRoot, tmpRoot);
+      },
+    },
+  });
+
+  assert.strictEqual(fs.readFileSync(victimFile, "utf8"), "keep\n");
+});
+
 test("git snapshot rejects a copied index that changes before capture is accepted", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
