@@ -6,19 +6,25 @@ import path from "node:path";
 import process from "node:process";
 
 import { resolveLanguageRegistration } from "./languages/registry.js";
+import { nextStagedReceiptTemporarySuffix } from "./receipt-temporary.js";
 import {
+  ARTIFACTS_DIRECTORY_NAME,
   DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
   DEFAULT_GIT_TIMEOUT_MS,
   MAX_GIT_CAPTURED_BLOB_BYTES,
   MAX_GIT_CAPTURED_BLOB_COUNT,
   MAX_GIT_INDEX_BYTES,
+  MAX_RUN_ID_COLLISION_SUFFIX,
   OWNER_DIRECTORY_MODE,
   OWNER_FILE_MODE,
+  RECEIPTS_DIRECTORY_NAME,
+  RUN_ID_CLAIMS_DIRECTORY_NAME,
   SKIA_DIRECTORY_NAME,
   TMP_DIRECTORY_NAME,
 } from "./limits.js";
 import {
   escapePathForDisplay,
+  formatRunIdAtUtc,
   validateRelativePath,
 } from "./paths.js";
 import type {
@@ -47,13 +53,17 @@ type GitObjectFormat = keyof typeof EMPTY_TREE_OIDS;
 
 export interface GitSnapshotTestHooks {
   readonly after_copied_index_created?: () => void;
+  readonly before_capture_temporary_removal?: () => void;
   readonly before_live_index_revalidation?: () => void;
+  readonly force_path_temporary_removal?: boolean;
+  readonly force_unavailable_descriptor_cleanup?: boolean;
 }
 
 export interface CaptureGitSnapshotOptions {
   readonly git_executable?: string;
   readonly output_limit_bytes?: number;
   readonly process_env?: Readonly<Record<string, string | undefined>>;
+  readonly temporary_stamp?: number;
   readonly test_hooks?: GitSnapshotTestHooks;
   readonly timeout_ms?: number;
 }
@@ -144,6 +154,7 @@ function ensureGitTempRoot(repositoryRoot: string): string {
 
 function createNewProtectedFile(filePath: string, bytes: Uint8Array): void {
   const fileDescriptor = fs.openSync(filePath, "wx", OWNER_FILE_MODE);
+  let published = false;
 
   try {
     let offset = 0;
@@ -159,8 +170,18 @@ function createNewProtectedFile(filePath: string, bytes: Uint8Array): void {
     }
 
     fs.fsyncSync(fileDescriptor);
-  } finally {
     fs.closeSync(fileDescriptor);
+    published = true;
+  } catch (error) {
+    if (!published) {
+      try {
+        fs.closeSync(fileDescriptor);
+      } catch {
+        // The descriptor may already be closed.
+      }
+      fs.rmSync(filePath, { force: true });
+    }
+    throw error;
   }
 }
 
@@ -370,12 +391,343 @@ function buildGitEnvironment(
   return merged;
 }
 
+function gitCandidateNames(
+  requested: string,
+  processEnv: Readonly<Record<string, string | undefined>>,
+): readonly string[] {
+  if (process.platform !== "win32") {
+    return [requested];
+  }
+
+  const extensions = (processEnv.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
+    .split(";")
+    .filter((extension) => extension.length > 0);
+  const hasExtension = extensions.some((extension) =>
+    requested.toLowerCase().endsWith(extension.toLowerCase()),
+  );
+
+  return hasExtension
+    ? [requested]
+    : [requested, ...extensions.map((extension) => `${requested}${extension}`)];
+}
+
+function pathIsInsideRoot(root: string, candidate: string): boolean {
+  let realRoot: string;
+  try {
+    realRoot = fs.realpathSync(root);
+  } catch {
+    return true;
+  }
+
+  let resolved = candidate;
+  try {
+    resolved = fs.realpathSync(candidate);
+  } catch {
+    resolved = path.resolve(candidate);
+  }
+
+  const relative = path.relative(realRoot, resolved);
+  if (relative === "" || path.isAbsolute(relative)) {
+    return relative === "";
+  }
+
+  return !relative.split(path.sep).includes("..");
+}
+
+function resolvedPathInsideRepository(
+  candidate: string,
+  roots: readonly string[],
+): boolean {
+  return roots.some((root) => pathIsInsideRoot(root, candidate));
+}
+
+function gitCandidateOutsideRepository(
+  candidate: string,
+  roots: readonly string[],
+): string | null {
+  if (resolvedPathInsideRepository(candidate, roots)) {
+    return null;
+  }
+
+  try {
+    const stats = fs.statSync(candidate);
+    if (!stats.isFile()) {
+      return null;
+    }
+    if (process.platform !== "win32" && (stats.mode & 0o111) === 0) {
+      return null;
+    }
+
+    return fs.realpathSync(candidate);
+  } catch {
+    return null;
+  }
+}
+
+function resolveTrustedGitExecutable(
+  requested: string,
+  processEnv: Readonly<Record<string, string | undefined>>,
+  roots: readonly string[],
+): string {
+  if (path.isAbsolute(requested)) {
+    if (resolvedPathInsideRepository(requested, roots)) {
+      throw new GitSnapshotError(
+        "git_process_failed",
+        "git executable must resolve outside the repository",
+      );
+    }
+
+    return gitCandidateOutsideRepository(requested, roots) ?? requested;
+  }
+
+  if (requested.includes("/") || requested.includes("\\")) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git executable must be resolved from an absolute PATH entry",
+    );
+  }
+
+  const resolved = resolveTrustedPathExecutable(requested, processEnv, roots);
+  if (resolved === null) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git executable was not found on an absolute PATH entry",
+    );
+  }
+
+  return resolved;
+}
+
+function resolveTrustedPathExecutable(
+  requested: string,
+  processEnv: Readonly<Record<string, string | undefined>>,
+  roots: readonly string[],
+): string | null {
+  if (path.isAbsolute(requested) || requested.includes("/") || requested.includes("\\")) {
+    return null;
+  }
+
+  const pathValue = processEnv.PATH ?? process.env.PATH ?? "";
+  for (const entry of pathValue.split(path.delimiter)) {
+    if (entry.length === 0 || !path.isAbsolute(entry)) {
+      continue;
+    }
+
+    for (const name of gitCandidateNames(requested, processEnv)) {
+      const accepted = gitCandidateOutsideRepository(
+        path.join(entry, name),
+        roots,
+      );
+      if (accepted !== null) {
+        return accepted;
+      }
+    }
+  }
+
+  return null;
+}
+
+function readSmallRegularFile(filePath: string, limit: number): string | null {
+  let descriptor: number;
+  try {
+    descriptor = fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+  } catch {
+    return null;
+  }
+
+  try {
+    const stats = fs.fstatSync(descriptor);
+    if (!stats.isFile() || stats.size > limit) {
+      return null;
+    }
+
+    const bytes = Buffer.alloc(stats.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = fs.readSync(descriptor, bytes, offset, bytes.length - offset, null);
+      if (read === 0) {
+        break;
+      }
+      offset += read;
+    }
+
+    return Buffer.from(bytes.subarray(0, offset)).toString("utf8");
+  } catch {
+    return null;
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function mainCheckoutForGitMarker(markerPath: string, containingDirectory: string): string | null {
+  let stats: ReturnType<typeof fs.lstatSync>;
+  try {
+    stats = fs.lstatSync(markerPath);
+  } catch {
+    return null;
+  }
+
+  if (stats.isSymbolicLink()) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git directory marker cannot be resolved",
+    );
+  }
+
+  if (stats.isDirectory()) {
+    return directoryMarkerCheckout(markerPath);
+  }
+
+  if (!stats.isFile()) {
+    return null;
+  }
+
+  const marker = readSmallRegularFile(markerPath, 4_096);
+  const gitDirMatch = marker?.match(/^gitdir: ([^\r\n]+)\s*$/m);
+  const gitDirText = gitDirMatch?.[1];
+  if (marker === null || gitDirText === undefined) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git directory marker cannot be resolved",
+    );
+  }
+
+  const lexicalGitDir = path.resolve(containingDirectory, gitDirText);
+  let gitDir: string;
+  try {
+    gitDir = fs.realpathSync(lexicalGitDir);
+  } catch {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git directory marker cannot be resolved",
+    );
+  }
+
+  const commonText = readSmallRegularFile(path.join(gitDir, "commondir"), 4_096)?.trim();
+  if (commonText === undefined || commonText.length === 0) {
+    const submoduleParent = submoduleParentCheckout(gitDir);
+    if (submoduleParent !== null) {
+      return submoduleParent;
+    }
+
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git directory marker cannot be resolved",
+    );
+  }
+
+  const commonDir = path.resolve(gitDir, commonText);
+  const mainCheckout = path.dirname(commonDir);
+  if (path.join(mainCheckout, ".git") === commonDir) {
+    return mainCheckout;
+  }
+
+  throw new GitSnapshotError(
+    "git_process_failed",
+    "separate git directory is outside the trusted checkout layout",
+  );
+}
+
+function directoryMarkerCheckout(gitDir: string): string | null {
+  const commonText = readSmallRegularFile(path.join(gitDir, "commondir"), 4_096)?.trim();
+  if (commonText === undefined || commonText.length === 0) {
+    return null;
+  }
+
+  const commonDir = path.resolve(gitDir, commonText);
+  let resolved: string;
+  try {
+    resolved = fs.realpathSync(commonDir);
+  } catch {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git directory marker cannot be resolved",
+    );
+  }
+
+  const mainCheckout = path.dirname(resolved);
+  if (path.join(mainCheckout, ".git") === resolved) {
+    return mainCheckout;
+  }
+
+  throw new GitSnapshotError(
+    "git_process_failed",
+    "separate git directory is outside the trusted checkout layout",
+  );
+}
+
+function submoduleParentCheckout(gitDir: string): string | null {
+  let resolved = gitDir;
+  try {
+    resolved = fs.realpathSync(gitDir);
+  } catch {
+    return null;
+  }
+
+  const parts = resolved.split(path.sep);
+  const gitIndex = parts.lastIndexOf(".git");
+  if (gitIndex < 1 || parts[gitIndex + 1] !== "modules") {
+    return null;
+  }
+
+  const parent = parts.slice(0, gitIndex).join(path.sep);
+  const modulesRoot = path.join(parent, ".git", "modules");
+  return resolved === modulesRoot || resolved.startsWith(`${modulesRoot}${path.sep}`)
+    ? parent
+    : null;
+}
+
+function enclosingTrustRoots(start: string): readonly string[] {
+  let current = path.resolve(start);
+  try {
+    current = fs.realpathSync(current);
+  } catch {
+    current = path.resolve(start);
+  }
+
+  const fallback = current;
+  const roots = new Set<string>();
+  let outermost: string | null = null;
+  while (true) {
+    const markerPath = path.join(current, ".git");
+    let markerPresent = false;
+    try {
+      fs.lstatSync(markerPath);
+      markerPresent = true;
+    } catch {
+      // A nested marker must not hide a worktree farther up.
+    }
+
+    if (markerPresent) {
+      outermost = current;
+      const mainCheckout = mainCheckoutForGitMarker(markerPath, current);
+      if (mainCheckout !== null) {
+        roots.add(mainCheckout);
+      }
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      roots.add(outermost ?? fallback);
+      return [...roots];
+    }
+    current = parent;
+  }
+}
+
 function gitCommandOptions(
   repositoryRoot: string,
   options?: CaptureGitSnapshotOptions,
 ): GitCommandOptions {
   return {
-    gitExecutable: options?.git_executable ?? "git",
+    gitExecutable: resolveTrustedGitExecutable(
+      options?.git_executable ?? "git",
+      options?.process_env ?? process.env,
+      enclosingTrustRoots(repositoryRoot),
+    ),
     outputLimitBytes:
       options?.output_limit_bytes ?? DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
     processEnv: options?.process_env ?? process.env,
@@ -398,7 +750,156 @@ function resolveGitRepositoryRoot(
     throw new GitSnapshotError("git_process_failed", "git returned an empty repository root");
   }
 
-  return path.resolve(requestedRoot, discoveredRoot);
+  const resolvedRoot = path.resolve(requestedRoot, discoveredRoot);
+  if (!resolvedPathInsideRepository(resolvedRoot, enclosingTrustRoots(requestedRoot))) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git worktree is outside the trusted checkout",
+    );
+  }
+
+  return resolvedRoot;
+}
+
+export function requireIgnoredSkiaOutputRoot(
+  repositoryRoot: string,
+  createdAt: Date,
+  sessionId: string,
+  temporaryStamp: number,
+  options?: CaptureGitSnapshotOptions,
+): string {
+  const resolvedRoot = resolveGitRepositoryRoot(repositoryRoot, options);
+  const commandOptions = gitCommandOptions(resolvedRoot, options);
+  const probes = stagedOutputProbePaths(
+    formatRunIdAtUtc(createdAt),
+    sessionId,
+    temporaryStamp,
+  );
+  assertIgnoredRepositoryPaths(resolvedRoot, commandOptions, probes);
+  return resolvedRoot;
+}
+
+export function assertStagedPersistencePathsIgnored(
+  repositoryRoot: string,
+  runId: string,
+  sessionId: string,
+): void {
+  const resolvedRoot = resolveGitRepositoryRoot(repositoryRoot);
+  const commandOptions = gitCommandOptions(resolvedRoot);
+  assertIgnoredRepositoryPaths(
+    resolvedRoot,
+    commandOptions,
+    stagedPersistenceProbePaths(runId, sessionId),
+  );
+}
+
+function assertIgnoredRepositoryPaths(
+  resolvedRoot: string,
+  commandOptions: GitCommandOptions,
+  probes: readonly string[],
+): void {
+  const result = spawnSync(
+    commandOptions.gitExecutable,
+    [
+      "-c",
+      "core.fsmonitor=false",
+      "check-ignore",
+      "--",
+      ...probes,
+    ],
+    optionsWithOptionalEnv({
+      cwd: resolvedRoot,
+      env: buildGitEnvironment(commandOptions.processEnv),
+      maxBuffer: commandOptions.outputLimitBytes,
+      shell: false,
+      timeout: commandOptions.timeoutMs,
+    }),
+  );
+
+  if (result.error !== undefined) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      gitSpawnFailureDetail(result.stderr, result.error),
+    );
+  }
+
+  if (result.status !== 0 && result.status !== 1) {
+    throw new GitSnapshotError(
+      mapGitFailureReason(
+        asBuffer(result.stderr as Uint8Array),
+        "git_process_failed",
+      ),
+      escapeDiagnosticBytes(asBuffer(result.stderr as Uint8Array)),
+    );
+  }
+
+  const ignored = new Set(
+    bytesToUtf8(asBuffer(result.stdout as Uint8Array))
+      .split("\n")
+      .filter((line) => line.length > 0),
+  );
+  const exposed = probes.find((probe) => !ignored.has(probe));
+
+  if (exposed !== undefined) {
+    throw new GitSnapshotError(
+      "output_root_not_ignored",
+      `${exposed} is not ignored; add .skia/ to the repository .gitignore before running skia review`,
+    );
+  }
+}
+
+function pad2(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
+function stagedOutputProbePaths(
+  runBase: string,
+  sessionId: string,
+  temporaryStamp: number,
+): readonly string[] {
+  const runIds = [
+    runBase,
+    ...Array.from(
+      { length: MAX_RUN_ID_COLLISION_SUFFIX },
+      (_, index) => `${runBase}-${pad2(index + 1)}`,
+    ),
+  ];
+
+  return [
+    ...[1, 2, 3].map((attempt) =>
+      [
+        SKIA_DIRECTORY_NAME,
+        TMP_DIRECTORY_NAME,
+        `copied-index-${process.pid}-${temporaryStamp}-${attempt}.bin`,
+      ].join("/"),
+    ),
+    `${SKIA_DIRECTORY_NAME}/${TMP_DIRECTORY_NAME}`,
+    `${SKIA_DIRECTORY_NAME}/${TMP_DIRECTORY_NAME}/attribute-worktree-${process.pid}-1-probe`,
+    ...runIds.flatMap((runId) => {
+      const receiptName = `${runId}-${sessionId}-session.json`;
+
+      return [
+        `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`,
+        `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${runId}-${sessionId}-behavior_cards.json`,
+        `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/${receiptName}`,
+        `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/.${receiptName}.tmp-${nextStagedReceiptTemporarySuffix()}`,
+      ];
+    }),
+  ];
+}
+
+function stagedPersistenceProbePaths(
+  runId: string,
+  sessionId: string,
+): readonly string[] {
+  const receiptName = `${runId}-${sessionId}-session.json`;
+
+  return [
+    `${SKIA_DIRECTORY_NAME}/${RUN_ID_CLAIMS_DIRECTORY_NAME}/${runId}.json`,
+    `${SKIA_DIRECTORY_NAME}/${ARTIFACTS_DIRECTORY_NAME}/${runId}-${sessionId}-behavior_cards.json`,
+    `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/${receiptName}`,
+    `${SKIA_DIRECTORY_NAME}/${RECEIPTS_DIRECTORY_NAME}/.${receiptName}.tmp-${nextStagedReceiptTemporarySuffix()}`,
+  ];
 }
 
 function parseBranchState(commandOptions: GitCommandOptions): SnapshotCheckout {
@@ -558,25 +1059,58 @@ function absoluteGitDirectory(commandOptions: GitCommandOptions): string {
   );
 }
 
+function filesystemErrorCode(error: unknown): string | null {
+  return error instanceof Error && "code" in error && typeof error.code === "string"
+    ? error.code
+    : null;
+}
+
 function readLiveIndexBytes(indexPath: string): Uint8Array {
-  if (!fs.existsSync(indexPath)) {
-    return Buffer.alloc(0);
-  }
-
-  const stats = fs.lstatSync(indexPath);
-
-  if (stats.isSymbolicLink() || !stats.isFile()) {
+  let descriptor: number;
+  try {
+    descriptor = fs.openSync(
+      indexPath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+  } catch (error) {
+    if (filesystemErrorCode(error) === "ENOENT") {
+      return Buffer.alloc(0);
+    }
     throw new GitSnapshotError("git_process_failed", "Git index must be a regular file");
   }
 
-  if (stats.size > MAX_GIT_INDEX_BYTES) {
-    throw new GitSnapshotError(
-      "git_index_limit_exceeded",
-      `Git index is ${stats.size} bytes; limit is ${MAX_GIT_INDEX_BYTES} bytes`,
-    );
-  }
+  try {
+    const stats = fs.fstatSync(descriptor);
+    if (!stats.isFile()) {
+      throw new GitSnapshotError("git_process_failed", "Git index must be a regular file");
+    }
+    if (stats.size > MAX_GIT_INDEX_BYTES) {
+      throw new GitSnapshotError(
+        "git_index_limit_exceeded",
+        `Git index is ${stats.size} bytes; limit is ${MAX_GIT_INDEX_BYTES} bytes`,
+      );
+    }
 
-  return fs.readFileSync(indexPath);
+    const bytes = Buffer.alloc(stats.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = fs.readSync(
+        descriptor,
+        bytes,
+        offset,
+        bytes.length - offset,
+        null,
+      );
+      if (read === 0) {
+        break;
+      }
+      offset += read;
+    }
+
+    return offset === bytes.length ? bytes : bytes.subarray(0, offset);
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 function liveIndexExists(indexPath: string): boolean {
@@ -586,10 +1120,11 @@ function liveIndexExists(indexPath: string): boolean {
 function tempIndexFilePath(
   tmpRoot: string,
   attemptNumber: number,
+  temporaryStamp: number,
 ): string {
   return path.join(
     tmpRoot,
-    `copied-index-${process.pid}-${Date.now()}-${attemptNumber}.bin`,
+    `copied-index-${process.pid}-${temporaryStamp}-${attemptNumber}.bin`,
   );
 }
 
@@ -682,6 +1217,166 @@ function detectLanguage(pathBytes: Uint8Array): SourceLanguage | null {
 
   const relativePath = validateRelativePath(bytesToUtf8(pathBytes));
   return resolveLanguageRegistration(relativePath)?.language ?? null;
+}
+
+function recordPath(bytes: Uint8Array | null): string | null {
+  if (bytes === null || !roundTripsUtf8(bytes)) {
+    return null;
+  }
+
+  try {
+    return bytesToUtf8(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function concatPatchBytes(parts: readonly Uint8Array[]): Uint8Array {
+  const present = parts.filter((part) => part.byteLength > 0);
+  if (present.length === 1) {
+    return present[0] ?? Buffer.alloc(0);
+  }
+
+  const chunks: Uint8Array[] = [];
+  for (const part of present) {
+    const previous = chunks[chunks.length - 1];
+    if (previous !== undefined && previous[previous.length - 1] !== 0x0a) {
+      chunks.push(Buffer.from("\n"));
+    }
+    chunks.push(part);
+  }
+
+  return Buffer.concat(chunks);
+}
+
+function blobContainsNul(
+  commandOptions: GitCommandOptions,
+  oid: GitObjectId | null,
+): boolean {
+  if (oid === null) {
+    return false;
+  }
+
+  return runGit(["cat-file", "blob", oid], commandOptions).stdout.includes(0);
+}
+
+function cachedAttribute(
+  commandOptions: GitCommandOptions,
+  extraEnv: Readonly<Record<string, string | undefined>>,
+  relativePath: string,
+  attribute: "diff" | "text",
+): string | null {
+  const fields: string[] = [];
+  const stdout = runGit(
+    ["check-attr", "-z", "--cached", attribute, "--", relativePath],
+    commandOptions,
+    extraEnv,
+  ).stdout;
+  let start = 0;
+  for (let index = 0; index <= stdout.length; index += 1) {
+    if (index < stdout.length && stdout[index] !== 0) {
+      continue;
+    }
+    fields.push(bytesToUtf8(stdout.subarray(start, index)));
+    start = index + 1;
+  }
+
+  const [reportedPath, reportedAttribute, reportedValue] = fields;
+  return reportedPath === relativePath && reportedAttribute === attribute
+    ? reportedValue ?? null
+    : null;
+}
+
+function patchSectionHasHunk(patch: Uint8Array, relativePath: string): boolean {
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(patch);
+  const header = `diff --git a/${relativePath} b/${relativePath}`;
+  const start = text.indexOf(header);
+  if (start < 0) {
+    return false;
+  }
+
+  const next = text.indexOf("\ndiff --git ", start + header.length);
+  const section = next < 0 ? text.slice(start) : text.slice(start, next);
+  return section.includes("\n@@");
+}
+
+function stagedPatchBytes(
+  commandOptions: GitCommandOptions,
+  extraEnv: Readonly<Record<string, string | undefined>>,
+  comparisonBase: string,
+  rawRecords: readonly GitRawSnapshotRecord[],
+): Uint8Array {
+  const binaryArgv = [
+    "-c",
+    "diff.suppressBlankEmpty=false",
+    "diff-index",
+    "--cached",
+    "--ignore-submodules=none",
+    "-p",
+    "--binary",
+    "--full-index",
+    "--no-ext-diff",
+    "--no-textconv",
+    "-M",
+    "-C",
+    "--find-copies-harder",
+    comparisonBase,
+  ];
+  const binaryPatch = runGit(binaryArgv, commandOptions, extraEnv).stdout;
+  const textPaths: string[] = [];
+
+  for (const record of rawRecords) {
+    if (!isSupportedRecord(record)) {
+      continue;
+    }
+
+    const relativePath = recordPath(record.path_bytes);
+    if (relativePath === null || patchSectionHasHunk(binaryPatch, relativePath)) {
+      continue;
+    }
+
+    const diffAttribute = cachedAttribute(
+      commandOptions,
+      extraEnv,
+      relativePath,
+      "diff",
+    );
+    if (diffAttribute === "unset") {
+      continue;
+    }
+
+    textPaths.push(relativePath);
+  }
+
+  if (textPaths.length === 0) {
+    return binaryPatch;
+  }
+
+  return concatPatchBytes([
+    binaryPatch,
+    runGit(
+      [
+        "-c",
+        "diff.suppressBlankEmpty=false",
+        "diff-index",
+        "--cached",
+        "--ignore-submodules=none",
+        "-p",
+        "--text",
+        "--full-index",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-M",
+        "-C",
+        "--find-copies-harder",
+        comparisonBase,
+        "--",
+        ...textPaths,
+      ],
+      commandOptions,
+      extraEnv,
+    ).stdout,
+  ]);
 }
 
 function isSupportedRecord(record: GitRawSnapshotRecord): boolean {
@@ -904,6 +1599,43 @@ function uniqueBlobOids(records: readonly GitRawSnapshotRecord[]): readonly GitO
   return ordered;
 }
 
+export function readRepositoryBlob(
+  repositoryRoot: string,
+  oid: GitObjectId,
+): Uint8Array {
+  if (!GIT_OBJECT_ID_PATTERN.test(oid)) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "Git blob identity is not a Git object id",
+    );
+  }
+
+  const bytes = runGit(
+    ["cat-file", "blob", oid],
+    gitCommandOptions(path.resolve(repositoryRoot)),
+  ).stdout;
+  if (!gitBlobBytesMatchOid(oid, bytes)) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "Git blob bytes do not match the object id",
+    );
+  }
+
+  return bytes;
+}
+
+function gitBlobBytesMatchOid(oid: string, bytes: Uint8Array): boolean {
+  const algorithm = oid.length === 40 ? "sha1" : oid.length === 64 ? "sha256" : null;
+  if (algorithm === null) {
+    return false;
+  }
+
+  return createHash(algorithm)
+    .update(`blob ${bytes.byteLength}\0`)
+    .update(bytes)
+    .digest("hex") === oid;
+}
+
 function readCapturedBlobs(
   commandOptions: GitCommandOptions,
   blobOids: readonly GitObjectId[],
@@ -920,6 +1652,12 @@ function readCapturedBlobs(
 
   for (const oid of blobOids) {
     const bytes = runGit(["cat-file", "blob", oid], commandOptions).stdout;
+    if (!gitBlobBytesMatchOid(oid, bytes)) {
+      throw new GitSnapshotError(
+        "git_process_failed",
+        "Git blob bytes do not match the object id",
+      );
+    }
 
     if (bytes.byteLength > MAX_GIT_CAPTURED_BLOB_BYTES - totalBytes) {
       throw new GitSnapshotError(
@@ -954,6 +1692,7 @@ function uniqueObjectIds(values: readonly GitObjectId[]): readonly GitObjectId[]
 function captureStagedAttempt(
   repositoryRoot: string,
   attemptNumber: number,
+  cleanup: CaptureCleanupRecord,
   options?: CaptureGitSnapshotOptions,
 ): StagedSnapshotCapture | null {
   const commandOptions = gitCommandOptions(repositoryRoot, options);
@@ -965,63 +1704,78 @@ function captureStagedAttempt(
   const gitDirectory = absoluteGitDirectory(commandOptions);
   const indexWasPresent = liveIndexExists(indexPath);
   const liveIndexBytes = readLiveIndexBytes(indexPath);
-  const copiedIndexSha256 = sha256Hex(liveIndexBytes);
-  const copiedIndexPath = indexWasPresent
-    ? tempIndexFilePath(tmpRoot, attemptNumber)
-    : null;
-  const attributeWorkTree = createTemporaryAttributeWorkTree(tmpRoot, attemptNumber);
-
-  if (copiedIndexPath !== null) {
-    createNewProtectedFile(copiedIndexPath, liveIndexBytes);
-  }
+  const copiedIndexPath = tempIndexFilePath(
+    tmpRoot,
+    attemptNumber,
+    options?.temporary_stamp ?? Date.now(),
+  );
+  let attributeWorkTree: string | null = null;
+  const originalLiveIndexSha256 = sha256Hex(liveIndexBytes);
+  let copiedIndexSha256 = originalLiveIndexSha256;
+  let copiedIndexDescriptor: number | null = null;
 
   try {
+    attributeWorkTree = createTemporaryAttributeWorkTree(tmpRoot, attemptNumber);
+    rememberCaptureTemporary(cleanup, tmpRoot, attributeWorkTree);
+
+    if (indexWasPresent) {
+      createNewProtectedFile(copiedIndexPath, liveIndexBytes);
+    } else {
+      runGit(
+        ["read-tree", "--empty"],
+        commandOptions,
+        {
+          GIT_DIR: gitDirectory,
+          GIT_INDEX_FILE: copiedIndexPath,
+        },
+      );
+      copiedIndexSha256 = sha256Hex(readLiveIndexBytes(copiedIndexPath));
+    }
+    rememberCaptureTemporary(cleanup, tmpRoot, copiedIndexPath);
+    copiedIndexDescriptor = fs.openSync(
+      copiedIndexPath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+    const boundIndex = processDescriptorPath(copiedIndexDescriptor);
+    if (boundIndex === null) {
+      throw new GitSnapshotError(
+        "git_process_failed",
+        "Git index snapshot cannot be bound to its file",
+      );
+    }
+
     options?.test_hooks?.after_copied_index_created?.();
 
     const comparisonBase =
       headState.baseState === "present"
         ? assertValidGitObjectId(headState.baseCommit, "staged base commit")
         : (EMPTY_TREE_OIDS[objectFormat] as GitObjectId);
-    const copiedIndexEnv = copiedIndexPath === null
-      ? {
-          GIT_DIR: gitDirectory,
-          GIT_WORK_TREE: attributeWorkTree,
-        }
-      : {
-          GIT_DIR: gitDirectory,
-          GIT_INDEX_FILE: copiedIndexPath,
-          GIT_WORK_TREE: attributeWorkTree,
-        };
+    const copiedIndexEnv = {
+      GIT_DIR: gitDirectory,
+      GIT_INDEX_FILE: boundIndex,
+      GIT_WORK_TREE: attributeWorkTree,
+    };
     const statusEntries = parseStatusEntries(
       runGit(
-        ["diff-index", "--cached", "--name-status", "-z", "-M", comparisonBase],
+        ["diff-index", "--cached", "--ignore-submodules=none", "--name-status", "-z", "-M", "-C", "--find-copies-harder", comparisonBase],
         commandOptions,
         copiedIndexEnv,
       ).stdout,
     );
     const rawRecords = parseRawRecords(
       runGit(
-        ["diff-index", "--cached", "--raw", "-z", "-M", "--full-index", comparisonBase],
+        ["diff-index", "--cached", "--ignore-submodules=none", "--raw", "-z", "-M", "-C", "--find-copies-harder", "--full-index", comparisonBase],
         commandOptions,
         copiedIndexEnv,
       ).stdout,
       objectIdLength,
     );
-    const patchBytes = runGit(
-      [
-        "diff-index",
-        "--cached",
-        "-p",
-        "--binary",
-        "--full-index",
-        "--no-ext-diff",
-        "--no-textconv",
-        "-M",
-        comparisonBase,
-      ],
+    const patchBytes = stagedPatchBytes(
       commandOptions,
       copiedIndexEnv,
-    ).stdout;
+      comparisonBase,
+      rawRecords,
+    );
     const supportedEntries = rawRecords
       .filter((record) => isSupportedRecord(record))
       .map((record) => toSnapshotEntry(record));
@@ -1032,6 +1786,11 @@ function captureStagedAttempt(
 
     options?.test_hooks?.before_live_index_revalidation?.();
 
+    const copiedBytes = readDescriptorBytes(copiedIndexDescriptor);
+    if (sha256Hex(copiedBytes) !== copiedIndexSha256) {
+      return null;
+    }
+
     const revalidatedLiveIndexBytes = readLiveIndexBytes(indexPath);
     const liveIndexSha256 = sha256Hex(revalidatedLiveIndexBytes);
     const revalidatedIndexWasPresent = liveIndexExists(indexPath);
@@ -1039,13 +1798,14 @@ function captureStagedAttempt(
 
     if (
       revalidatedIndexWasPresent !== indexWasPresent ||
-      liveIndexSha256 !== copiedIndexSha256 ||
+      liveIndexSha256 !== originalLiveIndexSha256 ||
       !sameHeadBaseState(headState, revalidatedHeadState)
     ) {
       return null;
     }
 
     return {
+      repository_root: repositoryRoot,
       checkout: headState.checkout,
       identity: {
         kind: "staged",
@@ -1063,10 +1823,10 @@ function captureStagedAttempt(
       captured_blobs: capturedBlobs,
     };
   } finally {
-    if (copiedIndexPath !== null && fs.existsSync(copiedIndexPath)) {
-      fs.rmSync(copiedIndexPath, { force: true });
+    if (copiedIndexDescriptor !== null) {
+      fs.closeSync(copiedIndexDescriptor);
     }
-    fs.rmSync(attributeWorkTree, { force: true, recursive: true });
+    removeRecordedCaptureTemporaries(cleanup);
   }
 }
 
@@ -1131,25 +1891,290 @@ function parseRepositoryEntries(
   return entries;
 }
 
+interface CaptureCleanupRecord {
+  tmpRoot: string | null;
+  tmpDev: number;
+  tmpIno: number;
+  paths: string[];
+  beforeDelete: (() => void) | null;
+  forcePathDeletion: boolean;
+  descriptorCleanupUnavailable: boolean;
+}
+
+function rememberCaptureTemporary(
+  record: CaptureCleanupRecord,
+  tmpRoot: string,
+  createdPath: string,
+): void {
+  const stats = fs.lstatSync(tmpRoot);
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "Git temporary directory must be a real directory",
+    );
+  }
+
+  if (
+    record.tmpRoot !== null &&
+    (record.tmpRoot !== tmpRoot || record.tmpDev !== stats.dev || record.tmpIno !== stats.ino)
+  ) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "Git temporary directory changed during capture",
+    );
+  }
+
+  record.tmpRoot = tmpRoot;
+  record.tmpDev = stats.dev;
+  record.tmpIno = stats.ino;
+  record.paths.push(createdPath);
+}
+
+function openCaptureTemporaryDirectory(tmpRoot: string): number | null {
+  const flags = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
+  try {
+    return fs.openSync(tmpRoot, flags | fs.constants.O_DIRECTORY);
+  } catch {
+    try {
+      return fs.openSync(tmpRoot, flags);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function processDescriptorPath(descriptor: number): string | null {
+  const magic = `/proc/${process.pid}/fd/${descriptor}`;
+  try {
+    const followed = fs.statSync(magic);
+    const viaDescriptor = fs.fstatSync(descriptor);
+    return followed.dev === viaDescriptor.dev && followed.ino === viaDescriptor.ino
+      ? magic
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function descriptorPath(descriptor: number): string | null {
+  for (const magic of [`/proc/self/fd/${descriptor}`, `/dev/fd/${descriptor}`]) {
+    try {
+      const followed = fs.statSync(magic);
+      const viaDescriptor = fs.fstatSync(descriptor);
+      if (followed.dev === viaDescriptor.dev && followed.ino === viaDescriptor.ino) {
+        return magic;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function readDescriptorBytes(descriptor: number): Uint8Array {
+  const stats = fs.fstatSync(descriptor);
+  if (!stats.isFile()) {
+    throw new GitSnapshotError("git_process_failed", "Git index must be a regular file");
+  }
+  if (stats.size > MAX_GIT_INDEX_BYTES) {
+    throw new GitSnapshotError(
+      "git_index_limit_exceeded",
+      `Git index is ${stats.size} bytes; limit is ${MAX_GIT_INDEX_BYTES} bytes`,
+    );
+  }
+
+  const bytes = Buffer.alloc(stats.size);
+  let offset = 0;
+  while (offset < bytes.length) {
+    const read = fs.readSync(descriptor, bytes, offset, bytes.length - offset, offset);
+    if (read === 0) {
+      break;
+    }
+    offset += read;
+  }
+
+  return Buffer.from(bytes.subarray(0, offset));
+}
+
+function magicDirectoryMatches(directory: number, magic: string): boolean {
+  try {
+    const linkStats = fs.lstatSync(magic);
+    if (!linkStats.isSymbolicLink() && !linkStats.isDirectory()) {
+      return false;
+    }
+
+    const followed = fs.statSync(magic);
+    const viaDescriptor = fs.fstatSync(directory);
+    return followed.isDirectory()
+      && followed.dev === viaDescriptor.dev
+      && followed.ino === viaDescriptor.ino;
+  } catch {
+    return false;
+  }
+}
+
+function captureTemporaryDeletionRoot(
+  directory: number,
+  forcePathDeletion: boolean,
+  descriptorCleanupUnavailable: boolean,
+): string | null {
+  if (descriptorCleanupUnavailable) {
+    return null;
+  }
+
+  const candidates = forcePathDeletion
+    ? [`/dev/fd/${directory}`]
+    : [`/proc/self/fd/${directory}`, `/dev/fd/${directory}`];
+  for (const magic of candidates) {
+    if (magicDirectoryMatches(directory, magic)) {
+      return magic;
+    }
+  }
+
+  return null;
+}
+
+function recordedChildNames(record: CaptureCleanupRecord): string[] {
+  if (record.tmpRoot === null) {
+    return [];
+  }
+
+  const names: string[] = [];
+  for (const target of record.paths) {
+    if (path.dirname(target) !== record.tmpRoot) {
+      continue;
+    }
+
+    const childName = target.slice(record.tmpRoot.length + path.sep.length);
+    if (
+      childName.length === 0 ||
+      childName.includes(path.sep) ||
+      childName.includes("/") ||
+      childName.includes("\\")
+    ) {
+      continue;
+    }
+
+    names.push(childName);
+  }
+
+  return names;
+}
+
+function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
+  if (record.tmpRoot === null) {
+    return;
+  }
+
+  const directory = openCaptureTemporaryDirectory(record.tmpRoot);
+  if (directory === null) {
+    return;
+  }
+
+  try {
+    const stats = fs.fstatSync(directory);
+    if (
+      !stats.isDirectory() ||
+      stats.dev !== record.tmpDev ||
+      stats.ino !== record.tmpIno
+    ) {
+      return;
+    }
+
+    const deletionRoot = captureTemporaryDeletionRoot(
+      directory,
+      record.forcePathDeletion,
+      record.descriptorCleanupUnavailable,
+    );
+    record.beforeDelete?.();
+    if (deletionRoot === null) {
+      if (recordedChildNames(record).length > 0) {
+        throw new GitSnapshotError(
+          "git_process_failed",
+          "Git temporary cleanup failed",
+        );
+      }
+      return;
+    }
+
+    const childNames = recordedChildNames(record);
+
+    for (const childName of childNames) {
+      const childPath = path.join(deletionRoot, childName);
+      try {
+        const child = fs.lstatSync(childPath);
+        if (child.isSymbolicLink()) {
+          continue;
+        }
+        fs.rmSync(childPath, { force: true, recursive: child.isDirectory() });
+      } catch {
+        // The capture temporary is already gone.
+      }
+    }
+  } finally {
+    fs.closeSync(directory);
+  }
+}
+
+function bindCaptureInterruptCleanup(record: CaptureCleanupRecord): () => void {
+  const cleanupAndExit = (exitCode: number): void => {
+    try {
+      removeRecordedCaptureTemporaries(record);
+    } catch {
+      // Exit still has to leave the interrupted capture.
+    }
+    process.exit(exitCode);
+  };
+  const onSigint = (): void => {
+    cleanupAndExit(130);
+  };
+  const onSigterm = (): void => {
+    cleanupAndExit(143);
+  };
+  process.on("SIGINT", onSigint);
+  process.on("SIGTERM", onSigterm);
+  return () => {
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
+  };
+}
+
 export function captureStagedSnapshot(
   repositoryRoot: string,
   options?: CaptureGitSnapshotOptions,
 ): StagedSnapshotCapture {
   const resolvedRepositoryRoot = resolveGitRepositoryRoot(repositoryRoot, options);
+  const cleanup: CaptureCleanupRecord = {
+    tmpRoot: null,
+    tmpDev: 0,
+    tmpIno: 0,
+    paths: [],
+    beforeDelete: options?.test_hooks?.before_capture_temporary_removal ?? null,
+    forcePathDeletion: options?.test_hooks?.force_path_temporary_removal === true,
+    descriptorCleanupUnavailable:
+      options?.test_hooks?.force_unavailable_descriptor_cleanup === true,
+  };
+  const unbindCaptureInterruptCleanup = bindCaptureInterruptCleanup(cleanup);
 
-  for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
-    const capture = captureStagedAttempt(
-      resolvedRepositoryRoot,
-      attemptNumber,
-      options,
-    );
+  try {
+    for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
+      const capture = captureStagedAttempt(
+        resolvedRepositoryRoot,
+        attemptNumber,
+        cleanup,
+        options,
+      );
 
-    if (capture !== null) {
-      return capture;
+      if (capture !== null) {
+        return capture;
+      }
     }
-  }
 
-  throw new GitSnapshotError("index_changed");
+    throw new GitSnapshotError("index_changed");
+  } finally {
+    unbindCaptureInterruptCleanup();
+  }
 }
 
 export function captureRepositorySnapshot(

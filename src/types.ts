@@ -78,6 +78,7 @@ export const STABLE_ERROR_REASONS = [
   "no_head_commit",
   "no_supported_staged_entity",
   "not_a_git_repository",
+  "output_root_not_ignored",
   "output_root_symlink",
   "parse_failed",
   "parser_initialization_failed",
@@ -169,6 +170,7 @@ export type SnapshotIdentity =
   | RepositorySnapshotIdentity;
 
 export interface StagedSnapshotCapture {
+  readonly repository_root: string;
   readonly checkout: SnapshotCheckout;
   readonly identity: StagedSnapshotIdentity;
   readonly status_entries: readonly GitStatusEntry[];
@@ -332,8 +334,64 @@ export interface StableIssue {
   readonly detail: string | null;
 }
 
+export type JsonScalar = string | number | boolean | null;
+
+export interface StagedReviewEvidence {
+  readonly id: string;
+  readonly kind: "guard";
+  readonly relation: string;
+  readonly anchors: readonly [SourceAnchor, SourceAnchor];
+  readonly derivation: "deterministic";
+  readonly coverage: "supported";
+  readonly claim_state: "observed";
+  readonly details_available: false;
+}
+
+export interface StagedReviewScenario {
+  readonly basis: "literal_guard_match";
+  readonly given: {
+    readonly parameter: string;
+    readonly value: JsonScalar;
+  };
+  readonly when: string;
+}
+
+export interface StagedReviewPrediction {
+  readonly scenario: StagedReviewScenario;
+  readonly prediction: {
+    readonly kind: "return_value";
+    readonly value: JsonScalar;
+  };
+  readonly sealed_at: string;
+}
+
+export interface StagedReviewSourceCheck {
+  readonly status: "source_derived_match" | "source_derived_mismatch";
+  readonly expected: JsonScalar;
+  readonly predicted: JsonScalar;
+}
+
+export interface StagedReviewDetails {
+  readonly card_status: "complete" | "skipped";
+  readonly session_counts: {
+    readonly prompts_presented: number;
+    readonly predictions_completed: number;
+    readonly skips: number;
+  };
+  readonly entity: {
+    readonly id: string;
+    readonly name: string;
+    readonly anchor: SourceAnchor;
+    readonly evidence: StagedReviewEvidence;
+    readonly scenario: StagedReviewScenario;
+    readonly prediction: StagedReviewPrediction | null;
+    readonly source_check: StagedReviewSourceCheck | null;
+  };
+}
+
 export interface StagedReceipt {
   readonly schema_version: 1;
+  readonly tool_version: string;
   readonly run_id: RunId;
   readonly session_id: SessionId;
   readonly status: RunState;
@@ -343,6 +401,7 @@ export interface StagedReceipt {
   readonly artifact_hashes: readonly ArtifactHashRecord[];
   readonly errors: readonly StableIssue[];
   readonly privacy_caveat: string;
+  readonly review?: StagedReviewDetails;
 }
 
 export interface RepositoryManifest {

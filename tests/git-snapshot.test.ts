@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import test from "node:test";
 
-import { MAX_GIT_CAPTURED_BLOB_BYTES } from "../src/limits.js";
+import { MAX_GIT_CAPTURED_BLOB_BYTES, TMP_DIRECTORY_NAME } from "../src/limits.js";
+import type { GitObjectId } from "../src/types.js";
 import {
   captureRepositorySnapshot,
   captureStagedSnapshot,
   GitSnapshotError,
+  readRepositoryBlob,
 } from "../src/git.js";
 import {
   asBinary,
@@ -33,6 +37,717 @@ import {
   writeRepoBinaryFile,
   writeRepoTextFile,
 } from "./git-test-helpers.js";
+
+test("git snapshot leaves a pre-existing copied index in place", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const value = 1;\n");
+  stagePaths(repositoryRoot, "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_000;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
+  fs.mkdirSync(path.dirname(copiedIndexPath), { recursive: true });
+  fs.writeFileSync(copiedIndexPath, "kept\n");
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, { temporary_stamp: stamp }),
+    /EEXIST|already exists/,
+  );
+  assert.strictEqual(fs.readFileSync(copiedIndexPath, "utf8"), "kept\n");
+});
+
+test("git snapshot does not execute a repository-local git when PATH contains dot", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const localGit = path.join(repositoryRoot, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(repositoryRoot, {
+    process_env: {
+      PATH: `.:${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot does not execute a git binary stored inside the repository", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "skia-git-"));
+  fs.symlinkSync(localGit, path.join(outside, "git"));
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, { git_executable: localGit }),
+    /outside the repository/,
+  );
+  captureStagedSnapshot(repositoryRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${outside}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot does not execute a git binary above the requested nested directory", () => {
+  const repositoryRoot = createTempGitRepository();
+  const nestedRoot = path.join(repositoryRoot, "packages", "app");
+  fs.mkdirSync(nestedRoot, { recursive: true });
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(nestedRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot does not execute a git binary reached through a symlinked root", () => {
+  const repositoryRoot = createTempGitRepository();
+  const nestedRoot = path.join(repositoryRoot, "packages", "app");
+  fs.mkdirSync(nestedRoot, { recursive: true });
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+  const linkedRoot = path.join(os.tmpdir(), `skia-linked-root-${process.pid}`);
+  fs.symlinkSync(nestedRoot, linkedRoot);
+
+  captureStagedSnapshot(linkedRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot does not stop at a nested git marker before the enclosing worktree", () => {
+  const repositoryRoot = createTempGitRepository();
+  const nestedRoot = path.join(repositoryRoot, "packages", "app");
+  fs.mkdirSync(nestedRoot, { recursive: true });
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  fs.writeFileSync(path.join(nestedRoot, ".git"), "gitdir: /tmp/not-a-repository\n");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  assert.throws(
+    () => captureStagedSnapshot(nestedRoot, {
+      process_env: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        TMPDIR: process.env.TMPDIR,
+      },
+    }),
+    /cannot be resolved/,
+  );
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot removes its copied index when interrupted during capture", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_000;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
+  const originalExit = process.exit;
+  let observedExit: number | undefined;
+  const before = process.listenerCount("SIGINT");
+  process.exit = ((code: number): never => {
+    observedExit = code;
+    throw new Error(`process exit ${code}`);
+  }) as typeof process.exit;
+
+  try {
+    captureStagedSnapshot(repositoryRoot, {
+      temporary_stamp: stamp,
+      test_hooks: {
+        after_copied_index_created: () => {
+          assert.strictEqual(fs.existsSync(copiedIndexPath), true);
+          (process as unknown as { emit(event: "SIGINT"): boolean }).emit("SIGINT");
+        },
+      },
+    });
+  } catch (error) {
+    assert.match(String(error), /process exit 130/);
+  } finally {
+    process.exit = originalExit;
+  }
+
+  assert.strictEqual(observedExit, 130);
+  assert.strictEqual(fs.existsSync(copiedIndexPath), false);
+  assert.strictEqual(process.listenerCount("SIGINT"), before);
+});
+
+test("git snapshot does not execute a git binary from the main checkout of a linked worktree", () => {
+  const repositoryRoot = createTempGitRepository();
+  const linkedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-linked-review-"));
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["worktree", "add", "-q", "-b", "linked-review", linkedRoot]);
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(linkedRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot rejects a linked worktree whose main checkout uses a separate git directory", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "skia-separate-git-"));
+  const gitDir = path.join(parent, "gitdir");
+  const repositoryRoot = path.join(parent, "main");
+  const linkedRoot = path.join(parent, "linked");
+  fs.mkdirSync(repositoryRoot);
+  runGit(repositoryRoot, ["init", "-q", `--separate-git-dir=${gitDir}`]);
+  runGit(repositoryRoot, ["config", "user.name", "skia"]);
+  runGit(repositoryRoot, ["config", "user.email", "skia@example.com"]);
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["worktree", "add", "-q", "-b", "linked-review", linkedRoot]);
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  assert.throws(
+    () => captureStagedSnapshot(linkedRoot, {
+      process_env: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        TMPDIR: process.env.TMPDIR,
+      },
+    }),
+    /separate git directory/,
+  );
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot rejects an unreadable linked-worktree git marker before running Git", () => {
+  const repositoryRoot = createTempGitRepository();
+  const linkedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-linked-marker-"));
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["worktree", "add", "-q", "-b", "linked-marker", linkedRoot]);
+  fs.writeFileSync(path.join(linkedRoot, ".git"), "not a gitdir\n");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  assert.throws(
+    () => captureStagedSnapshot(linkedRoot, {
+      process_env: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        TMPDIR: process.env.TMPDIR,
+      },
+    }),
+    /cannot be resolved/,
+  );
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot does not execute git from a checkout behind a linked-worktree gitdir symlink", () => {
+  const repositoryRoot = createTempGitRepository();
+  const linkedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-linked-gitdir-"));
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["worktree", "add", "-q", "-b", "linked-gitdir", linkedRoot]);
+  const markerText = fs.readFileSync(path.join(linkedRoot, ".git"), "utf8");
+  const realGitDir = markerText.match(/^gitdir: (.+)\s*$/m)?.[1];
+  if (realGitDir === undefined) {
+    throw new Error("linked worktree gitdir missing");
+  }
+  const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-fake-gitdir-"));
+  const fakeGitDir = path.join(fakeRoot, ".git", "worktrees", "linked");
+  fs.mkdirSync(path.dirname(fakeGitDir), { recursive: true });
+  fs.symlinkSync(realGitDir, fakeGitDir);
+  fs.writeFileSync(path.join(linkedRoot, ".git"), `gitdir: ${fakeGitDir}\n`);
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(linkedRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot does not execute git after core.worktree leaves the checkout", () => {
+  const repositoryRoot = createTempGitRepository();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "skia-outside-worktree-"));
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["config", "core.worktree", outside]);
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, {
+      process_env: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        TMPDIR: process.env.TMPDIR,
+      },
+    }),
+    /worktree is outside the trusted checkout/,
+  );
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot does not execute git from a checkout named by a directory commondir", () => {
+  const repositoryRoot = createTempGitRepository();
+  const other = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  const relativeCommon = path.relative(path.join(repositoryRoot, ".git"), path.join(other, ".git"));
+  fs.writeFileSync(path.join(repositoryRoot, ".git", "commondir"), `${relativeCommon}\n`);
+  const marker = path.join(other, "executed-local-git");
+  const bin = path.join(other, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  try {
+    captureStagedSnapshot(repositoryRoot, {
+      process_env: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        TMPDIR: process.env.TMPDIR,
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof GitSnapshotError)) {
+      throw error;
+    }
+  }
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot cleanup does not follow a replaced temporary directory", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_001;
+  const copiedName = `copied-index-${process.pid}-${stamp}-1.bin`;
+  const victimRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-victim-tmp-"));
+  const victimFile = path.join(victimRoot, copiedName);
+  fs.writeFileSync(victimFile, "keep\n");
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      after_copied_index_created: () => {
+        const displaced = `${tmpRoot}.real`;
+        fs.renameSync(tmpRoot, displaced);
+        fs.symlinkSync(victimRoot, tmpRoot);
+      },
+    },
+  });
+  assert.strictEqual(fs.readFileSync(victimFile, "utf8"), "keep\n");
+});
+
+test("git snapshot cleanup stays on the checked temporary directory after it is replaced", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_002;
+  const copiedName = `copied-index-${process.pid}-${stamp}-1.bin`;
+  const victimRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-victim-fd-"));
+  const victimFile = path.join(victimRoot, copiedName);
+  fs.writeFileSync(victimFile, "keep\n");
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+  const displaced = `${tmpRoot}.real`;
+
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      before_capture_temporary_removal: () => {
+        fs.renameSync(tmpRoot, displaced);
+        fs.symlinkSync(victimRoot, tmpRoot);
+      },
+    },
+  });
+
+  assert.strictEqual(fs.readFileSync(victimFile, "utf8"), "keep\n");
+  assert.strictEqual(fs.existsSync(path.join(displaced, copiedName)), false);
+});
+
+test("git snapshot directory cleanup removes temporaries without procfs", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_004;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
+
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      force_path_temporary_removal: true,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(copiedIndexPath), false);
+});
+
+test("git snapshot directory cleanup ignores a replaced temporary directory without procfs", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_005;
+  const copiedName = `copied-index-${process.pid}-${stamp}-1.bin`;
+  const victimRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-victim-path-"));
+  const victimFile = path.join(victimRoot, copiedName);
+  fs.writeFileSync(victimFile, "keep\n");
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      force_path_temporary_removal: true,
+      before_capture_temporary_removal: () => {
+        fs.renameSync(tmpRoot, `${tmpRoot}.real`);
+        fs.symlinkSync(victimRoot, tmpRoot);
+      },
+    },
+  });
+
+  assert.strictEqual(fs.readFileSync(victimFile, "utf8"), "keep\n");
+  assert.strictEqual(fs.existsSync(path.join(`${tmpRoot}.real`, copiedName)), false);
+});
+
+test("git snapshot directory cleanup does not execute a repository python", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_006;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
+  const marker = path.join(repositoryRoot, "executed-local-python");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  fs.writeFileSync(
+    path.join(bin, "python3"),
+    `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`,
+  );
+  fs.chmodSync(path.join(bin, "python3"), 0o755);
+
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+    test_hooks: {
+      force_path_temporary_removal: true,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+  assert.strictEqual(fs.existsSync(copiedIndexPath), false);
+});
+
+test("git snapshot directory cleanup does not require python", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_007;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
+  const marker = path.join(repositoryRoot, "executed-local-python");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  fs.writeFileSync(
+    path.join(bin, "python3"),
+    `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`,
+  );
+  fs.chmodSync(path.join(bin, "python3"), 0o755);
+
+  captureStagedSnapshot(repositoryRoot, {
+    git_executable: resolveGitExecutable(),
+    temporary_stamp: stamp,
+    process_env: {
+      PATH: bin,
+      TMPDIR: process.env.TMPDIR,
+    },
+    test_hooks: {
+      force_path_temporary_removal: true,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+  assert.strictEqual(fs.existsSync(copiedIndexPath), false);
+});
+
+test("git snapshot reports cleanup failure when descriptor paths are unavailable", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, {
+      test_hooks: {
+        force_unavailable_descriptor_cleanup: true,
+      },
+    }),
+    /Git temporary cleanup failed/,
+  );
+});
+
+test("git snapshot keeps the original copied index when its path is replaced", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    `${readGitFixture("sample.ts")}\nexport const reviewed = true;\n`,
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+  const stamp = 1_710_000_000_008;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
+
+  const snapshot = captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      after_copied_index_created: () => {
+        fs.unlinkSync(copiedIndexPath);
+        fs.writeFileSync(copiedIndexPath, Buffer.from("replaced-index"));
+      },
+    },
+  });
+
+  const paths = snapshot.raw_records.map((record) =>
+    Buffer.from(record.path_bytes).toString("utf8"),
+  );
+  assert.ok(paths.includes("src/example.ts"));
+});
+
+test("git snapshot rejects a copied index that changes before capture is accepted", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_003;
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, {
+      temporary_stamp: stamp,
+      test_hooks: {
+        before_live_index_revalidation: () => {
+          for (const name of fs.readdirSync(tmpRoot)) {
+            if (name.startsWith("copied-index-")) {
+              fs.writeFileSync(path.join(tmpRoot, name), Buffer.from("changed\n"));
+            }
+          }
+        },
+      },
+    }),
+    /index_changed/,
+  );
+});
+
+test("readRepositoryBlob rejects a loose object whose bytes do not match its name", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "blob.txt", "known\n");
+  const oid = runGit(repositoryRoot, ["hash-object", "-w", "blob.txt"]).stdout.trim();
+  const objectPath = path.join(
+    repositoryRoot,
+    ".git",
+    "objects",
+    oid.slice(0, 2),
+    oid.slice(2),
+  );
+  fs.chmodSync(objectPath, 0o644);
+  const corrupted = spawnSync("python3", [
+    "-c",
+    "import pathlib, zlib, sys; pathlib.Path(sys.argv[1]).write_bytes(zlib.compress(b'blob 4\\x00nope'))",
+    objectPath,
+  ]);
+  assert.strictEqual(
+    corrupted.status,
+    0,
+    `${corrupted.stderr?.toString() ?? ""} ${corrupted.error?.message ?? ""}`,
+  );
+
+  assert.throws(
+    () => readRepositoryBlob(repositoryRoot, oid as GitObjectId),
+    /do not match|git_process_failed/,
+  );
+});
+
+test("repository snapshot rejects a loose object whose bytes do not match its name", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, "src/example.ts");
+  commitAll(repositoryRoot, "seed");
+  const oid = runGit(repositoryRoot, ["rev-parse", "HEAD:src/example.ts"]).stdout.trim();
+  const objectPath = path.join(
+    repositoryRoot,
+    ".git",
+    "objects",
+    oid.slice(0, 2),
+    oid.slice(2),
+  );
+  fs.chmodSync(objectPath, 0o644);
+  const corrupted = spawnSync("python3", [
+    "-c",
+    "import pathlib, zlib, sys; pathlib.Path(sys.argv[1]).write_bytes(zlib.compress(b'blob 4\\x00nope'))",
+    objectPath,
+  ]);
+  assert.strictEqual(
+    corrupted.status,
+    0,
+    `${corrupted.stderr?.toString() ?? ""} ${corrupted.error?.message ?? ""}`,
+  );
+
+  assert.throws(
+    () => captureRepositorySnapshot(repositoryRoot),
+    /do not match|git_process_failed/,
+  );
+});
+
+test("git snapshot does not execute a git binary in a dot-prefixed repository directory", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "..bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(repositoryRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
 
 test("git snapshot captures explicit branch state, raw staged records, and canonical full-index patch bytes", () => {
   const repositoryRoot = createTempGitRepository();
@@ -99,6 +814,116 @@ test("git snapshot preserves an absent unborn index instead of copying a corrupt
   assert.strictEqual(fs.existsSync(liveIndexPath), false);
 });
 
+test("git snapshot ignores a live index created after an absent index was captured", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  const liveIndexPath = path.resolve(
+    repositoryRoot,
+    runGit(repositoryRoot, ["rev-parse", "--git-path", "index"]).stdout.trim(),
+  );
+  assert.strictEqual(fs.existsSync(liveIndexPath), false);
+
+  const snapshot = captureStagedSnapshot(repositoryRoot, {
+    test_hooks: {
+      after_copied_index_created: () => {
+        stagePaths(repositoryRoot, "src/example.ts");
+      },
+      before_live_index_revalidation: () => {
+        fs.rmSync(liveIndexPath, { force: true });
+      },
+    },
+  });
+
+  assert.deepStrictEqual(snapshot.identity.entries, []);
+  assert.strictEqual(fs.existsSync(liveIndexPath), false);
+});
+
+test("git snapshot keeps a submodule inside its parent checkout trust boundary", () => {
+  const parent = createTempGitRepository();
+  const child = path.join(parent, "child");
+  const gitDir = path.join(parent, ".git", "modules", "child");
+  fs.mkdirSync(path.dirname(gitDir), { recursive: true });
+  runGit(parent, ["init", "-q", `--separate-git-dir=${gitDir}`, child]);
+  writeRepoTextFile(child, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(child, "src/example.ts");
+  const marker = path.join(parent, "executed-local-git");
+  const bin = path.join(parent, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(child, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot does not execute git from a checkout behind a submodule modules symlink", () => {
+  const parent = createTempGitRepository();
+  const other = createTempGitRepository();
+  const child = path.join(parent, "child");
+  const realModules = path.join(other, ".git", "modules");
+  fs.mkdirSync(realModules, { recursive: true });
+  fs.symlinkSync(realModules, path.join(parent, ".git", "modules"));
+  const gitDir = path.join(realModules, "child");
+  runGit(parent, ["init", "-q", `--separate-git-dir=${gitDir}`, child]);
+  fs.writeFileSync(path.join(child, ".git"), "gitdir: ../.git/modules/child\n");
+  const marker = path.join(other, "executed-local-git");
+  const bin = path.join(other, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(child, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot keeps an ignored submodule gitlink in the staged records", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, "src/example.ts");
+  commitAll(repositoryRoot, "seed");
+  const commit = headCommit(repositoryRoot);
+  writeRepoTextFile(
+    repositoryRoot,
+    ".gitmodules",
+    "[submodule \"sub\"]\n\tpath = sub\n\turl = ./sub\n\tignore = all\n",
+  );
+  stagePaths(repositoryRoot, ".gitmodules");
+  runGit(repositoryRoot, [
+    "update-index",
+    "--add",
+    "--cacheinfo",
+    `160000,${commit},sub`,
+  ]);
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    `${readGitFixture("sample.ts")}\nexport const reviewed = true;\n`,
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+
+  const snapshot = captureStagedSnapshot(repositoryRoot);
+  const paths = snapshot.raw_records.map((record) =>
+    Buffer.from(record.path_bytes).toString("utf8"),
+  );
+
+  assert.ok(paths.includes("src/example.ts"));
+  assert.ok(paths.includes("sub"));
+});
+
 test("git snapshot uses the repository object format for unborn SHA-256 snapshots", () => {
   const repositoryRoot = createTempGitRepository("sha256");
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
@@ -122,7 +947,7 @@ test("staged snapshot rejects raw records with a mixed object-id format", () => 
 while [ "$1" = "-c" ]; do
   shift 2
 done
-if [ "$1" = "diff-index" ] && [ "$2" = "--cached" ] && [ "$3" = "--raw" ]; then
+if [ "$1" = "diff-index" ] && [ "$2" = "--cached" ] && [ "$3" = "--ignore-submodules=none" ] && [ "$4" = "--raw" ]; then
   "${realGit}" "$@" | perl -0pe 's/ ([0-9a-f]*[1-9a-f][0-9a-f]{39}) / " " . $1 . ("0" x 24) . " "/e'
   exit 0
 fi
@@ -399,6 +1224,36 @@ test("git snapshot rejects a base-ref move that happens after copied-index creat
   assert.strictEqual(
     snapshot.raw_records[0]?.base_blob_oid,
     runGit(repositoryRoot, ["rev-parse", `${commitTwo}:src/example.ts`]).stdout.trim(),
+  );
+});
+
+test("staged snapshot uses the supplied copied-index stamp", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "src/example.ts", "export const base = 1;\n");
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    "export const base = 1;\nexport const staged = true;\n",
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+  const stamp = 1_758_502_923_000;
+  let copiedName = "";
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      after_copied_index_created: () => {
+        copiedName = fs
+          .readdirSync(path.join(repositoryRoot, ".skia/tmp"))
+          .find((name) => name.startsWith("copied-index-")) ?? "";
+      },
+    },
+  });
+
+  assert.strictEqual(
+    copiedName,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
   );
 });
 

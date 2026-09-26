@@ -58,6 +58,8 @@ declare module "node:fs" {
     isDirectory(): boolean;
     isFile(): boolean;
     isSymbolicLink(): boolean;
+    readonly dev: number;
+    readonly ino: number;
     readonly size: number;
     readonly mode: number;
   }
@@ -65,12 +67,21 @@ declare module "node:fs" {
   export function chmodSync(path: string, mode: number): void;
   export function existsSync(path: string): boolean;
   export function lstatSync(path: string): Stats;
+  export function linkSync(existingPath: string, newPath: string): void;
   export function mkdirSync(path: string, options?: number | MakeDirectoryOptions): string | undefined;
   export function mkdtempSync(prefix: string): string;
-  export function openSync(path: string, flags: string, mode?: number): number;
+  export function openSync(path: string, flags: string | number, mode?: number): number;
   export function renameSync(oldPath: string, newPath: string): void;
   export function closeSync(fd: number): void;
+  export function fstatSync(fd: number): Stats;
   export function fsyncSync(fd: number): void;
+  export function readSync(
+    fd: number,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number | null,
+  ): number;
   export function writeSync(
     fd: number,
     data: string | Uint8Array,
@@ -93,6 +104,12 @@ declare module "node:fs" {
   export function statSync(path: string): Stats;
   export function symlinkSync(target: string, path: string): void;
   export function unlinkSync(path: string): void;
+
+  export const constants: {
+    readonly O_DIRECTORY: number;
+    readonly O_NOFOLLOW: number;
+    readonly O_RDONLY: number;
+  };
   export function writeFileSync(
     path: string,
     data: string | Uint8Array,
@@ -103,12 +120,15 @@ declare module "node:fs" {
     chmodSync: typeof chmodSync;
     existsSync: typeof existsSync;
     lstatSync: typeof lstatSync;
+    linkSync: typeof linkSync;
     mkdirSync: typeof mkdirSync;
     mkdtempSync: typeof mkdtempSync;
     openSync: typeof openSync;
     renameSync: typeof renameSync;
     closeSync: typeof closeSync;
+    fstatSync: typeof fstatSync;
     fsyncSync: typeof fsyncSync;
+    readSync: typeof readSync;
     writeSync: typeof writeSync;
     readFileSync: typeof readFileSync;
     readdirSync: typeof readdirSync;
@@ -119,6 +139,7 @@ declare module "node:fs" {
     symlinkSync: typeof symlinkSync;
     unlinkSync: typeof unlinkSync;
     writeFileSync: typeof writeFileSync;
+    constants: typeof constants;
   };
 
   export default fs;
@@ -136,16 +157,24 @@ declare module "node:path" {
     normalize(path: string): string;
   }
 
+  export function isAbsolute(path: string): boolean;
   export function join(...parts: readonly string[]): string;
   export function dirname(path: string): string;
+  export function relative(from: string, to: string): string;
   export function resolve(...parts: readonly string[]): string;
+  export const delimiter: string;
+  export const sep: string;
   export const posix: PathPlatform;
   export const win32: PathPlatform;
 
   const path: {
+    delimiter: typeof delimiter;
+    isAbsolute: typeof isAbsolute;
     join: typeof join;
     dirname: typeof dirname;
+    relative: typeof relative;
     resolve: typeof resolve;
+    sep: typeof sep;
     posix: typeof posix;
     win32: typeof win32;
   };
@@ -170,7 +199,7 @@ declare module "node:buffer" {
     static from(value: string, encoding?: "utf8"): Buffer;
     static from(value: readonly number[]): Buffer;
     static from(value: Uint8Array): Buffer;
-    toString(encoding?: "utf8"): string;
+    toString(encoding?: "utf8" | "hex"): string;
   }
 }
 
@@ -180,7 +209,8 @@ declare module "node:crypto" {
     digest(encoding: "hex"): string;
   }
 
-  export function createHash(algorithm: "sha256"): Hash;
+  export function createHash(algorithm: "sha1" | "sha256"): Hash;
+  export function randomBytes(size: number): import("node:buffer").Buffer;
 }
 
 declare module "node:util" {
@@ -190,12 +220,30 @@ declare module "node:util" {
 declare module "node:process" {
   const process: {
     cwd(): string;
+    chdir(directory: string): void;
     stdout: {
       write(value: string): void;
+    };
+    stderr: {
+      write(value: string): void;
+    };
+    stdin: {
+      on(event: "data", listener: (chunk: Uint8Array) => void): void;
+      on(event: "end", listener: () => void): void;
+      on(event: "error", listener: (error: Error) => void): void;
+      off(event: "data", listener: (chunk: Uint8Array) => void): void;
+      off(event: "end", listener: () => void): void;
+      off(event: "error", listener: (error: Error) => void): void;
+      pause(): void;
+      resume(): void;
     };
     readonly env: Readonly<Record<string, string | undefined>>;
     readonly pid: number;
     readonly platform: string;
+    on(event: "SIGINT" | "SIGTERM", listener: () => void): void;
+    off(event: "SIGINT" | "SIGTERM", listener: () => void): void;
+    listenerCount(event: "SIGINT" | "SIGTERM"): number;
+    exit(code: number): never;
   };
 
   export default process;
@@ -213,6 +261,7 @@ declare module "node:child_process" {
     readonly input?: string | Uint8Array;
     readonly maxBuffer?: number;
     readonly shell?: boolean;
+    readonly stdio?: readonly (string | number)[];
     readonly timeout?: number;
   }
 
@@ -225,6 +274,26 @@ declare module "node:child_process" {
     readonly stdout: TStdout;
     readonly stderr: TStdout;
   }
+
+  export interface SpawnedProcess {
+    stdout: {
+      on(event: "data", listener: (chunk: Uint8Array) => void): void;
+    };
+    stderr: {
+      on(event: "data", listener: (chunk: Uint8Array) => void): void;
+    };
+    on(
+      event: "exit",
+      listener: (code: number | null, signal: string | null) => void,
+    ): void;
+    kill(signal?: string): boolean;
+  }
+
+  export function spawn(
+    command: string,
+    args?: readonly string[],
+    options?: SpawnSyncOptions,
+  ): SpawnedProcess;
 
   export function spawnSync(
     command: string,

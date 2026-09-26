@@ -6,10 +6,14 @@ import process from "node:process";
 import { isDeepStrictEqual } from "node:util";
 
 import {
+  ARTIFACTS_DIRECTORY_NAME,
   DIST_DIRECTORY_NAME,
   LOCAL_DURABILITY_CAVEAT,
   LOCAL_RETENTION_CAVEAT,
   MAX_RUN_ID_COLLISION_SUFFIX,
+  MAX_RUN_ID_CLAIM_BYTES,
+  MAX_STAGED_ARTIFACT_BYTES,
+  MAX_STAGED_RECEIPT_BYTES,
   OWNER_DIRECTORY_MODE,
   OWNER_FILE_MODE,
   OWNER_PERMISSION_CAVEAT,
@@ -17,12 +21,14 @@ import {
   RUN_ID_CLAIMS_DIRECTORY_NAME,
   RUN_METADATA_FILENAME,
   SKIA_DIRECTORY_NAME,
+  TOOL_VERSION,
 } from "./limits.js";
 import {
   createdAtFromRunId,
   deriveRepositoryArtifactPath,
   deriveRepositoryManifestPath,
   deriveRepositoryRunDirectory,
+  deriveStagedArtifactPath,
   deriveStagedReceiptPath,
   formatRunIdAtUtc,
   validateRelativePath,
@@ -30,20 +36,30 @@ import {
   validateRunId,
   validateSessionId,
 } from "./paths.js";
+import { readRepositoryBlob } from "./git.js";
+import {
+  allocateStagedReceiptTemporarySuffix,
+  nextStagedReceiptTemporarySuffix,
+} from "./receipt-temporary.js";
 import {
   validateCoverageEnvelope,
   validateRepositoryManifest,
   validateStagedReceipt,
+  validRfc3339Utc,
 } from "./schema.js";
+import { analyzeLiteralGuardFunction } from "./staged/analyze.js";
 import type {
+  HashedArtifactKind,
   RepositoryManifest,
   RepositorySnapshotIdentity,
   RunArtifactPath,
   RunId,
   RunState,
+  SessionId,
   Sha256Hex,
   CoverageEnvelope,
   StagedReceipt,
+  StagedSnapshotIdentity,
 } from "./types.js";
 
 export { RUN_METADATA_FILENAME } from "./limits.js";
@@ -91,14 +107,46 @@ export interface InspectedRepositoryRun {
   readonly manifest: RepositoryManifest | null;
 }
 
+export interface InspectedStagedReceipt {
+  readonly schema_version: 1;
+  readonly tool_version: string;
+  readonly run_id: RunId;
+  readonly session_id: StagedReceipt["session_id"];
+  readonly status: RunState;
+  readonly completed_at: string | null;
+  readonly snapshot: StagedReceipt["snapshot"];
+  readonly coverage: CoverageEnvelope;
+  readonly artifact_hashes: StagedReceipt["artifact_hashes"];
+  readonly errors: StagedReceipt["errors"];
+  readonly privacy_caveat: string;
+  readonly review: {
+    readonly card_status: "complete" | "skipped";
+    readonly session_counts: {
+      readonly prompts_presented: number;
+      readonly predictions_completed: number;
+      readonly skips: number;
+    };
+  } | null;
+}
+
 export interface InspectedReceiptRun {
   readonly kind: "review";
   readonly run_id: RunId;
   readonly receipt_path: RunArtifactPath;
-  readonly receipt: StagedReceipt;
+  readonly receipt: InspectedStagedReceipt;
 }
 
-export type InspectedRun = InspectedRepositoryRun | InspectedReceiptRun;
+export interface InspectedIncompleteStagedRun {
+  readonly kind: "review_incomplete";
+  readonly run_id: RunId;
+  readonly status: "incomplete";
+  readonly receipt_path: RunArtifactPath;
+}
+
+export type InspectedRun =
+  | InspectedRepositoryRun
+  | InspectedReceiptRun
+  | InspectedIncompleteStagedRun;
 
 export interface DeleteRunResult {
   readonly deleted: boolean;
@@ -111,10 +159,33 @@ export interface ArtifactWriteResult {
   readonly sha256: Sha256Hex;
 }
 
+export const STAGED_RECEIPT_PRIVACY_CAVEAT =
+  "Local receipt contains code-derived evidence and a developer prediction; inspect and delete it when no longer needed.";
+
+export interface StagedRunAllocation {
+  readonly repositoryRoot: string;
+  readonly runId: RunId;
+  readonly sessionId: SessionId;
+  readonly skiaRootPath: string;
+  readonly artifactsRootPath: string;
+}
+
+export interface StagedArtifactWriteResult extends ArtifactWriteResult {
+  readonly artifactPath: RunArtifactPath;
+}
+
 export interface StorageTestHooks {
+  readonly afterCreateNewFile?: () => void;
+  readonly closeNewFile?: (fileDescriptor: number) => void;
+  readonly unlinkStagedReceiptTemporary?: (temporaryPath: string) => void;
+  readonly beforeReceiptArtifactStat?: () => void;
   readonly afterRunIdClaim?: (claim: {
     readonly mode: RunMode;
     readonly runId: RunId;
+  }) => void;
+  readonly beforeStagedReceiptPublish?: (paths: {
+    readonly temporaryPath: string;
+    readonly receiptPath: string;
   }) => void;
 }
 
@@ -123,6 +194,8 @@ interface RunIdClaimRecord {
   readonly run_id: RunId;
   readonly mode: RunMode;
   readonly storage_path: RunArtifactPath;
+  readonly staged_snapshot?: StagedSnapshotIdentity;
+  readonly staged_coverage?: CoverageEnvelope;
 }
 
 interface ExistingRunTargets {
@@ -137,6 +210,8 @@ interface ParsedReceiptFileName {
 }
 
 let storageTestHooks: StorageTestHooks | null = null;
+
+export { nextStagedReceiptTemporarySuffix };
 
 function createStorageError(message: string): Error {
   return new Error(message);
@@ -328,6 +403,101 @@ function assertRegularStorageFile(
   }
 }
 
+function assertSerializedReceiptBytes(serialized: string): void {
+  if (asBytes(serialized).byteLength > MAX_STAGED_RECEIPT_BYTES) {
+    throw createStorageError(
+      `staged receipt exceeds ${MAX_STAGED_RECEIPT_BYTES} bytes`,
+    );
+  }
+}
+
+function openNoFollow(filePath: string, label: string): number {
+  const linkStats = fs.lstatSync(filePath);
+
+  if (linkStats.isSymbolicLink() || !linkStats.isFile()) {
+    throw createStorageError(`${label} must be a regular file`);
+  }
+
+  let descriptor: number;
+  try {
+    descriptor = fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ELOOP" || error.code === "EEXIST")
+    ) {
+      throw createStorageError(`${label} must be a regular file`);
+    }
+
+    throw error;
+  }
+
+  const opened = fs.fstatSync(descriptor);
+  if (
+    opened.isSymbolicLink() ||
+    !opened.isFile() ||
+    opened.dev !== linkStats.dev ||
+    opened.ino !== linkStats.ino
+  ) {
+    fs.closeSync(descriptor);
+    throw createStorageError(`${label} must be a regular file`);
+  }
+
+  return descriptor;
+}
+
+function readBoundedBytes(filePath: string, label: string, limit: number): Uint8Array {
+  const fileDescriptor = openNoFollow(filePath, label);
+
+  try {
+    const stats = fs.fstatSync(fileDescriptor);
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      throw createStorageError(`${label} must be a regular file`);
+    }
+    if (stats.size > limit) {
+      throw createStorageError(`${label} exceeds ${limit} bytes`);
+    }
+
+    const buffer = Buffer.alloc(stats.size);
+    let offset = 0;
+    while (offset < stats.size) {
+      const read = fs.readSync(
+        fileDescriptor,
+        buffer,
+        offset,
+        stats.size - offset,
+        null,
+      );
+      if (read <= 0) {
+        throw createStorageError(`${label} could not be read`);
+      }
+      offset += read;
+    }
+
+    return buffer;
+  } finally {
+    fs.closeSync(fileDescriptor);
+  }
+}
+
+function readBoundedFile(filePath: string, label: string, limit: number): string {
+  return Buffer.from(readBoundedBytes(filePath, label, limit)).toString("utf8");
+}
+
+function parseRunIdClaim(
+  rootPath: string,
+  filePath: string,
+): RunIdClaimRecord {
+  assertNoSymlinkInPath(rootPath, filePath);
+  return JSON.parse(
+    readBoundedFile(filePath, "run-id claim", MAX_RUN_ID_CLAIM_BYTES),
+  ) as RunIdClaimRecord;
+}
+
 function parseRegularJson<T>(
   rootPath: string,
   filePath: string,
@@ -337,11 +507,17 @@ function parseRegularJson<T>(
   return parseJson<T>(filePath);
 }
 
+function isExistingPathError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EEXIST";
+}
+
 function writeNewFile(filePath: string, data: string | Uint8Array): void {
   const bytes = asBytes(data);
   const fileDescriptor = fs.openSync(filePath, "wx", OWNER_FILE_MODE);
+  let completed = false;
 
   try {
+    storageTestHooks?.afterCreateNewFile?.();
     let offset = 0;
 
     while (offset < bytes.length) {
@@ -355,8 +531,73 @@ function writeNewFile(filePath: string, data: string | Uint8Array): void {
     }
 
     fs.fsyncSync(fileDescriptor);
+    completed = true;
   } finally {
-    fs.closeSync(fileDescriptor);
+    let closeError: unknown;
+    try {
+      if (storageTestHooks?.closeNewFile !== undefined) {
+        storageTestHooks.closeNewFile(fileDescriptor);
+      } else {
+        fs.closeSync(fileDescriptor);
+      }
+    } catch (error) {
+      closeError = error;
+      completed = false;
+    }
+
+    if (!completed) {
+      try {
+        fs.rmSync(filePath, { force: true });
+      } catch (error) {
+        closeError ??= error;
+      }
+    }
+
+    if (closeError !== undefined) {
+      throw closeError;
+    }
+  }
+}
+
+function writeNewFileAtomically(
+  filePath: string,
+  data: string | Uint8Array,
+  beforeLink?: () => void,
+): void {
+  const directoryPath = path.dirname(filePath);
+  const filename = filePath.slice(directoryPath.length + 1);
+  const temporaryPath = path.join(
+    directoryPath,
+    `.${filename}.tmp-${allocateStagedReceiptTemporarySuffix()}`,
+  );
+
+  let published = false;
+  let created = false;
+
+  try {
+    writeNewFile(temporaryPath, data);
+    created = true;
+    storageTestHooks?.beforeStagedReceiptPublish?.({
+      temporaryPath,
+      receiptPath: filePath,
+    });
+    beforeLink?.();
+    fs.linkSync(temporaryPath, filePath);
+    published = true;
+  } finally {
+    if (created && fs.existsSync(temporaryPath)) {
+      try {
+        if (storageTestHooks?.unlinkStagedReceiptTemporary !== undefined) {
+          storageTestHooks.unlinkStagedReceiptTemporary(temporaryPath);
+        } else {
+          fs.unlinkSync(temporaryPath);
+        }
+      } catch (error) {
+        if (!published) {
+          throw error;
+        }
+      }
+    }
   }
 }
 
@@ -472,11 +713,10 @@ function validateStagedReceiptFile(
   skiaRootPath: string,
   filePath: string,
 ): StagedReceipt {
-  const receipt = parseRegularJson<unknown>(
-    skiaRootPath,
-    filePath,
-    "staged receipt",
-  );
+  assertNoSymlinkInPath(skiaRootPath, filePath);
+  const receipt = JSON.parse(
+    readBoundedFile(filePath, "staged receipt", MAX_STAGED_RECEIPT_BYTES),
+  ) as unknown;
   const validation = validateStagedReceipt(receipt);
 
   if (!validation.valid) {
@@ -532,49 +772,99 @@ function collectRemainingPaths(
   return remainingPaths.sort();
 }
 
+function descriptorPath(descriptor: number): string | null {
+  for (const magic of [`/proc/self/fd/${descriptor}`, `/dev/fd/${descriptor}`]) {
+    try {
+      const followed = fs.statSync(magic);
+      const viaDescriptor = fs.fstatSync(descriptor);
+      if (followed.dev === viaDescriptor.dev && followed.ino === viaDescriptor.ino) {
+        return magic;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function removeEntryThroughDirectory(directory: number, childName: string): void {
+  const magic = descriptorPath(directory);
+  if (
+    magic === null ||
+    childName.length === 0 ||
+    childName.includes("/") ||
+    childName.includes("\\")
+  ) {
+    throw new Error("storage directory descriptor is unavailable");
+  }
+
+  const childPath = path.join(magic, childName);
+  const stats = fs.lstatSync(childPath);
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    fs.unlinkSync(childPath);
+    return;
+  }
+
+  const child = fs.openSync(
+    childPath,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY,
+  );
+  try {
+    const childMagic = descriptorPath(child);
+    if (childMagic === null) {
+      throw new Error("storage directory descriptor is unavailable");
+    }
+    for (const name of fs.readdirSync(childMagic)) {
+      removeEntryThroughDirectory(child, name);
+    }
+  } finally {
+    fs.closeSync(child);
+  }
+  fs.rmdirSync(childPath);
+}
+
 function deleteTree(
   skiaRootPath: string,
   absolutePath: string,
 ): DeleteRunResult {
   assertContainedAbsolutePath(skiaRootPath, absolutePath);
   assertNoSymlinkInPath(skiaRootPath, absolutePath);
-  const failures: string[] = [];
-
-  function visit(entryPath: string): void {
-    let stats: ReturnType<typeof fs.lstatSync>;
-
-    try {
-      stats = fs.lstatSync(entryPath);
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-        return;
-      }
-
+  let stats: ReturnType<typeof fs.lstatSync> | null = null;
+  try {
+    stats = fs.lstatSync(absolutePath);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
-    }
-
-    if (stats.isSymbolicLink() || !stats.isDirectory()) {
-      try {
-        fs.unlinkSync(entryPath);
-      } catch {
-        failures.push(relativePathUnderSkia(skiaRootPath, entryPath));
-      }
-
-      return;
-    }
-
-    for (const childName of fs.readdirSync(entryPath)) {
-      visit(path.join(entryPath, childName));
-    }
-
-    try {
-      fs.rmdirSync(entryPath);
-    } catch {
-      failures.push(relativePathUnderSkia(skiaRootPath, entryPath));
     }
   }
 
-  visit(absolutePath);
+  if (stats !== null) {
+    const parentPath = path.dirname(absolutePath);
+    const childName = absolutePath.slice(parentPath.length + 1);
+    let parent: number | null = null;
+    try {
+      parent = fs.openSync(
+        parentPath,
+        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY,
+      );
+      const magic = descriptorPath(parent);
+      if (magic === null) {
+        throw new Error("storage directory descriptor is unavailable");
+      }
+      const seen = fs.lstatSync(path.join(magic, childName));
+      if (seen.dev !== stats.dev || seen.ino !== stats.ino) {
+        throw new Error("storage directory descriptor is unavailable");
+      }
+      removeEntryThroughDirectory(parent, childName);
+    } catch {
+      // A path that cannot be deleted through its directory descriptor stays reported.
+    } finally {
+      if (parent !== null) {
+        fs.closeSync(parent);
+      }
+    }
+  }
 
   const remainingPaths = collectRemainingPaths(skiaRootPath, absolutePath);
 
@@ -621,6 +911,25 @@ function receiptFilePath(repositoryRoot: string, receipt: StagedReceipt): string
     skiaRootPath,
     deriveStagedReceiptPath(receipt.run_id, receipt.session_id),
   );
+}
+
+function canonicalStagedClaimPath(
+  runId: RunId,
+  storagePath: string,
+): RunArtifactPath {
+  const receiptName = storagePath.split("/").at(-1);
+  const parsedReceipt =
+    receiptName === undefined ? null : parseStagedReceiptFileName(receiptName);
+
+  if (
+    parsedReceipt === null ||
+    parsedReceipt.runId !== runId ||
+    storagePath !== deriveStagedReceiptPath(runId, parsedReceipt.sessionId)
+  ) {
+    throw createStorageError("staged run claim has an invalid storage path");
+  }
+
+  return deriveStagedReceiptPath(runId, parsedReceipt.sessionId);
 }
 
 function parseStagedReceiptFileName(entryName: string): ParsedReceiptFileName | null {
@@ -736,6 +1045,8 @@ function writeRunIdClaim(
   runId: RunId,
   mode: RunMode,
   sessionId?: string,
+  stagedSnapshot?: StagedSnapshotIdentity,
+  stagedCoverage?: CoverageEnvelope,
 ): string {
   const claimPath = runIdClaimFilePath(repositoryRoot, runId);
   const claimRecord: RunIdClaimRecord = {
@@ -743,9 +1054,18 @@ function writeRunIdClaim(
     run_id: runId,
     mode,
     storage_path: claimStoragePathForMode(runId, mode, sessionId),
+    ...(stagedSnapshot === undefined ? {} : { staged_snapshot: stagedSnapshot }),
+    ...(stagedCoverage === undefined ? {} : { staged_coverage: stagedCoverage }),
   };
 
-  writeNewFile(claimPath, `${JSON.stringify(claimRecord, null, 2)}\n`);
+  const serializedClaim = `${JSON.stringify(claimRecord, null, 2)}\n`;
+  if (asBytes(serializedClaim).byteLength > MAX_RUN_ID_CLAIM_BYTES) {
+    throw createStorageError(
+      `run-id claim exceeds ${MAX_RUN_ID_CLAIM_BYTES} bytes`,
+    );
+  }
+
+  writeNewFile(claimPath, serializedClaim);
   storageTestHooks?.afterRunIdClaim?.({ mode, runId });
   return claimPath;
 }
@@ -815,10 +1135,25 @@ function stagedReceiptHashWithoutSelf(receipt: StagedReceipt): Sha256Hex {
   return sha256Hex(`${JSON.stringify(receiptWithoutSelf, null, 2)}\n`);
 }
 
+function serializeStagedReceipt(receipt: StagedReceipt): string {
+  const serialized = `${JSON.stringify(receipt, null, 2)}\n`;
+  const roundTrip = JSON.parse(serialized) as unknown;
+  const validation = validateStagedReceipt(roundTrip);
+
+  if (!validation.valid || !isDeepStrictEqual(validation.value, receipt)) {
+    throw createStorageError(
+      "staged receipt must remain valid and identical after JSON serialization",
+    );
+  }
+
+  return serialized;
+}
+
 function validateStagedArtifactHashes(
   skiaRootPath: string,
   receipt: StagedReceipt,
-): void {
+): ReadonlyMap<string, Uint8Array> {
+  const hashedArtifacts = new Map<string, Uint8Array>();
   const receiptArtifacts = receipt.artifact_hashes.filter((artifact) => artifact.kind === "receipt");
 
   if (receiptArtifacts.length !== 1) {
@@ -846,19 +1181,256 @@ function validateStagedArtifactHashes(
     const absolutePath = validateContainedPath(skiaRootPath, artifact.path);
     assertNoSymlinkInPath(skiaRootPath, absolutePath);
 
-    if (!fs.existsSync(absolutePath)) {
-      throw createStorageError(`staged artifact ${artifact.path} is missing`);
+    let artifactBytes: Uint8Array;
+    try {
+      artifactBytes = readBoundedBytes(
+        absolutePath,
+        `staged artifact ${artifact.path}`,
+        MAX_STAGED_ARTIFACT_BYTES,
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ) {
+        throw createStorageError(`staged artifact ${artifact.path} is missing`);
+      }
+      throw error;
     }
 
-    const stats = fs.lstatSync(absolutePath);
-    if (stats.isSymbolicLink() || !stats.isFile()) {
-      throw createStorageError(`staged artifact ${artifact.path} must be a regular file`);
-    }
-
-    const actualSha256 = sha256Hex(fs.readFileSync(absolutePath));
+    const actualSha256 = sha256Hex(artifactBytes);
     if (actualSha256 !== artifact.sha256) {
       throw createStorageError(`staged artifact ${artifact.path} sha256 does not match the receipt`);
     }
+    hashedArtifacts.set(artifact.path, artifactBytes);
+  }
+
+  return hashedArtifacts;
+}
+
+function assertCompleteStagedReceipt(receipt: StagedReceipt): void {
+  if (receipt.status !== "complete" || receipt.completed_at === null) {
+    throw createStorageError("staged run completion requires a complete receipt");
+  }
+}
+
+function sourceLineCount(source: string): number {
+  if (source.length === 0) {
+    return 0;
+  }
+
+  let lines = 1;
+  for (let index = 0; index < source.length; index += 1) {
+    if (source.charCodeAt(index) === 0x0a) {
+      lines += 1;
+    }
+  }
+
+  return source.charCodeAt(source.length - 1) === 0x0a ? lines - 1 : lines;
+}
+
+function assertReviewMatchesSnapshot(
+  repositoryRoot: string,
+  receipt: StagedReceipt,
+  capturedBlobs?: ReadonlyMap<string, Uint8Array>,
+): void {
+  const review = receipt.review;
+
+  if (review === undefined) {
+    return;
+  }
+
+  const sourceCheck = review.entity.source_check;
+  const anchor = review.entity.anchor;
+
+  if (anchor.side !== "staged") {
+    throw createStorageError(
+      "source check expected value must match the staged snapshot source",
+    );
+  }
+
+  let source: string;
+
+  try {
+    const held = capturedBlobs?.get(anchor.blob_oid);
+    source = new TextDecoder("utf-8", { fatal: true }).decode(
+      held ?? readRepositoryBlob(repositoryRoot, anchor.blob_oid),
+    );
+  } catch {
+    throw createStorageError(
+      "source check expected value must match the staged snapshot source",
+    );
+  }
+
+  const lineCount = sourceLineCount(source);
+  const changedLines: number[] = [];
+  const maxEvidenceLines = 4_096;
+  let expandedLines = 0;
+
+  for (const evidenceAnchor of review.entity.evidence.anchors) {
+    if (
+      !Number.isSafeInteger(evidenceAnchor.start_line) ||
+      !Number.isSafeInteger(evidenceAnchor.end_line) ||
+      evidenceAnchor.start_line < 1 ||
+      evidenceAnchor.end_line < evidenceAnchor.start_line ||
+      evidenceAnchor.end_line > lineCount
+    ) {
+      throw createStorageError(
+        "source check expected value must match the staged snapshot source",
+      );
+    }
+
+    expandedLines += evidenceAnchor.end_line - evidenceAnchor.start_line + 1;
+    if (expandedLines > maxEvidenceLines) {
+      throw createStorageError(
+        "source check expected value must match the staged snapshot source",
+      );
+    }
+
+    for (
+      let line = evidenceAnchor.start_line;
+      line <= evidenceAnchor.end_line;
+      line += 1
+    ) {
+      changedLines.push(line);
+    }
+  }
+
+  const snapshotEntry = receipt.snapshot.entries.find(
+    (entry) => entry.path === anchor.path,
+  );
+  const baseOid = snapshotEntry?.base_blob_oid ?? null;
+  let baseSource: string | null = null;
+  if (baseOid !== null) {
+    try {
+      const heldBase = capturedBlobs?.get(baseOid);
+      baseSource = new TextDecoder("utf-8", { fatal: true }).decode(
+        heldBase ?? readRepositoryBlob(repositoryRoot, baseOid),
+      );
+    } catch {
+      throw createStorageError(
+        "source check expected value must match the staged snapshot source",
+      );
+    }
+  }
+
+  const analysis = analyzeLiteralGuardFunction({
+    base_source: baseSource,
+    blob_oid: anchor.blob_oid,
+    changed_lines: changedLines,
+    path: anchor.path,
+    source,
+  });
+  const matchesSource = analysis.kind === "supported" &&
+    isDeepStrictEqual(
+      {
+        id: analysis.entity.id,
+        name: analysis.entity.name,
+        anchor: analysis.entity.anchor,
+        evidence: analysis.evidence,
+        scenario: analysis.scenario,
+      },
+      {
+        id: review.entity.id,
+        name: review.entity.name,
+        anchor: review.entity.anchor,
+        evidence: review.entity.evidence,
+        scenario: review.entity.scenario,
+      },
+    ) &&
+    (sourceCheck === null ||
+      isDeepStrictEqual(analysis.expected_return, sourceCheck.expected));
+
+  if (!matchesSource) {
+    throw createStorageError(
+      "source check expected value must match the staged snapshot source",
+    );
+  }
+}
+
+function validateStagedBehaviorCardArtifact(
+  skiaRootPath: string,
+  receipt: StagedReceipt,
+  hashedArtifacts: ReadonlyMap<string, Uint8Array>,
+  earliestInstant?: string,
+): void {
+  if (receipt.review === undefined) {
+    return;
+  }
+
+  const artifact = receipt.artifact_hashes.find(
+    (candidate) => candidate.kind === "behavior_cards",
+  );
+
+  if (artifact === undefined) {
+    throw createStorageError(
+      "staged review receipt is missing its behavior-card artifact",
+    );
+  }
+
+  const artifactBytes = hashedArtifacts.get(artifact.path);
+  if (artifactBytes === undefined) {
+    throw createStorageError("staged behavior-card artifact was not hashed");
+  }
+
+  let card: unknown;
+  try {
+    card = JSON.parse(Buffer.from(artifactBytes).toString("utf8")) as unknown;
+  } catch {
+    throw createStorageError("staged behavior-card artifact must be JSON");
+  }
+
+  if (receipt.review.card_status === "complete") {
+    if (!isDeepStrictEqual(card, receipt.review.entity.prediction)) {
+      throw createStorageError(
+        "behavior-card artifact does not match the persisted prediction in the receipt",
+      );
+    }
+    return;
+  }
+
+  if (card === null || typeof card !== "object") {
+    throw createStorageError(
+      "behavior-card artifact does not match the persisted skip in the receipt",
+    );
+  }
+
+  const skip = card as Readonly<Record<string, unknown>>;
+  const keys = Object.keys(skip).sort();
+  const validSealedAt =
+    typeof skip.sealed_at === "string" &&
+    validRfc3339Utc(skip.sealed_at);
+
+  if (
+    !isDeepStrictEqual(keys, ["action", "scenario", "sealed_at"]) ||
+    skip.action !== "skip" ||
+    !isDeepStrictEqual(skip.scenario, receipt.review.entity.scenario) ||
+    !validSealedAt
+  ) {
+    throw createStorageError(
+      "behavior-card artifact does not match the persisted skip in the receipt",
+    );
+  }
+
+  if (
+    receipt.completed_at !== null &&
+    typeof skip.sealed_at === "string" &&
+    skip.sealed_at > receipt.completed_at
+  ) {
+    throw createStorageError(
+      "skip sealed_at must not follow receipt completion",
+    );
+  }
+
+  if (
+    earliestInstant !== undefined &&
+    typeof skip.sealed_at === "string" &&
+    skip.sealed_at < earliestInstant
+  ) {
+    throw createStorageError(
+      "staged run completion must not precede the allocated run",
+    );
   }
 }
 
@@ -866,6 +1438,7 @@ function receiptOwnedArtifactBytes(
   skiaRootPath: string,
   receipt: StagedReceipt,
 ): number {
+  storageTestHooks?.beforeReceiptArtifactStat?.();
   let totalBytes = 0;
 
   for (const artifact of receipt.artifact_hashes) {
@@ -876,6 +1449,37 @@ function receiptOwnedArtifactBytes(
     const absolutePath = validateContainedPath(skiaRootPath, artifact.path);
     assertRegularStorageFile(skiaRootPath, absolutePath, "staged artifact");
     totalBytes += fs.lstatSync(absolutePath).size;
+  }
+
+  return totalBytes;
+}
+
+function incompleteStagedArtifactBytes(
+  repositoryRoot: string,
+  runId: RunId,
+  sessionId: SessionId,
+): number {
+  const roots = readStorageRoots(repositoryRoot, ARTIFACTS_DIRECTORY_NAME);
+
+  if (roots === null) {
+    return 0;
+  }
+
+  const prefix = `${runId}-${sessionId}-`;
+  let totalBytes = 0;
+
+  for (const entryName of fs.readdirSync(roots.leafRootPath)) {
+    if (!entryName.startsWith(prefix)) {
+      continue;
+    }
+
+    const entryPath = path.join(roots.leafRootPath, entryName);
+    assertRegularStorageFile(
+      roots.skiaRootPath,
+      entryPath,
+      "incomplete staged artifact",
+    );
+    totalBytes += fs.lstatSync(entryPath).size;
   }
 
   return totalBytes;
@@ -949,9 +1553,7 @@ export function allocateRepositoryRun(
     try {
       claimPath = writeRunIdClaim(repositoryRoot, runId, "repo_review");
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-
-      if (/exist/i.test(message)) {
+      if (isExistingPathError(error)) {
         continue;
       }
 
@@ -970,14 +1572,12 @@ export function allocateRepositoryRun(
     try {
       fs.mkdirSync(runDirectoryPath, { mode: OWNER_DIRECTORY_MODE });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      releaseRunIdClaim(claimPath);
 
-      if (/exist/i.test(message)) {
-        releaseRunIdClaim(claimPath);
+      if (isExistingPathError(error)) {
         continue;
       }
 
-      releaseRunIdClaim(claimPath);
       throw error;
     }
 
@@ -1087,10 +1687,499 @@ export function completeRepositoryRun(
   };
 }
 
+export function allocateStagedRun(
+  repositoryRoot: string,
+  sessionId: SessionId,
+  createdAt: Date = new Date(),
+  stagedSnapshot?: StagedSnapshotIdentity,
+  stagedCoverage?: CoverageEnvelope,
+  capturedBlobs: readonly { readonly oid: string; readonly bytes: Uint8Array }[] = [],
+  onAllocated?: (allocation: StagedRunAllocation) => void,
+): StagedRunAllocation {
+  const validatedSessionId = validateSessionId(sessionId);
+  const { skiaRootPath, leafRootPath: artifactsRootPath } =
+    ensureStorageRoots(repositoryRoot, ARTIFACTS_DIRECTORY_NAME);
+  const baseRunId = formatRunIdAtUtc(createdAt);
+
+  for (let suffix = 0; suffix <= MAX_RUN_ID_COLLISION_SUFFIX; suffix += 1) {
+    const runId =
+      suffix === 0 ? baseRunId : formatRunIdAtUtc(createdAt, suffix);
+    let claimPath: string;
+
+    try {
+      claimPath = writeRunIdClaim(
+        repositoryRoot,
+        runId,
+        "review",
+        validatedSessionId,
+        stagedSnapshot,
+        stagedCoverage,
+      );
+    } catch (error) {
+      if (isExistingPathError(error)) {
+        continue;
+      }
+
+      throw error;
+    }
+
+    try {
+      const targets = existingRunTargets(repositoryRoot, runId, runId);
+
+      if (
+        targets.repositoryRunDirectoryPath !== null ||
+        targets.receiptName !== null
+      ) {
+        releaseRunIdClaim(claimPath);
+        continue;
+      }
+
+      const allocation = {
+        repositoryRoot: path.resolve(repositoryRoot),
+        runId,
+        sessionId: validatedSessionId,
+        skiaRootPath,
+        artifactsRootPath,
+      };
+      rememberStagedAllocation(
+        allocation,
+        capturedBlobs,
+        stagedSnapshot,
+        stagedCoverage,
+      );
+      onAllocated?.(allocation);
+      return allocation;
+    } catch (error) {
+      releaseRunIdClaim(claimPath);
+      throw error;
+    }
+  }
+
+  throw createStorageError("run_id_exhausted");
+}
+
+const stagedArtifactsCreatedByAllocation = new WeakMap<
+  StagedRunAllocation,
+  Set<string>
+>();
+
+const stagedAllocationIdentity = new WeakMap<
+  StagedRunAllocation,
+  {
+    readonly repositoryRoot: string;
+    readonly runId: StagedRunAllocation["runId"];
+    readonly sessionId: StagedRunAllocation["sessionId"];
+    readonly skiaRootPath: string;
+    readonly artifactsRootPath: string;
+    readonly capturedBlobs: ReadonlyMap<string, Uint8Array>;
+    readonly stagedSnapshot?: StagedSnapshotIdentity;
+    readonly stagedCoverage?: CoverageEnvelope;
+  }
+>();
+
+function capturedBlobMatchesOid(oid: string, bytes: Uint8Array): boolean {
+  const algorithm = oid.length === 40 ? "sha1" : oid.length === 64 ? "sha256" : null;
+  if (algorithm === null) {
+    return false;
+  }
+
+  return createHash(algorithm)
+    .update(`blob ${bytes.byteLength}\0`)
+    .update(bytes)
+    .digest("hex") === oid;
+}
+
+function cloneAllocationValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function rememberStagedAllocation(
+  allocation: StagedRunAllocation,
+  capturedBlobs: readonly { readonly oid: string; readonly bytes: Uint8Array }[],
+  stagedSnapshot?: StagedSnapshotIdentity,
+  stagedCoverage?: CoverageEnvelope,
+): void {
+  for (const blob of capturedBlobs) {
+    if (!capturedBlobMatchesOid(blob.oid, blob.bytes)) {
+      throw createStorageError(
+        "captured blob bytes do not match their Git object id",
+      );
+    }
+  }
+
+  stagedAllocationIdentity.set(allocation, {
+    repositoryRoot: allocation.repositoryRoot,
+    runId: allocation.runId,
+    sessionId: allocation.sessionId,
+    skiaRootPath: allocation.skiaRootPath,
+    artifactsRootPath: allocation.artifactsRootPath,
+    capturedBlobs: new Map(
+      capturedBlobs.map((blob) => [blob.oid, Uint8Array.from(blob.bytes)]),
+    ),
+    ...(stagedSnapshot === undefined
+      ? {}
+      : { stagedSnapshot: cloneAllocationValue(stagedSnapshot) }),
+    ...(stagedCoverage === undefined
+      ? {}
+      : { stagedCoverage: cloneAllocationValue(stagedCoverage) }),
+  });
+}
+
+function allocatedRunInstant(runId: string): string | null {
+  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/.exec(runId);
+  if (match === null) {
+    return null;
+  }
+
+  return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`;
+}
+
+function rememberCreatedStagedArtifact(
+  allocation: StagedRunAllocation,
+  absolutePath: string,
+): void {
+  const created = stagedArtifactsCreatedByAllocation.get(allocation) ?? new Set();
+  created.add(absolutePath);
+  stagedArtifactsCreatedByAllocation.set(allocation, created);
+}
+
+function removeCreatedStagedArtifacts(
+  allocation: StagedRunAllocation,
+): DeleteRunResult {
+  const created = stagedArtifactsCreatedByAllocation.get(allocation);
+
+  if (created === undefined || created.size === 0) {
+    return {
+      deleted: true,
+      remaining_paths: [],
+    };
+  }
+
+  const failures: string[] = [];
+
+  for (const absolutePath of created) {
+    if (!fs.existsSync(absolutePath)) {
+      continue;
+    }
+
+    const result = deleteTree(allocation.skiaRootPath, absolutePath);
+    failures.push(...result.remaining_paths);
+  }
+
+  return {
+    deleted: failures.length === 0,
+    remaining_paths: [...new Set(failures)].sort(),
+  };
+}
+
+function assertStagedAllocationPaths(allocation: StagedRunAllocation): void {
+  const held = stagedAllocationIdentity.get(allocation);
+  const repositoryRoot = path.resolve(allocation.repositoryRoot);
+  const skiaRootPath = path.join(repositoryRoot, SKIA_DIRECTORY_NAME);
+  const artifactsRootPath = path.join(skiaRootPath, ARTIFACTS_DIRECTORY_NAME);
+
+  if (
+    held === undefined ||
+    held.repositoryRoot !== repositoryRoot ||
+    held.runId !== allocation.runId ||
+    held.sessionId !== allocation.sessionId ||
+    held.skiaRootPath !== skiaRootPath ||
+    held.artifactsRootPath !== artifactsRootPath ||
+    path.resolve(allocation.skiaRootPath) !== skiaRootPath ||
+    path.resolve(allocation.artifactsRootPath) !== artifactsRootPath
+  ) {
+    throw createStorageError(
+      "staged allocation paths must stay under the repository .skia root",
+    );
+  }
+}
+
+export function writeStagedArtifactFile(
+  allocation: StagedRunAllocation,
+  kind: Exclude<HashedArtifactKind, "receipt">,
+  contents: string | Uint8Array,
+): StagedArtifactWriteResult {
+  assertStagedAllocationPaths(allocation);
+  const artifactPath = deriveStagedArtifactPath(
+    allocation.runId,
+    allocation.sessionId,
+    kind,
+  );
+  const absolutePath = validateContainedPath(
+    allocation.skiaRootPath,
+    artifactPath,
+  );
+  assertNoSymlinkInPath(allocation.skiaRootPath, absolutePath);
+  const bytes = asBytes(contents);
+  if (bytes.byteLength > MAX_STAGED_ARTIFACT_BYTES) {
+    throw createStorageError(
+      `staged artifact exceeds ${MAX_STAGED_ARTIFACT_BYTES} bytes`,
+    );
+  }
+
+  writeNewFile(absolutePath, bytes);
+  rememberCreatedStagedArtifact(allocation, absolutePath);
+
+  return {
+    absolutePath,
+    artifactPath,
+    bytes: bytes.byteLength,
+    sha256: sha256Hex(bytes),
+  };
+}
+
+function removeIncompleteStagedArtifacts(
+  repositoryRoot: string,
+  runId: RunId,
+  sessionId: SessionId,
+): DeleteRunResult {
+  const roots = readStorageRoots(repositoryRoot, ARTIFACTS_DIRECTORY_NAME);
+
+  if (roots === null) {
+    return {
+      deleted: true,
+      remaining_paths: [],
+    };
+  }
+
+  const kinds: readonly Exclude<HashedArtifactKind, "receipt">[] = [
+    "hld",
+    "lld",
+    "collapsed_evidence",
+    "behavior_cards",
+    "coverage",
+    "manifest",
+  ];
+  const failures: string[] = [];
+
+  for (const kind of kinds) {
+    const artifactPath = validateContainedPath(
+      roots.skiaRootPath,
+      deriveStagedArtifactPath(runId, sessionId, kind),
+    );
+
+    if (!fs.existsSync(artifactPath)) {
+      continue;
+    }
+
+    const result = deleteTree(roots.skiaRootPath, artifactPath);
+    failures.push(...result.remaining_paths);
+  }
+
+  return {
+    deleted: failures.length === 0,
+    remaining_paths: [...new Set(failures)].sort(),
+  };
+}
+
+export function abortStagedRun(allocation: StagedRunAllocation): void {
+  assertStagedAllocationPaths(allocation);
+  const targets = existingRunTargets(
+    allocation.repositoryRoot,
+    allocation.runId,
+    allocation.runId,
+  );
+
+  if (targets.receiptName !== null) {
+    throw createStorageError("cannot abort a completed staged run");
+  }
+
+  const artifactResult = removeCreatedStagedArtifacts(allocation);
+
+  if (!artifactResult.deleted) {
+    throw createStorageError(
+      `could not abort staged run; remaining paths: ${artifactResult.remaining_paths.join(", ")}`,
+    );
+  }
+
+  const claimResult = removeRunIdClaim(
+    allocation.repositoryRoot,
+    allocation.runId,
+  );
+
+  if (!claimResult.deleted) {
+    throw createStorageError(
+      `could not abort staged run; remaining paths: ${claimResult.remaining_paths.join(", ")}`,
+    );
+  }
+
+  stagedAllocationIdentity.delete(allocation);
+  stagedArtifactsCreatedByAllocation.delete(allocation);
+}
+
+export function completeStagedRun(
+  allocation: StagedRunAllocation,
+  receipt: StagedReceipt,
+): { readonly receiptPath: string; readonly artifactBytes: number } {
+  assertCompleteStagedReceipt(receipt);
+  assertStagedAllocationPaths(allocation);
+
+  if (receipt.tool_version !== TOOL_VERSION) {
+    throw createStorageError("staged run completion requires the current tool version");
+  }
+
+  if (receipt.review === undefined) {
+    throw createStorageError("staged run completion requires pilot review details");
+  }
+
+  if (receipt.errors.length !== 0) {
+    throw createStorageError("staged run completion requires an empty error list");
+  }
+
+  if (receipt.privacy_caveat !== STAGED_RECEIPT_PRIVACY_CAVEAT) {
+    throw createStorageError(
+      "staged run completion requires the canonical privacy caveat",
+    );
+  }
+
+  if (
+    receipt.run_id !== allocation.runId ||
+    receipt.session_id !== allocation.sessionId
+  ) {
+    throw createStorageError(
+      "staged receipt identity does not match the allocated run",
+    );
+  }
+
+  const runInstant = allocatedRunInstant(allocation.runId);
+  const completedAt = receipt.completed_at;
+  const sealedAt = receipt.review.entity.prediction?.sealed_at;
+  if (
+    runInstant === null ||
+    completedAt === null ||
+    completedAt < runInstant ||
+    (sealedAt !== undefined && sealedAt < runInstant)
+  ) {
+    throw createStorageError(
+      "staged run completion must not precede the allocated run",
+    );
+  }
+
+  const validation = validateStagedReceipt(receipt);
+
+  if (!validation.valid) {
+    throw createStorageError(
+      `staged receipt validation failed: ${validation.errors
+        .map((error) => error.message)
+        .join("; ")}`,
+    );
+  }
+
+  const claimPath = runIdClaimFilePath(
+    allocation.repositoryRoot,
+    allocation.runId,
+  );
+
+  if (!fs.existsSync(claimPath)) {
+    throw createStorageError("staged run allocation claim is missing");
+  }
+
+  const claim = parseRunIdClaim(allocation.skiaRootPath, claimPath);
+
+  if (
+    claim.run_id !== allocation.runId ||
+    claim.mode !== "review" ||
+    claim.storage_path !==
+      deriveStagedReceiptPath(allocation.runId, allocation.sessionId)
+  ) {
+    throw createStorageError(
+      "staged run allocation claim does not match the receipt identity",
+    );
+  }
+
+  const heldAllocation = stagedAllocationIdentity.get(allocation);
+
+  if (
+    heldAllocation?.stagedSnapshot === undefined ||
+    !isDeepStrictEqual(heldAllocation.stagedSnapshot, validation.value.snapshot)
+  ) {
+    throw createStorageError(
+      "staged receipt snapshot does not match the allocated snapshot",
+    );
+  }
+
+  if (
+    heldAllocation.stagedCoverage === undefined ||
+    !isDeepStrictEqual(heldAllocation.stagedCoverage, validation.value.coverage)
+  ) {
+    throw createStorageError(
+      "staged receipt coverage does not match the allocated coverage",
+    );
+  }
+
+  const artifactKinds = validation.value.artifact_hashes
+    .map((artifact) => artifact.kind)
+    .sort();
+
+  if (
+    !isDeepStrictEqual(artifactKinds, ["behavior_cards", "receipt"])
+  ) {
+    throw createStorageError(
+      "staged run completion requires only the behavior card and receipt",
+    );
+  }
+
+  const hashedArtifacts = validateStagedArtifactHashes(
+    allocation.skiaRootPath,
+    validation.value,
+  );
+  validateStagedBehaviorCardArtifact(
+    allocation.skiaRootPath,
+    validation.value,
+    hashedArtifacts,
+    runInstant ?? undefined,
+  );
+  assertReviewMatchesSnapshot(
+    allocation.repositoryRoot,
+    validation.value,
+    stagedAllocationIdentity.get(allocation)?.capturedBlobs,
+  );
+  const artifactBytes = receiptOwnedArtifactBytes(
+    allocation.skiaRootPath,
+    validation.value,
+  );
+  const rehashedArtifacts = validateStagedArtifactHashes(
+    allocation.skiaRootPath,
+    validation.value,
+  );
+  validateStagedBehaviorCardArtifact(
+    allocation.skiaRootPath,
+    validation.value,
+    rehashedArtifacts,
+    runInstant ?? undefined,
+  );
+  const absolutePath = receiptFilePath(
+    allocation.repositoryRoot,
+    validation.value,
+  );
+  const serializedReceipt = serializeStagedReceipt(validation.value);
+  assertSerializedReceiptBytes(serializedReceipt);
+  writeNewFileAtomically(absolutePath, serializedReceipt, () => {
+    const publishedArtifacts = validateStagedArtifactHashes(
+      allocation.skiaRootPath,
+      validation.value,
+    );
+    validateStagedBehaviorCardArtifact(
+      allocation.skiaRootPath,
+      validation.value,
+      publishedArtifacts,
+      runInstant ?? undefined,
+    );
+  });
+  stagedAllocationIdentity.delete(allocation);
+  stagedArtifactsCreatedByAllocation.delete(allocation);
+
+  return {
+    receiptPath: absolutePath,
+    artifactBytes: asBytes(serializedReceipt).byteLength + artifactBytes,
+  };
+}
+
 export function writeStagedReceipt(
   repositoryRoot: string,
   receipt: StagedReceipt,
 ): { readonly path: string; readonly bytes: number } {
+  assertCompleteStagedReceipt(receipt);
   const validation = validateStagedReceipt(receipt);
 
   if (!validation.valid) {
@@ -1102,7 +2191,9 @@ export function writeStagedReceipt(
   }
 
   const { skiaRootPath } = ensureStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
-  validateStagedArtifactHashes(skiaRootPath, validation.value);
+  const hashedArtifacts = validateStagedArtifactHashes(skiaRootPath, validation.value);
+  validateStagedBehaviorCardArtifact(skiaRootPath, validation.value, hashedArtifacts);
+  assertReviewMatchesSnapshot(repositoryRoot, validation.value);
 
   let claimPath: string;
   try {
@@ -1113,9 +2204,7 @@ export function writeStagedReceipt(
       validation.value.session_id,
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    if (/exist/i.test(message)) {
+    if (isExistingPathError(error)) {
       throw createStorageError(
         `run ${validation.value.run_id} already reserves run_id space beneath .skia`,
       );
@@ -1144,8 +2233,16 @@ export function writeStagedReceipt(
     }
 
     const absolutePath = receiptFilePath(repositoryRoot, validation.value);
-    const serializedReceipt = `${JSON.stringify(validation.value, null, 2)}\n`;
-    writeNewFile(absolutePath, serializedReceipt);
+    const serializedReceipt = serializeStagedReceipt(validation.value);
+    assertSerializedReceiptBytes(serializedReceipt);
+    writeNewFileAtomically(absolutePath, serializedReceipt, () => {
+      const publishedArtifacts = validateStagedArtifactHashes(skiaRootPath, validation.value);
+      validateStagedBehaviorCardArtifact(
+        skiaRootPath,
+        validation.value,
+        publishedArtifacts,
+      );
+    });
 
     return {
       path: absolutePath,
@@ -1216,7 +2313,15 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
 
       const receipt = validateStagedReceiptFile(repositoryReceiptsRoots.skiaRootPath, receiptPath);
       assertReceiptFileBinding(entryName, receipt);
-      validateStagedArtifactHashes(repositoryReceiptsRoots.skiaRootPath, receipt);
+      const hashedArtifacts = validateStagedArtifactHashes(
+        repositoryReceiptsRoots.skiaRootPath,
+        receipt,
+      );
+      validateStagedBehaviorCardArtifact(
+        repositoryReceiptsRoots.skiaRootPath,
+        receipt,
+        hashedArtifacts,
+      );
       runs.push({
         run_id: receipt.run_id,
         mode: "review",
@@ -1230,7 +2335,89 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
     }
   }
 
+  const claimRoots = readStorageRoots(
+    repositoryRoot,
+    RUN_ID_CLAIMS_DIRECTORY_NAME,
+  );
+  const listedRunIds = new Set(runs.map((run) => run.run_id));
+
+  if (claimRoots !== null) {
+    for (const entryName of [...fs.readdirSync(claimRoots.leafRootPath)].sort()) {
+      if (!entryName.endsWith(".json")) {
+        continue;
+      }
+
+      let runId: RunId;
+
+      try {
+        runId = validateRunId(entryName.slice(0, -5));
+      } catch {
+        continue;
+      }
+
+      if (listedRunIds.has(runId)) {
+        continue;
+      }
+
+      const claim = parseRunIdClaim(
+        claimRoots.skiaRootPath,
+        path.join(claimRoots.leafRootPath, entryName),
+      );
+
+      if (claim.run_id !== runId || claim.mode !== "review") {
+        continue;
+      }
+
+      const receiptPath = canonicalStagedClaimPath(runId, claim.storage_path);
+      const parsedReceipt = parseStagedReceiptFileName(
+        receiptPath.split("/").at(-1) ?? "",
+      );
+
+      if (parsedReceipt === null || parsedReceipt.runId !== runId) {
+        throw createStorageError(
+          `staged run claim ${entryName} has an invalid storage path`,
+        );
+      }
+
+      runs.push({
+        run_id: runId,
+        mode: "review",
+        status: "incomplete",
+        created_at: createdAtFromRunId(runId),
+        completed_at: null,
+        snapshot_identifier: "not_available",
+        artifact_bytes: incompleteStagedArtifactBytes(
+          repositoryRoot,
+          runId,
+          parsedReceipt.sessionId,
+        ),
+      });
+    }
+  }
+
   return runs.sort((left, right) => left.run_id.localeCompare(right.run_id));
+}
+
+function redactStagedReceipt(receipt: StagedReceipt): InspectedStagedReceipt {
+  return {
+    schema_version: receipt.schema_version,
+    tool_version: receipt.tool_version,
+    run_id: receipt.run_id,
+    session_id: receipt.session_id,
+    status: receipt.status,
+    completed_at: receipt.completed_at,
+    snapshot: receipt.snapshot,
+    coverage: receipt.coverage,
+    artifact_hashes: receipt.artifact_hashes,
+    errors: receipt.errors,
+    privacy_caveat: receipt.privacy_caveat,
+    review: receipt.review === undefined
+      ? null
+      : {
+          card_status: receipt.review.card_status,
+          session_counts: receipt.review.session_counts,
+        },
+  };
 }
 
 export function inspectRun(repositoryRoot: string, runIdInput: string): InspectedRun {
@@ -1265,16 +2452,72 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
     const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, targets.receiptName);
     const receipt = validateStagedReceiptFile(receiptsRoots.skiaRootPath, absoluteReceiptPath);
     assertReceiptFileBinding(targets.receiptName, receipt);
+    const hashedArtifacts = validateStagedArtifactHashes(receiptsRoots.skiaRootPath, receipt);
+    validateStagedBehaviorCardArtifact(
+      receiptsRoots.skiaRootPath,
+      receipt,
+      hashedArtifacts,
+    );
 
     return {
       kind: "review",
       run_id: runId,
       receipt_path: validateRunArtifactPath(`receipts/${targets.receiptName}`),
-      receipt,
+      receipt: redactStagedReceipt(receipt),
     };
   }
 
+  if (targets.claimPath !== null) {
+    const claimRoots = readStorageRoots(
+      repositoryRoot,
+      RUN_ID_CLAIMS_DIRECTORY_NAME,
+    );
+
+    if (claimRoots === null) {
+      throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
+    }
+
+    const claim = parseRunIdClaim(claimRoots.skiaRootPath, targets.claimPath);
+
+    if (claim.mode === "review" && claim.run_id === runId) {
+      return {
+        kind: "review_incomplete",
+        run_id: runId,
+        status: "incomplete",
+        receipt_path: canonicalStagedClaimPath(runId, claim.storage_path),
+      };
+    }
+  }
+
   throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
+}
+
+function removeStagedReceiptTemporaries(
+  roots: NonNullable<ReturnType<typeof readStorageRoots>>,
+  receiptName: string,
+): DeleteRunResult {
+  const temporaryPrefix = `.${receiptName}.tmp-`;
+  const failures: string[] = [];
+
+  for (const entryName of fs.readdirSync(roots.leafRootPath)) {
+    const suffix = entryName.slice(temporaryPrefix.length);
+
+    if (
+      entryName.startsWith(temporaryPrefix) &&
+      /^(?:[0-9]+-[0-9]+|[0-9a-f]{32})$/.test(suffix)
+    ) {
+      const result = deleteTree(
+        roots.skiaRootPath,
+        path.join(roots.leafRootPath, entryName),
+      );
+      failures.push(...result.remaining_paths);
+    }
+  }
+
+  return {
+    deleted: failures.length === 0,
+    remaining_paths: [...new Set(failures)].sort(),
+  };
 }
 
 export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRunResult {
@@ -1328,6 +2571,14 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
       };
     }
 
+    const temporaryResult = removeStagedReceiptTemporaries(
+      receiptsRoots,
+      targets.receiptName,
+    );
+    if (!temporaryResult.deleted) {
+      return temporaryResult;
+    }
+
     const receiptDeleteResult = deleteTree(
       receiptsRoots.skiaRootPath,
       absoluteReceiptPath,
@@ -1341,6 +2592,61 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
   }
 
   if (targets.claimPath !== null) {
+    const claimRoots = readStorageRoots(
+      repositoryRoot,
+      RUN_ID_CLAIMS_DIRECTORY_NAME,
+    );
+
+    if (claimRoots === null) {
+      throw createStorageError(`run ${runIdInput} does not exist beneath .skia`);
+    }
+
+    const claim = parseRunIdClaim(claimRoots.skiaRootPath, targets.claimPath);
+
+    if (claim.mode === "review") {
+      if (claim.run_id !== runId) {
+        throw createStorageError(
+          `staged run claim for ${runIdInput} has an invalid storage path`,
+        );
+      }
+
+      const receiptPath = canonicalStagedClaimPath(runId, claim.storage_path);
+      const parsedReceipt = parseStagedReceiptFileName(
+        receiptPath.split("/").at(-1) ?? "",
+      );
+
+      if (parsedReceipt === null || parsedReceipt.runId !== runId) {
+        throw createStorageError(
+          `staged run claim for ${runIdInput} has an invalid storage path`,
+        );
+      }
+
+      const artifactResult = removeIncompleteStagedArtifacts(
+        repositoryRoot,
+        runId,
+        parsedReceipt.sessionId,
+      );
+
+      if (!artifactResult.deleted) {
+        return artifactResult;
+      }
+
+      const receiptsRoots = readStorageRoots(
+        repositoryRoot,
+        RECEIPTS_DIRECTORY_NAME,
+      );
+      const receiptName = receiptPath.split("/").at(-1);
+      if (receiptsRoots !== null && receiptName !== undefined) {
+        const temporaryResult = removeStagedReceiptTemporaries(
+          receiptsRoots,
+          receiptName,
+        );
+        if (!temporaryResult.deleted) {
+          return temporaryResult;
+        }
+      }
+    }
+
     return removeRunIdClaim(repositoryRoot, runId);
   }
 

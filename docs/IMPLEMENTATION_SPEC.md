@@ -1,15 +1,15 @@
 # Spec: Skia Implementation
 
-**Status:** Draft for review. This document completes the specification phase
-for the implementation described in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
-It does not authorize implementation until the contract-freeze gates are
-approved.
+**Status:** Active implementation contract. Phase 1 foundations and one narrow
+staged-review pilot have been implemented; later phases remain gated by this
+specification and the open decisions.
 
 **Product name:** Skia
 
-**Product state:** Documentation-only. There is currently no CLI, TypeScript package,
-schema implementation, fixture corpus, generated artifact, or product test
-suite.
+**Product state:** The TypeScript package, schemas, fixtures, tests, Git/storage
+foundation, and one literal guard-return `skia review` path exist. Repository
+review, broad semantic reduction, agent transport, and HLD/LLD generation do
+not.
 
 **Implementation boundary:** The next implementation target is Phase 1
 Foundations only: the hardened Git boundary, the selected snapshot strategy,
@@ -138,6 +138,7 @@ Each collapsed relation contains:
 - one or more base/staged source anchors containing path, line/column range,
   and blob identity;
 - `derivation: deterministic`;
+- `claim_state: observed` when the relation is read from the staged source;
 - explicit coverage; and
 - `details_available` indicating whether expanded source/evidence is available.
 
@@ -267,6 +268,8 @@ Rules:
 - `<PATH>` defaults to the discovered Git repository root and is read-only.
 - Output always stays under that repository's `.skia/`; there is no arbitrary
   output-path flag in the pilot.
+- `skia review` refuses before snapshot capture or artifact allocation unless
+  the repository's Git ignore rules cover `.skia/`.
 - `--non-interactive` fails clearly when a prediction, subsystem selection, or
   agent consent is required; it never assumes consent or fabricates input.
 - `--no-agent` produces deterministic repository output with HLD/LLD marked
@@ -622,6 +625,12 @@ Implement one supported named function/method path end to end: changed-entity
 ownership, collapsed evidence, one literal-derived scenario, prediction
 persistence, narrow source check, optional unexecuted probe, receipt, and
 golden terminal output. Expand syntax only through new failing fixtures.
+
+**Pilot checkpoint:** The named TypeScript function literal guard-return path
+is implemented with line coverage, prediction/skip persistence, source-derived
+feedback, receipts, golden output, and executable no-target-execution tests.
+Methods, TSX/Python reduction, probes, source-view menu actions, and the full
+AC-4 through AC-6 gate remain open.
 
 #### Phase 4: Repository deterministic slice
 

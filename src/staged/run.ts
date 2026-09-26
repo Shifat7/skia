@@ -1,0 +1,505 @@
+import { Buffer } from "node:buffer";
+import { randomBytes } from "node:crypto";
+import path from "node:path";
+import process from "node:process";
+
+import {
+  assertStagedPersistencePathsIgnored,
+  captureStagedSnapshot,
+  GitSnapshotError,
+  requireIgnoredSkiaOutputRoot,
+} from "../git.js";
+import { MAX_TERMINAL_INPUT_BYTES } from "../limits.js";
+import { validateSessionId } from "../paths.js";
+import {
+  abortStagedRun,
+  allocateStagedRun,
+  completeStagedRun,
+  writeStagedArtifactFile,
+} from "../storage.js";
+import type { StagedRunAllocation } from "../storage.js";
+import { formatRfc3339UtcSeconds } from "../time.js";
+import type { JsonScalar } from "../types.js";
+import { createPredictionSession } from "./card.js";
+import { jsonScalarFromUnknown } from "./json-scalar.js";
+import { analyzeCapturedStagedSnapshot } from "./pipeline.js";
+import type { SupportedStagedPipelineResult } from "./types.js";
+import {
+  createSkippedStagedReviewReceipt,
+  createStagedReviewReceipt,
+} from "./receipt.js";
+
+export interface StagedReviewRunOptions {
+  readonly input?: string;
+  readonly now?: () => Date;
+  readonly read_input?: (prompt: string) => string | Promise<string>;
+  readonly repository_root?: string;
+  readonly session_id?: string;
+  readonly before_allocation?: () => void;
+  readonly after_run_allocated?: () => void;
+}
+
+export interface StagedReviewRunResult {
+  readonly exit_code: number;
+  readonly kind:
+    | "review_complete"
+    | "review_skipped"
+    | "review_unsupported"
+    | "review_failed"
+    | "invalid_prediction";
+  readonly output: string;
+}
+
+type ParsedPrediction =
+  | { readonly kind: "prediction"; readonly value: JsonScalar }
+  | { readonly kind: "skip" }
+  | { readonly kind: "invalid"; readonly reason: "format" | "limit" };
+
+const TERMINAL_FORMATTING_PATTERN =
+  /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+
+export function escapeTerminalText(value: string): string {
+  return value.replace(
+    TERMINAL_FORMATTING_PATTERN,
+    (character) =>
+      `\\u${character.codePointAt(0)?.toString(16).padStart(4, "0") ?? "fffd"}`,
+  );
+}
+
+function createSessionId() {
+  return validateSessionId(randomBytes(8).toString("hex"));
+}
+
+function parsePrediction(input: string): ParsedPrediction {
+  const framed = input.replace(/\r?\n$/, "");
+  if (Buffer.from(framed, "utf8").byteLength > MAX_TERMINAL_INPUT_BYTES) {
+    return { kind: "invalid", reason: "limit" };
+  }
+
+  const value = framed.split(/\r?\n/, 1)[0]?.trim() ?? "";
+
+  if (value === "skip") {
+    return { kind: "skip" };
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    const scalar = jsonScalarFromUnknown(parsed);
+    return scalar === undefined
+      ? { kind: "invalid", reason: "format" }
+      : { kind: "prediction", value: scalar };
+  } catch {
+    return { kind: "invalid", reason: "format" };
+  }
+}
+
+function formatCoverageSummary(summary: {
+  readonly supported_units: number;
+  readonly partial_units: number;
+  readonly unmapped_units: number;
+  readonly unsupported_units: number;
+  readonly failed_units: number;
+  readonly unchecked_units: number;
+}): string {
+  return (
+    `supported=${summary.supported_units} ` +
+    `partial=${summary.partial_units} ` +
+    `unmapped=${summary.unmapped_units} ` +
+    `unsupported=${summary.unsupported_units} ` +
+    `failed=${summary.failed_units} ` +
+    `unchecked=${summary.unchecked_units}`
+  );
+}
+
+function promptOutput(
+  analysis: ReturnType<typeof analyzeCapturedStagedSnapshot> & {
+    readonly kind: "supported";
+  },
+): string {
+  const summary = analysis.coverage.summary;
+
+  return [
+    "Skia staged review",
+    `Evidence: ${escapeTerminalText(analysis.analysis.evidence.relation)}`,
+    `Coverage: ${formatCoverageSummary(summary)}`,
+    `GIVEN ${escapeTerminalText(analysis.analysis.scenario.given.parameter)} = ` +
+      escapeTerminalText(
+        JSON.stringify(analysis.analysis.scenario.given.value),
+      ),
+    `WHEN ${escapeTerminalText(analysis.analysis.scenario.when)}`,
+    'Predict THEN as JSON, or type "skip":',
+    "",
+  ].join("\n");
+}
+
+interface PredictionInput {
+  readonly input: string;
+  readonly promptWasEmitted: boolean;
+}
+
+function bindInterruptCleanup(
+  allocationRef: { current: StagedRunAllocation | null },
+): () => void {
+  const abortAndExit = (exitCode: number): void => {
+    const allocation = allocationRef.current;
+    if (allocation !== null) {
+      try {
+        abortStagedRun(allocation);
+      } catch {
+        // Process exit leaves no caller to report cleanup failure.
+      }
+    }
+    process.exit(exitCode);
+  };
+  const onSigint = (): void => {
+    abortAndExit(130);
+  };
+  const onSigterm = (): void => {
+    abortAndExit(143);
+  };
+  process.on("SIGINT", onSigint);
+  process.on("SIGTERM", onSigterm);
+  return () => {
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
+  };
+}
+
+function isPromise<T>(value: T | Promise<T>): value is Promise<T> {
+  return typeof (value as Promise<T> | null)?.then === "function";
+}
+
+function readPredictionInput(
+  options: StagedReviewRunOptions,
+  prompt: string,
+): PredictionInput | Promise<PredictionInput> {
+  if (options.read_input !== undefined) {
+    const read = options.read_input(prompt);
+    return isPromise(read)
+      ? read.then((input) => ({
+        input,
+        promptWasEmitted: true,
+      }))
+      : {
+        input: read,
+        promptWasEmitted: true,
+      };
+  }
+
+  return {
+    input: options.input ?? "",
+    promptWasEmitted: false,
+  };
+}
+
+function failedReview(
+  error: unknown,
+  allocation: StagedRunAllocation | null,
+  completed: boolean,
+): StagedReviewRunResult {
+  const message = error instanceof Error ? error.message : String(error);
+  let cleanupMessage = "";
+
+  if (allocation !== null && !completed) {
+    try {
+      abortStagedRun(allocation);
+    } catch (cleanupError) {
+      cleanupMessage =
+        `; cleanup failed: ${
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError)
+        }`;
+    }
+  }
+
+  const configurationError =
+    error instanceof GitSnapshotError &&
+    error.reason === "output_root_not_ignored";
+
+  return {
+    exit_code: configurationError ? 2 : 1,
+    kind: "review_failed",
+    output:
+      `Skia staged review failed: ${escapeTerminalText(message)}` +
+      `${escapeTerminalText(cleanupMessage)}\n`,
+  };
+}
+
+function completePrediction(
+  input: PredictionInput,
+  activeAllocation: StagedRunAllocation,
+  pipeline: SupportedStagedPipelineResult,
+  prompt: string,
+  repositoryRoot: string,
+  now: () => Date,
+  markCompleted: () => void,
+  clearAllocation: () => void,
+): StagedReviewRunResult {
+  const prediction = parsePrediction(input.input);
+
+  if (prediction.kind === "invalid") {
+    abortStagedRun(activeAllocation);
+    clearAllocation();
+    return {
+      exit_code: 2,
+      kind: "invalid_prediction",
+      output:
+        (input.promptWasEmitted ? "" : prompt) +
+        (
+          prediction.reason === "limit"
+            ? `Prediction exceeds the ${MAX_TERMINAL_INPUT_BYTES}-byte input limit.\n`
+            : "Prediction must be a valid JSON scalar or \"skip\".\n"
+        ),
+    };
+  }
+
+  if (prediction.kind === "skip") {
+    assertStagedPersistencePathsIgnored(
+      repositoryRoot,
+      activeAllocation.runId,
+      activeAllocation.sessionId,
+    );
+    const behaviorCard = writeStagedArtifactFile(
+      activeAllocation,
+      "behavior_cards",
+      `${JSON.stringify({
+        scenario: pipeline.analysis.scenario,
+        action: "skip",
+        sealed_at: formatRfc3339UtcSeconds(now()),
+      }, null, 2)}\n`,
+    );
+    const receipt = createSkippedStagedReviewReceipt({
+      allocation: activeAllocation,
+      analysis: pipeline.analysis,
+      behavior_card_artifact: behaviorCard,
+      completed_at: now(),
+      coverage: pipeline.coverage,
+      snapshot: pipeline.snapshot,
+    });
+    assertStagedPersistencePathsIgnored(
+      repositoryRoot,
+      activeAllocation.runId,
+      activeAllocation.sessionId,
+    );
+    const completedRun = completeStagedRun(activeAllocation, receipt);
+    markCompleted();
+    const suffix = [
+      "Prediction skipped.",
+      `Receipt: ${relativeReceiptPath(completedRun.receiptPath, repositoryRoot)}`,
+      "",
+    ].join("\n");
+
+    return {
+      exit_code: 0,
+      kind: "review_skipped",
+      output: (input.promptWasEmitted ? "" : prompt) + suffix,
+    };
+  }
+
+  const predictionSession = createPredictionSession(pipeline.analysis);
+  const artifacts: ReturnType<typeof writeStagedArtifactFile>[] = [];
+  const sealed = predictionSession.persistPrediction(
+    {
+      kind: "return_value",
+      value: prediction.value,
+    },
+    (record) => {
+      assertStagedPersistencePathsIgnored(
+        repositoryRoot,
+        activeAllocation.runId,
+        activeAllocation.sessionId,
+      );
+      artifacts.push(
+        writeStagedArtifactFile(
+          activeAllocation,
+          "behavior_cards",
+          `${JSON.stringify(record, null, 2)}\n`,
+        ),
+      );
+    },
+    now(),
+  );
+  const behaviorCard = artifacts[0];
+
+  if (behaviorCard === undefined) {
+    throw new Error("prediction persistence produced no behavior-card artifact");
+  }
+
+  const sourceCheck = predictionSession.sourceCheck();
+  const receipt = createStagedReviewReceipt({
+    allocation: activeAllocation,
+    analysis: pipeline.analysis,
+    behavior_card_artifact: behaviorCard,
+    completed_at: now(),
+    coverage: pipeline.coverage,
+    sealed_prediction: sealed,
+    snapshot: pipeline.snapshot,
+    source_check: sourceCheck,
+  });
+  assertStagedPersistencePathsIgnored(
+    repositoryRoot,
+    activeAllocation.runId,
+    activeAllocation.sessionId,
+  );
+  const completedRun = completeStagedRun(activeAllocation, receipt);
+  markCompleted();
+  const suffix = [
+    `Source check: ${sourceCheck.status}`,
+    "Expected source-derived return: " +
+      escapeTerminalText(JSON.stringify(sourceCheck.expected)),
+    `Receipt: ${relativeReceiptPath(completedRun.receiptPath, repositoryRoot)}`,
+    "",
+  ].join("\n");
+
+  return {
+    exit_code: 0,
+    kind: "review_complete",
+    output: (input.promptWasEmitted ? "" : prompt) + suffix,
+  };
+}
+
+function relativeReceiptPath(
+  absolutePath: string,
+  repositoryRoot: string,
+): string {
+  return path.relative(repositoryRoot, absolutePath).split(path.sep).join("/");
+}
+
+export function runStagedReview(
+  options?: StagedReviewRunOptions & {
+    readonly read_input?: (prompt: string) => string;
+  },
+): StagedReviewRunResult;
+export function runStagedReview(
+  options: StagedReviewRunOptions & {
+    readonly read_input: (prompt: string) => Promise<string>;
+  },
+): Promise<StagedReviewRunResult>;
+export function runStagedReview(
+  options?: StagedReviewRunOptions,
+): StagedReviewRunResult | Promise<StagedReviewRunResult>;
+export function runStagedReview(
+  options: StagedReviewRunOptions = {},
+): StagedReviewRunResult | Promise<StagedReviewRunResult> {
+  const requestedRoot = options.repository_root ?? process.cwd();
+  const now = options.now ?? (() => new Date());
+  let allocation: StagedRunAllocation | null = null;
+  let completed = false;
+
+  try {
+    const createdAt = now();
+    const sessionId = options.session_id === undefined
+      ? createSessionId()
+      : validateSessionId(options.session_id);
+    const temporaryStamp = createdAt.getTime();
+    const repositoryRoot = requireIgnoredSkiaOutputRoot(
+      requestedRoot,
+      createdAt,
+      sessionId,
+      temporaryStamp,
+    );
+    const capture = captureStagedSnapshot(repositoryRoot, {
+      temporary_stamp: temporaryStamp,
+    });
+    const pipeline = analyzeCapturedStagedSnapshot(capture);
+
+    if (pipeline.kind === "failed") {
+      return {
+        exit_code: 1,
+        kind: "review_failed",
+        output:
+          `Skia staged review failed: ${pipeline.reason}\n` +
+          `Coverage: ${formatCoverageSummary(pipeline.coverage.summary)}\n`,
+      };
+    }
+
+    if (pipeline.kind !== "supported") {
+      const summary = pipeline.coverage.summary;
+      return {
+        exit_code: pipeline.reason === "staged_budget_exceeded" ? 1 : 2,
+        kind: "review_unsupported",
+        output:
+          `Skia staged review unavailable: ${pipeline.reason}\n` +
+          `Coverage: ${formatCoverageSummary(summary)}\n`,
+      };
+    }
+
+    const allocationRef: { current: StagedRunAllocation | null } = {
+      current: null,
+    };
+    const unbindInterruptCleanup = bindInterruptCleanup(allocationRef);
+    const prompt = promptOutput(pipeline);
+    let activeAllocation: StagedRunAllocation;
+    let pendingInput: PredictionInput | Promise<PredictionInput>;
+    try {
+      options.before_allocation?.();
+      requireIgnoredSkiaOutputRoot(
+        repositoryRoot,
+        createdAt,
+        sessionId,
+        temporaryStamp,
+      );
+      activeAllocation = allocateStagedRun(
+        repositoryRoot,
+        sessionId,
+        createdAt,
+        pipeline.snapshot,
+        pipeline.coverage,
+        capture.captured_blobs,
+        (created) => {
+          allocationRef.current = created;
+          allocation = created;
+          options.after_run_allocated?.();
+        },
+      );
+      allocationRef.current = activeAllocation;
+      allocation = activeAllocation;
+      pendingInput = readPredictionInput(options, prompt);
+    } catch (error) {
+      unbindInterruptCleanup();
+      throw error;
+    }
+
+    if (isPromise(pendingInput)) {
+      return pendingInput
+        .then((input) => completePrediction(
+          input,
+          activeAllocation,
+          pipeline,
+          prompt,
+          repositoryRoot,
+          now,
+          () => {
+            completed = true;
+          },
+          () => {
+            allocation = null;
+          },
+        ))
+        .catch((error: unknown) => failedReview(error, allocation, completed))
+        .finally(unbindInterruptCleanup);
+    }
+    const input = pendingInput;
+    try {
+      return completePrediction(
+        input,
+        activeAllocation,
+        pipeline,
+        prompt,
+        repositoryRoot,
+        now,
+        () => {
+          completed = true;
+        },
+        () => {
+          allocation = null;
+        },
+      );
+    } finally {
+      unbindInterruptCleanup();
+    }
+  } catch (error) {
+    return failedReview(error, allocation, completed);
+  }
+}
