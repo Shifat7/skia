@@ -389,7 +389,7 @@ function outsideAnchorTextChanged(
 
   const parsed = parsePilotSource({ source: baseSource });
   if (typeof parsed !== "object" || parsed.kind !== "supported") {
-    return false;
+    return true;
   }
 
   const baseOutside = lineOutsideAnchors(

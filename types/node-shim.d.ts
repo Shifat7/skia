@@ -71,6 +71,7 @@ declare module "node:fs" {
   export function openSync(path: string, flags: string, mode?: number): number;
   export function renameSync(oldPath: string, newPath: string): void;
   export function closeSync(fd: number): void;
+  export function fstatSync(fd: number): Stats;
   export function fsyncSync(fd: number): void;
   export function readSync(
     fd: number,
@@ -117,6 +118,7 @@ declare module "node:fs" {
     openSync: typeof openSync;
     renameSync: typeof renameSync;
     closeSync: typeof closeSync;
+    fstatSync: typeof fstatSync;
     fsyncSync: typeof fsyncSync;
     readSync: typeof readSync;
     writeSync: typeof writeSync;

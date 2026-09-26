@@ -11,7 +11,7 @@ import {
   MAX_STAGED_RECEIPT_BYTES,
   TOOL_VERSION,
 } from "../src/limits.js";
-import type { Sha256Hex, StagedReceipt } from "../src/types.js";
+import type { CoverageEnvelope, Sha256Hex, StagedReceipt } from "../src/types.js";
 import { captureStagedSnapshot } from "../src/git.js";
 import {
   deriveStagedArtifactPath,
@@ -1165,6 +1165,120 @@ test("completing a staged run rejects a behavior card replaced while the receipt
   }
 
   assert.strictEqual(fs.existsSync(receiptPath), false);
+});
+
+test("allocating a staged run rejects an oversized claim before creating it", () => {
+  const repositoryRoot = createSupportedRepository();
+  const claimPath = path.join(
+    repositoryRoot,
+    ".skia",
+    "run-ids",
+    "20260922T010203Z.json",
+  );
+  const coverage = {
+    summary: {
+      total_units: 1,
+      supported_units: 0,
+      partial_units: 0,
+      unmapped_units: 0,
+      unsupported_units: 1,
+      excluded_units: 0,
+      failed_units: 0,
+      unchecked_units: 0,
+    },
+    events: [
+      {
+        id: "x".repeat(MAX_RUN_ID_CLAIM_BYTES),
+        coverage: "unsupported",
+        units: 1,
+        reason: "syntax_error",
+        path: null,
+        language: null,
+        anchors: [],
+      },
+    ],
+  };
+
+  assert.throws(
+    () => allocateStagedRun(
+      repositoryRoot,
+      validateSessionId("8f5d1a2c"),
+      new Date("2026-09-22T01:02:03Z"),
+      undefined,
+      coverage as unknown as CoverageEnvelope,
+    ),
+    /exceeds/,
+  );
+  assert.strictEqual(fs.existsSync(claimPath), false);
+});
+
+test("completing a one-line guard edit publishes the supported review", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const base =
+    'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }\n';
+  writeRepoTextFile(repositoryRoot, "src/gate-status.ts", base);
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+  commitAll(repositoryRoot, "add gate");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    base.replace('code === "ready"', 'code === "go"'),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const capture = captureStagedSnapshot(repositoryRoot);
+  const pipeline = analyzeCapturedStagedSnapshot(capture);
+  assert.strictEqual(pipeline.kind, "supported");
+  if (pipeline.kind !== "supported") {
+    return;
+  }
+
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+    pipeline.snapshot,
+    pipeline.coverage,
+    capture.captured_blobs,
+  );
+  const session = createPredictionSession(pipeline.analysis);
+  const artifacts: ReturnType<typeof writeStagedArtifactFile>[] = [];
+  const sealed = session.persistPrediction(
+    { kind: "return_value", value: "ok" },
+    (record) => {
+      artifacts.push(
+        writeStagedArtifactFile(
+          allocation,
+          "behavior_cards",
+          `${JSON.stringify(record, null, 2)}\n`,
+        ),
+      );
+    },
+    new Date("2026-09-22T01:02:04Z"),
+  );
+  const artifact = artifacts[0];
+  if (artifact === undefined) {
+    throw new Error("expected behavior-card artifact");
+  }
+
+  const completed = completeStagedRun(
+    allocation,
+    createStagedReviewReceipt({
+      allocation,
+      analysis: pipeline.analysis,
+      behavior_card_artifact: artifact,
+      completed_at: new Date("2026-09-22T01:02:05Z"),
+      coverage: pipeline.coverage,
+      sealed_prediction: sealed,
+      snapshot: pipeline.snapshot,
+      source_check: session.sourceCheck(),
+    }),
+  );
+
+  assert.strictEqual(fs.existsSync(completed.receiptPath), true);
 });
 
 test("inspecting an incomplete run rejects a claim above the byte limit", () => {

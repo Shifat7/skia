@@ -129,6 +129,23 @@ test("pilot analyzer refuses an export-only edit of a multiline function whose g
   }
 });
 
+test("pilot analyzer refuses a one-line rewrite whose base is not a supported pilot shape", () => {
+  const result = analyzeLiteralGuardFunction({
+    base_source:
+      'export function gateStatus(code: string): string { return code; }\n',
+    blob_oid: BLOB_OID,
+    changed_lines: [1],
+    path: PATH,
+    source:
+      'export function gateStatus(code: string): string { if (code === "go") return "ok"; return "hold"; }\n',
+  });
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind === "unsupported") {
+    assert.strictEqual(result.reason, "unmapped_region");
+  }
+});
+
 test("pilot analyzer refuses a same-line edit that changes the guard and text outside it", () => {
   const base =
     'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }\n';

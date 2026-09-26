@@ -410,18 +410,48 @@ function assertSerializedReceiptBytes(serialized: string): void {
   }
 }
 
+function readBoundedClaim(filePath: string): string {
+  const fileDescriptor = fs.openSync(filePath, "r");
+
+  try {
+    const stats = fs.fstatSync(fileDescriptor);
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      throw createStorageError("run-id claim must be a regular file");
+    }
+    if (stats.size > MAX_RUN_ID_CLAIM_BYTES) {
+      throw createStorageError(
+        `run-id claim exceeds ${MAX_RUN_ID_CLAIM_BYTES} bytes`,
+      );
+    }
+
+    const buffer = Buffer.alloc(stats.size);
+    let offset = 0;
+    while (offset < stats.size) {
+      const read = fs.readSync(
+        fileDescriptor,
+        buffer,
+        offset,
+        stats.size - offset,
+        null,
+      );
+      if (read <= 0) {
+        throw createStorageError("run-id claim could not be read");
+      }
+      offset += read;
+    }
+
+    return Buffer.from(buffer).toString("utf8");
+  } finally {
+    fs.closeSync(fileDescriptor);
+  }
+}
+
 function parseRunIdClaim(
   rootPath: string,
   filePath: string,
 ): RunIdClaimRecord {
-  assertRegularStorageFile(rootPath, filePath, "run-id claim");
-  if (fs.lstatSync(filePath).size > MAX_RUN_ID_CLAIM_BYTES) {
-    throw createStorageError(
-      `run-id claim exceeds ${MAX_RUN_ID_CLAIM_BYTES} bytes`,
-    );
-  }
-
-  return parseRegularJson<RunIdClaimRecord>(rootPath, filePath, "run-id claim");
+  assertNoSymlinkInPath(rootPath, filePath);
+  return JSON.parse(readBoundedClaim(filePath)) as RunIdClaimRecord;
 }
 
 function parseRegularJson<T>(
@@ -942,7 +972,14 @@ function writeRunIdClaim(
     ...(stagedCoverage === undefined ? {} : { staged_coverage: stagedCoverage }),
   };
 
-  writeNewFile(claimPath, `${JSON.stringify(claimRecord, null, 2)}\n`);
+  const serializedClaim = `${JSON.stringify(claimRecord, null, 2)}\n`;
+  if (asBytes(serializedClaim).byteLength > MAX_RUN_ID_CLAIM_BYTES) {
+    throw createStorageError(
+      `run-id claim exceeds ${MAX_RUN_ID_CLAIM_BYTES} bytes`,
+    );
+  }
+
+  writeNewFile(claimPath, serializedClaim);
   storageTestHooks?.afterRunIdClaim?.({ mode, runId });
   return claimPath;
 }
@@ -1161,7 +1198,26 @@ function assertReviewMatchesSnapshot(
     }
   }
 
+  const snapshotEntry = receipt.snapshot.entries.find(
+    (entry) => entry.path === anchor.path,
+  );
+  const baseOid = snapshotEntry?.base_blob_oid ?? null;
+  let baseSource: string | null = null;
+  if (baseOid !== null) {
+    try {
+      const heldBase = capturedBlobs?.get(baseOid);
+      baseSource = new TextDecoder("utf-8", { fatal: true }).decode(
+        heldBase ?? readRepositoryBlob(repositoryRoot, baseOid),
+      );
+    } catch {
+      throw createStorageError(
+        "source check expected value must match the staged snapshot source",
+      );
+    }
+  }
+
   const analysis = analyzeLiteralGuardFunction({
+    base_source: baseSource,
     blob_oid: anchor.blob_oid,
     changed_lines: changedLines,
     path: anchor.path,
