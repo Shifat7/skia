@@ -295,3 +295,23 @@ test("git security rejects an oversized live index before reading it", () => {
   assert.ok(thrown instanceof GitSnapshotError);
   assert.strictEqual((thrown as GitSnapshotError).reason, "git_index_limit_exceeded");
 });
+
+test("git security rejects a symlinked live index before reading it", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, "src/example.ts");
+  const indexPath = path.join(repositoryRoot, ".git", "index");
+  const relocated = path.join(repositoryRoot, ".git", "index.real");
+  fs.renameSync(indexPath, relocated);
+  fs.symlinkSync(relocated, indexPath);
+
+  let thrown: unknown = null;
+  try {
+    captureStagedSnapshot(repositoryRoot);
+  } catch (error) {
+    thrown = error;
+  }
+
+  assert.ok(thrown instanceof GitSnapshotError);
+  assert.match((thrown as GitSnapshotError).detail ?? "", /regular file/);
+});

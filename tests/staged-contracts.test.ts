@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
@@ -623,6 +624,50 @@ test("pilot analyzer rejects parser columns past the source line", () => {
     kind: "failed",
     reason: "parse_failed",
   });
+});
+
+test("pilot analyzer does not execute a repository preload from NODE_OPTIONS", () => {
+  const repositoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-preload-"));
+  const marker = path.join(repositoryRoot, "preload-ran");
+  fs.writeFileSync(
+    path.join(repositoryRoot, "preload.cjs"),
+    `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\n`,
+  );
+  const env = process.env as Record<string, string | undefined>;
+  const previousOptions = env.NODE_OPTIONS;
+  const previousPath = env.NODE_PATH;
+  const previousCwd = process.cwd();
+  env.NODE_OPTIONS = "--require ./preload.cjs";
+  env.NODE_PATH = repositoryRoot;
+  process.chdir(repositoryRoot);
+  try {
+    analyzeLiteralGuardFunction({
+      blob_oid: BLOB_OID,
+      changed_lines: [1, 2, 3, 4],
+      path: PATH,
+      source: [
+        "export function gateStatus(code: string): string {",
+        '  if (code === "ready") return "ok";',
+        '  return "hold";',
+        "}",
+        "",
+      ].join("\n"),
+    });
+  } finally {
+    process.chdir(previousCwd);
+    if (previousOptions === undefined) {
+      delete env.NODE_OPTIONS;
+    } else {
+      env.NODE_OPTIONS = previousOptions;
+    }
+    if (previousPath === undefined) {
+      delete env.NODE_PATH;
+    } else {
+      env.NODE_PATH = previousPath;
+    }
+  }
+
+  assert.strictEqual(fs.existsSync(marker), false);
 });
 
 test("pilot analyzer reports parser process failures as failed analysis", () => {

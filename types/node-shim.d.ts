@@ -217,6 +217,7 @@ declare module "node:util" {
 declare module "node:process" {
   const process: {
     cwd(): string;
+    chdir(directory: string): void;
     stdout: {
       write(value: string): void;
     };

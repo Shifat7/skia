@@ -501,6 +501,22 @@ function resolveTrustedGitExecutable(
   );
 }
 
+function enclosingWorktreeRoot(start: string): string {
+  let current = path.resolve(start);
+  while (true) {
+    try {
+      fs.lstatSync(path.join(current, ".git"));
+      return current;
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return path.resolve(start);
+      }
+      current = parent;
+    }
+  }
+}
+
 function gitCommandOptions(
   repositoryRoot: string,
   options?: CaptureGitSnapshotOptions,
@@ -509,7 +525,7 @@ function gitCommandOptions(
     gitExecutable: resolveTrustedGitExecutable(
       options?.git_executable ?? "git",
       options?.process_env ?? process.env,
-      repositoryRoot,
+      enclosingWorktreeRoot(repositoryRoot),
     ),
     outputLimitBytes:
       options?.output_limit_bytes ?? DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
@@ -834,25 +850,58 @@ function absoluteGitDirectory(commandOptions: GitCommandOptions): string {
   );
 }
 
+function filesystemErrorCode(error: unknown): string | null {
+  return error instanceof Error && "code" in error && typeof error.code === "string"
+    ? error.code
+    : null;
+}
+
 function readLiveIndexBytes(indexPath: string): Uint8Array {
-  if (!fs.existsSync(indexPath)) {
-    return Buffer.alloc(0);
-  }
-
-  const stats = fs.lstatSync(indexPath);
-
-  if (stats.isSymbolicLink() || !stats.isFile()) {
+  let descriptor: number;
+  try {
+    descriptor = fs.openSync(
+      indexPath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+  } catch (error) {
+    if (filesystemErrorCode(error) === "ENOENT") {
+      return Buffer.alloc(0);
+    }
     throw new GitSnapshotError("git_process_failed", "Git index must be a regular file");
   }
 
-  if (stats.size > MAX_GIT_INDEX_BYTES) {
-    throw new GitSnapshotError(
-      "git_index_limit_exceeded",
-      `Git index is ${stats.size} bytes; limit is ${MAX_GIT_INDEX_BYTES} bytes`,
-    );
-  }
+  try {
+    const stats = fs.fstatSync(descriptor);
+    if (!stats.isFile()) {
+      throw new GitSnapshotError("git_process_failed", "Git index must be a regular file");
+    }
+    if (stats.size > MAX_GIT_INDEX_BYTES) {
+      throw new GitSnapshotError(
+        "git_index_limit_exceeded",
+        `Git index is ${stats.size} bytes; limit is ${MAX_GIT_INDEX_BYTES} bytes`,
+      );
+    }
 
-  return fs.readFileSync(indexPath);
+    const bytes = Buffer.alloc(stats.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = fs.readSync(
+        descriptor,
+        bytes,
+        offset,
+        bytes.length - offset,
+        null,
+      );
+      if (read === 0) {
+        break;
+      }
+      offset += read;
+    }
+
+    return offset === bytes.length ? bytes : bytes.subarray(0, offset);
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 function liveIndexExists(indexPath: string): boolean {

@@ -105,6 +105,30 @@ test("git snapshot does not execute a git binary stored inside the repository", 
   assert.strictEqual(fs.existsSync(marker), false);
 });
 
+test("git snapshot does not execute a git binary above the requested nested directory", () => {
+  const repositoryRoot = createTempGitRepository();
+  const nestedRoot = path.join(repositoryRoot, "packages", "app");
+  fs.mkdirSync(nestedRoot, { recursive: true });
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(nestedRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
 test("git snapshot captures explicit branch state, raw staged records, and canonical full-index patch bytes", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));

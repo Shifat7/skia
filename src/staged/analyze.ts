@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
+import os from "node:os";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
@@ -113,6 +114,13 @@ function normalizeTimeout(timeoutMs: number | undefined): number {
     : Math.max(1, Math.floor(timeoutMs));
 }
 
+function parserChildEnvironment(): Readonly<Record<string, string | undefined>> {
+  const env: Record<string, string | undefined> = { ...process.env };
+  delete env.NODE_OPTIONS;
+  delete env.NODE_PATH;
+  return env;
+}
+
 function parsePilotSource(
   options: {
     readonly source: string;
@@ -125,7 +133,9 @@ function parsePilotSource(
     args: [PARSER_CHILD_PATH],
   };
   const result = spawnSync(command.command, command.args, {
+    cwd: os.tmpdir(),
     encoding: "utf8",
+    env: parserChildEnvironment(),
     input: JSON.stringify({ source: options.source }),
     maxBuffer: MAX_OUTPUT_BYTES,
     shell: false,
