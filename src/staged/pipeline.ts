@@ -593,16 +593,31 @@ export function analyzeCapturedStagedSnapshot(
     };
   }
 
-  const baseBlob = entry.base_blob_oid === null
-    ? null
-    : capture.captured_blobs.find((candidate) => candidate.oid === entry.base_blob_oid) ??
-      null;
   let baseSource: string | null = null;
-  if (baseBlob !== null && !baseBlob.bytes.includes(0)) {
+  if (entry.base_blob_oid !== null) {
+    const baseBlob = capture.captured_blobs.find(
+      (candidate) => candidate.oid === entry.base_blob_oid,
+    );
+    if (baseBlob === undefined || baseBlob.bytes.includes(0)) {
+      return {
+        kind: "failed",
+        reason: "binary_source",
+        coverage: failedCoverage(entry, "binary_source", changedUnitCount),
+      };
+    }
+
     try {
       baseSource = UTF8_DECODER.decode(baseBlob.bytes);
     } catch {
-      baseSource = null;
+      return {
+        kind: "failed",
+        reason: "invalid_source_encoding",
+        coverage: failedCoverage(
+          entry,
+          "invalid_source_encoding",
+          changedUnitCount,
+        ),
+      };
     }
   }
 

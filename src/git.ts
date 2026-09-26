@@ -388,12 +388,53 @@ function buildGitEnvironment(
   return merged;
 }
 
+function resolveTrustedGitExecutable(
+  requested: string,
+  processEnv: Readonly<Record<string, string | undefined>>,
+): string {
+  if (path.isAbsolute(requested)) {
+    return requested;
+  }
+
+  if (requested.includes("/") || requested.includes("\\")) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git executable must be resolved from an absolute PATH entry",
+    );
+  }
+
+  const pathValue = processEnv.PATH ?? process.env.PATH ?? "";
+  for (const entry of pathValue.split(path.delimiter)) {
+    if (entry.length === 0 || !path.isAbsolute(entry)) {
+      continue;
+    }
+
+    const candidate = path.join(entry, requested);
+    try {
+      const stats = fs.statSync(candidate);
+      if (stats.isFile() && (stats.mode & 0o111) !== 0) {
+        return candidate;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  throw new GitSnapshotError(
+    "git_process_failed",
+    "git executable was not found on an absolute PATH entry",
+  );
+}
+
 function gitCommandOptions(
   repositoryRoot: string,
   options?: CaptureGitSnapshotOptions,
 ): GitCommandOptions {
   return {
-    gitExecutable: options?.git_executable ?? "git",
+    gitExecutable: resolveTrustedGitExecutable(
+      options?.git_executable ?? "git",
+      options?.process_env ?? process.env,
+    ),
     outputLimitBytes:
       options?.output_limit_bytes ?? DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
     processEnv: options?.process_env ?? process.env,
@@ -531,6 +572,8 @@ function stagedOutputProbePaths(
         `copied-index-${process.pid}-${temporaryStamp}-${attempt}.bin`,
       ].join("/"),
     ),
+    `${SKIA_DIRECTORY_NAME}/${TMP_DIRECTORY_NAME}`,
+    `${SKIA_DIRECTORY_NAME}/${TMP_DIRECTORY_NAME}/attribute-worktree-${process.pid}-1-probe`,
     ...runIds.flatMap((runId) => {
       const receiptName = `${runId}-${sessionId}-session.json`;
 
@@ -1030,7 +1073,7 @@ function stagedPatchBytes(
       relativePath,
       "text",
     );
-    if (diffAttribute === "unset" && textAttribute !== "unset") {
+    if (diffAttribute === "unset") {
       continue;
     }
 

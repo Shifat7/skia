@@ -1431,6 +1431,37 @@ test("inspecting an incomplete run rejects a claim path outside the receipt root
     () => inspectRun(repositoryRoot, allocation.runId),
     /invalid storage path/,
   );
+  assert.throws(
+    () => listRuns(repositoryRoot),
+    /invalid storage path/,
+  );
+  assert.throws(
+    () => deleteRun(repositoryRoot, allocation.runId),
+    /invalid storage path/,
+  );
+});
+
+test("inspecting an incomplete run rejects a symlinked claim file", () => {
+  const repositoryRoot = createSupportedRepository();
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const claimPath = path.join(
+    repositoryRoot,
+    ".skia",
+    "run-ids",
+    `${allocation.runId}.json`,
+  );
+  const outsidePath = path.join(repositoryRoot, "outside-claim.json");
+  fs.renameSync(claimPath, outsidePath);
+  fs.symlinkSync(outsidePath, claimPath);
+
+  assert.throws(
+    () => inspectRun(repositoryRoot, allocation.runId),
+    /regular file/,
+  );
 });
 
 test("completing a staged run leaves a pre-existing receipt temporary in place", () => {

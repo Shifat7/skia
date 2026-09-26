@@ -558,6 +558,37 @@ test("pilot analyzer rejects later rebinding of the reviewed function", () => {
   });
 });
 
+test("pilot analyzer rejects parser ranges that are not safe integers", () => {
+  const response = JSON.stringify({
+    kind: "supported",
+    entity_name: "gateStatus",
+    parameter_name: "code",
+    guard_text: 'code === "ready"',
+    guard_value: "ready",
+    return_text: 'return "ok"',
+    return_value: "ok",
+    invocation: 'gateStatus("ready")',
+    entity_range: { start_line: 1e20, start_column: 0, end_line: 1e20, end_column: 1 },
+    guard_range: { start_line: 1e20, start_column: 0, end_line: 1e20, end_column: 1 },
+    return_range: { start_line: 1e20, start_column: 0, end_line: 1e20, end_column: 1 },
+  });
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1],
+    parser_command: {
+      command: NODE_EXECUTABLE,
+      args: ["-e", `process.stdout.write(${JSON.stringify(response)})`],
+    },
+    path: PATH,
+    source: 'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }\n',
+  });
+
+  assert.deepStrictEqual(result, {
+    kind: "failed",
+    reason: "parse_failed",
+  });
+});
+
 test("pilot analyzer reports parser process failures as failed analysis", () => {
   const result = analyzeLiteralGuardFunction({
     blob_oid: BLOB_OID,

@@ -39,10 +39,10 @@ function isRange(value: unknown): value is PilotParserNodeRange {
 
   const range = value as Partial<PilotParserNodeRange>;
   return (
-    Number.isInteger(range.start_line) &&
-    Number.isInteger(range.start_column) &&
-    Number.isInteger(range.end_line) &&
-    Number.isInteger(range.end_column) &&
+    Number.isSafeInteger(range.start_line) &&
+    Number.isSafeInteger(range.start_column) &&
+    Number.isSafeInteger(range.end_line) &&
+    Number.isSafeInteger(range.end_column) &&
     (range.start_line ?? 0) >= 1 &&
     (range.start_column ?? -1) >= 0 &&
     (range.end_line ?? 0) >= (range.start_line ?? 1) &&
@@ -455,6 +455,18 @@ export function analyzeLiteralGuardFunction(
     return {
       kind: "unsupported",
       reason: parsed.reason ?? "no_supported_staged_entity",
+    };
+  }
+
+  const sourceLineTotal = sourceLineBytes(options.source).length;
+  if (
+    parsed.entity_range.end_line > sourceLineTotal ||
+    parsed.guard_range.end_line > sourceLineTotal ||
+    parsed.return_range.end_line > sourceLineTotal
+  ) {
+    return {
+      kind: "failed",
+      reason: "parse_failed",
     };
   }
 

@@ -213,7 +213,10 @@ test("captured staged snapshot analyzes a text replacement of NUL source", () =>
     captureStagedSnapshot(repositoryRoot),
   );
 
-  assert.strictEqual(result.kind, "supported");
+  assert.strictEqual(result.kind, "failed");
+  if (result.kind === "failed") {
+    assert.strictEqual(result.reason, "binary_source");
+  }
 });
 
 test("captured staged snapshot analyzes a source file marked binary by attributes", () => {
@@ -249,7 +252,37 @@ test("captured staged snapshot analyzes a source file marked binary by attribute
     captureStagedSnapshot(repositoryRoot),
   );
 
-  assert.strictEqual(result.kind, "supported");
+  assert.strictEqual(result.kind, "unsupported");
+});
+
+test("captured staged snapshot keeps combined diff and text suppression unsupported", () => {
+  const repositoryRoot = createRepository();
+  writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts -diff -text\n");
+  writeRepoBinaryFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    Buffer.from([0x00, 0x0a]),
+  );
+  stagePaths(repositoryRoot, ".gitattributes", "src/gate-status.ts");
+  commitAll(repositoryRoot, "suppress typescript text");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
 });
 
 test("captured staged snapshot analyzes a UTF-8 replacement of non-UTF-8 source", () => {
@@ -278,7 +311,10 @@ test("captured staged snapshot analyzes a UTF-8 replacement of non-UTF-8 source"
     captureStagedSnapshot(repositoryRoot),
   );
 
-  assert.strictEqual(result.kind, "supported");
+  assert.strictEqual(result.kind, "failed");
+  if (result.kind === "failed") {
+    assert.strictEqual(result.reason, "invalid_source_encoding");
+  }
 });
 
 test("changed-line parser returns only staged-side added lines", () => {

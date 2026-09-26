@@ -57,6 +57,26 @@ test("git snapshot leaves a pre-existing copied index in place", () => {
   assert.strictEqual(fs.readFileSync(copiedIndexPath, "utf8"), "kept\n");
 });
 
+test("git snapshot does not execute a repository-local git when PATH contains dot", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const localGit = path.join(repositoryRoot, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(repositoryRoot, {
+    process_env: {
+      PATH: `.:${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
 test("git snapshot captures explicit branch state, raw staged records, and canonical full-index patch bytes", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));

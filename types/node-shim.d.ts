@@ -68,7 +68,7 @@ declare module "node:fs" {
   export function linkSync(existingPath: string, newPath: string): void;
   export function mkdirSync(path: string, options?: number | MakeDirectoryOptions): string | undefined;
   export function mkdtempSync(prefix: string): string;
-  export function openSync(path: string, flags: string, mode?: number): number;
+  export function openSync(path: string, flags: string | number, mode?: number): number;
   export function renameSync(oldPath: string, newPath: string): void;
   export function closeSync(fd: number): void;
   export function fstatSync(fd: number): Stats;
@@ -102,6 +102,11 @@ declare module "node:fs" {
   export function statSync(path: string): Stats;
   export function symlinkSync(target: string, path: string): void;
   export function unlinkSync(path: string): void;
+
+  export const constants: {
+    readonly O_NOFOLLOW: number;
+    readonly O_RDONLY: number;
+  };
   export function writeFileSync(
     path: string,
     data: string | Uint8Array,
@@ -131,6 +136,7 @@ declare module "node:fs" {
     symlinkSync: typeof symlinkSync;
     unlinkSync: typeof unlinkSync;
     writeFileSync: typeof writeFileSync;
+    constants: typeof constants;
   };
 
   export default fs;
@@ -148,15 +154,19 @@ declare module "node:path" {
     normalize(path: string): string;
   }
 
+  export function isAbsolute(path: string): boolean;
   export function join(...parts: readonly string[]): string;
   export function dirname(path: string): string;
   export function relative(from: string, to: string): string;
   export function resolve(...parts: readonly string[]): string;
+  export const delimiter: string;
   export const sep: string;
   export const posix: PathPlatform;
   export const win32: PathPlatform;
 
   const path: {
+    delimiter: typeof delimiter;
+    isAbsolute: typeof isAbsolute;
     join: typeof join;
     dirname: typeof dirname;
     relative: typeof relative;

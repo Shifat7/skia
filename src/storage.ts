@@ -410,18 +410,35 @@ function assertSerializedReceiptBytes(serialized: string): void {
   }
 }
 
-function readBoundedClaim(filePath: string): string {
-  const fileDescriptor = fs.openSync(filePath, "r");
+function openNoFollow(filePath: string, label: string): number {
+  try {
+    return fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ELOOP" || error.code === "EEXIST")
+    ) {
+      throw createStorageError(`${label} must be a regular file`);
+    }
+
+    throw error;
+  }
+}
+
+function readBoundedFile(filePath: string, label: string, limit: number): string {
+  const fileDescriptor = openNoFollow(filePath, label);
 
   try {
     const stats = fs.fstatSync(fileDescriptor);
     if (stats.isSymbolicLink() || !stats.isFile()) {
-      throw createStorageError("run-id claim must be a regular file");
+      throw createStorageError(`${label} must be a regular file`);
     }
-    if (stats.size > MAX_RUN_ID_CLAIM_BYTES) {
-      throw createStorageError(
-        `run-id claim exceeds ${MAX_RUN_ID_CLAIM_BYTES} bytes`,
-      );
+    if (stats.size > limit) {
+      throw createStorageError(`${label} exceeds ${limit} bytes`);
     }
 
     const buffer = Buffer.alloc(stats.size);
@@ -435,7 +452,7 @@ function readBoundedClaim(filePath: string): string {
         null,
       );
       if (read <= 0) {
-        throw createStorageError("run-id claim could not be read");
+        throw createStorageError(`${label} could not be read`);
       }
       offset += read;
     }
@@ -451,7 +468,9 @@ function parseRunIdClaim(
   filePath: string,
 ): RunIdClaimRecord {
   assertNoSymlinkInPath(rootPath, filePath);
-  return JSON.parse(readBoundedClaim(filePath)) as RunIdClaimRecord;
+  return JSON.parse(
+    readBoundedFile(filePath, "run-id claim", MAX_RUN_ID_CLAIM_BYTES),
+  ) as RunIdClaimRecord;
 }
 
 function parseRegularJson<T>(
@@ -669,18 +688,10 @@ function validateStagedReceiptFile(
   skiaRootPath: string,
   filePath: string,
 ): StagedReceipt {
-  assertRegularStorageFile(skiaRootPath, filePath, "staged receipt");
-  if (fs.lstatSync(filePath).size > MAX_STAGED_RECEIPT_BYTES) {
-    throw createStorageError(
-      `staged receipt exceeds ${MAX_STAGED_RECEIPT_BYTES} bytes`,
-    );
-  }
-
-  const receipt = parseRegularJson<unknown>(
-    skiaRootPath,
-    filePath,
-    "staged receipt",
-  );
+  assertNoSymlinkInPath(skiaRootPath, filePath);
+  const receipt = JSON.parse(
+    readBoundedFile(filePath, "staged receipt", MAX_STAGED_RECEIPT_BYTES),
+  ) as unknown;
   const validation = validateStagedReceipt(receipt);
 
   if (!validation.valid) {
@@ -2235,11 +2246,10 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
         continue;
       }
 
-      const receiptName = claim.storage_path.split("/").at(-1);
-      const parsedReceipt =
-        receiptName === undefined
-          ? null
-          : parseStagedReceiptFileName(receiptName);
+      const receiptPath = canonicalStagedClaimPath(runId, claim.storage_path);
+      const parsedReceipt = parseStagedReceiptFileName(
+        receiptPath.split("/").at(-1) ?? "",
+      );
 
       if (parsedReceipt === null || parsedReceipt.runId !== runId) {
         throw createStorageError(
@@ -2468,17 +2478,18 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
     const claim = parseRunIdClaim(claimRoots.skiaRootPath, targets.claimPath);
 
     if (claim.mode === "review") {
-      const receiptName = claim.storage_path.split("/").at(-1);
-      const parsedReceipt =
-        receiptName === undefined
-          ? null
-          : parseStagedReceiptFileName(receiptName);
+      if (claim.run_id !== runId) {
+        throw createStorageError(
+          `staged run claim for ${runIdInput} has an invalid storage path`,
+        );
+      }
 
-      if (
-        claim.run_id !== runId ||
-        parsedReceipt === null ||
-        parsedReceipt.runId !== runId
-      ) {
+      const receiptPath = canonicalStagedClaimPath(runId, claim.storage_path);
+      const parsedReceipt = parseStagedReceiptFileName(
+        receiptPath.split("/").at(-1) ?? "",
+      );
+
+      if (parsedReceipt === null || parsedReceipt.runId !== runId) {
         throw createStorageError(
           `staged run claim for ${runIdInput} has an invalid storage path`,
         );
@@ -2498,6 +2509,7 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
         repositoryRoot,
         RECEIPTS_DIRECTORY_NAME,
       );
+      const receiptName = receiptPath.split("/").at(-1);
       if (receiptsRoots !== null && receiptName !== undefined) {
         const temporaryResult = removeStagedReceiptTemporaries(
           receiptsRoots,
