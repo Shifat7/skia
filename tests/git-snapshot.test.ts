@@ -155,6 +155,75 @@ test("git snapshot does not execute a git binary reached through a symlinked roo
   assert.strictEqual(fs.existsSync(marker), false);
 });
 
+test("git snapshot does not stop at a nested git marker before the enclosing worktree", () => {
+  const repositoryRoot = createTempGitRepository();
+  const nestedRoot = path.join(repositoryRoot, "packages", "app");
+  fs.mkdirSync(nestedRoot, { recursive: true });
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  fs.writeFileSync(path.join(nestedRoot, ".git"), "gitdir: /tmp/not-a-repository\n");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  assert.throws(
+    () => captureStagedSnapshot(nestedRoot, {
+      process_env: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        TMPDIR: process.env.TMPDIR,
+      },
+    }),
+    /not a git repository/,
+  );
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot removes its copied index when interrupted during capture", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_000;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
+  const originalExit = process.exit;
+  let observedExit: number | undefined;
+  const before = process.listenerCount("SIGINT");
+  process.exit = ((code: number): never => {
+    observedExit = code;
+    throw new Error(`process exit ${code}`);
+  }) as typeof process.exit;
+
+  try {
+    captureStagedSnapshot(repositoryRoot, {
+      temporary_stamp: stamp,
+      test_hooks: {
+        after_copied_index_created: () => {
+          assert.strictEqual(fs.existsSync(copiedIndexPath), true);
+          (process as unknown as { emit(event: "SIGINT"): boolean }).emit("SIGINT");
+        },
+      },
+    });
+  } catch (error) {
+    assert.match(String(error), /process exit 130/);
+  } finally {
+    process.exit = originalExit;
+  }
+
+  assert.strictEqual(observedExit, 130);
+  assert.strictEqual(fs.existsSync(copiedIndexPath), false);
+  assert.strictEqual(process.listenerCount("SIGINT"), before);
+});
+
 test("git snapshot does not execute a git binary in a dot-prefixed repository directory", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");

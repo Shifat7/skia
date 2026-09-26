@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   MAX_RUN_ID_CLAIM_BYTES,
+  MAX_STAGED_ARTIFACT_BYTES,
   MAX_STAGED_RECEIPT_BYTES,
   TOOL_VERSION,
 } from "../src/limits.js";
@@ -1352,6 +1353,26 @@ test("inspecting a staged run rejects a receipt above the byte limit", () => {
   fs.writeFileSync(
     completed.receiptPath,
     Buffer.alloc(MAX_STAGED_RECEIPT_BYTES + 1),
+  );
+
+  assert.throws(
+    () => inspectRun(prepared.repositoryRoot, prepared.allocation.runId),
+    /exceeds/,
+  );
+});
+
+test("inspecting a staged run rejects an artifact above the byte limit", () => {
+  const prepared = preparedMismatchReceipt();
+  completeStagedRun(prepared.allocation, prepared.receipt);
+  const card = prepared.receipt.artifact_hashes.find(
+    (artifact) => artifact.kind === "behavior_cards",
+  );
+  if (card === undefined) {
+    throw new Error("expected a behavior card artifact");
+  }
+  fs.writeFileSync(
+    path.join(prepared.allocation.skiaRootPath, card.path),
+    Buffer.alloc(MAX_STAGED_ARTIFACT_BYTES + 1),
   );
 
   assert.throws(

@@ -18,6 +18,7 @@ export const MAX_TERMINAL_INPUT_BYTES = 4_096;
 export const MAX_STAGED_TEXT_CHARACTERS = 4_096;
 export const MAX_STAGED_RECEIPT_BYTES = 1024 * 1024;
 export const MAX_RUN_ID_CLAIM_BYTES = 1024 * 1024;
+export const MAX_STAGED_ARTIFACT_BYTES = 1024 * 1024;
 export const MAX_STAGED_CHANGED_LINES = 150;
 export const TOOL_VERSION = "0.0.0";
 

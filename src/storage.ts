@@ -12,6 +12,7 @@ import {
   LOCAL_RETENTION_CAVEAT,
   MAX_RUN_ID_COLLISION_SUFFIX,
   MAX_RUN_ID_CLAIM_BYTES,
+  MAX_STAGED_ARTIFACT_BYTES,
   MAX_STAGED_RECEIPT_BYTES,
   OWNER_DIRECTORY_MODE,
   OWNER_FILE_MODE,
@@ -429,7 +430,7 @@ function openNoFollow(filePath: string, label: string): number {
   }
 }
 
-function readBoundedFile(filePath: string, label: string, limit: number): string {
+function readBoundedBytes(filePath: string, label: string, limit: number): Uint8Array {
   const fileDescriptor = openNoFollow(filePath, label);
 
   try {
@@ -457,10 +458,14 @@ function readBoundedFile(filePath: string, label: string, limit: number): string
       offset += read;
     }
 
-    return Buffer.from(buffer).toString("utf8");
+    return buffer;
   } finally {
     fs.closeSync(fileDescriptor);
   }
+}
+
+function readBoundedFile(filePath: string, label: string, limit: number): string {
+  return Buffer.from(readBoundedBytes(filePath, label, limit)).toString("utf8");
 }
 
 function parseRunIdClaim(
@@ -1105,16 +1110,25 @@ function validateStagedArtifactHashes(
     const absolutePath = validateContainedPath(skiaRootPath, artifact.path);
     assertNoSymlinkInPath(skiaRootPath, absolutePath);
 
-    if (!fs.existsSync(absolutePath)) {
-      throw createStorageError(`staged artifact ${artifact.path} is missing`);
+    let artifactBytes: Uint8Array;
+    try {
+      artifactBytes = readBoundedBytes(
+        absolutePath,
+        `staged artifact ${artifact.path}`,
+        MAX_STAGED_ARTIFACT_BYTES,
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ) {
+        throw createStorageError(`staged artifact ${artifact.path} is missing`);
+      }
+      throw error;
     }
 
-    const stats = fs.lstatSync(absolutePath);
-    if (stats.isSymbolicLink() || !stats.isFile()) {
-      throw createStorageError(`staged artifact ${artifact.path} must be a regular file`);
-    }
-
-    const actualSha256 = sha256Hex(fs.readFileSync(absolutePath));
+    const actualSha256 = sha256Hex(artifactBytes);
     if (actualSha256 !== artifact.sha256) {
       throw createStorageError(`staged artifact ${artifact.path} sha256 does not match the receipt`);
     }

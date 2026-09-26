@@ -511,17 +511,21 @@ function enclosingWorktreeRoot(start: string): string {
     current = path.resolve(start);
   }
 
+  const fallback = current;
+  let outermost: string | null = null;
   while (true) {
     try {
       fs.lstatSync(path.join(current, ".git"));
-      return current;
+      outermost = current;
     } catch {
-      const parent = path.dirname(current);
-      if (parent === current) {
-        return path.resolve(start);
-      }
-      current = parent;
+      // A nested marker must not hide a worktree farther up.
     }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return outermost ?? fallback;
+    }
+    current = parent;
   }
 }
 
@@ -1654,25 +1658,71 @@ function parseRepositoryEntries(
   return entries;
 }
 
+function removeOwnCaptureTemporaries(repositoryRoot: string): void {
+  const tmpRoot = path.join(repositoryRoot, SKIA_DIRECTORY_NAME, TMP_DIRECTORY_NAME);
+  let names: readonly string[];
+  try {
+    names = fs.readdirSync(tmpRoot);
+  } catch {
+    return;
+  }
+
+  const copiedPrefix = `copied-index-${process.pid}-`;
+  const worktreePrefix = `attribute-worktree-${process.pid}-`;
+  for (const name of names) {
+    if (name.startsWith(copiedPrefix) || name.startsWith(worktreePrefix)) {
+      fs.rmSync(path.join(tmpRoot, name), { force: true, recursive: true });
+    }
+  }
+}
+
+function bindCaptureInterruptCleanup(repositoryRoot: string): () => void {
+  const cleanupAndExit = (exitCode: number): void => {
+    try {
+      removeOwnCaptureTemporaries(repositoryRoot);
+    } catch {
+      // Exit still has to leave the interrupted capture.
+    }
+    process.exit(exitCode);
+  };
+  const onSigint = (): void => {
+    cleanupAndExit(130);
+  };
+  const onSigterm = (): void => {
+    cleanupAndExit(143);
+  };
+  process.on("SIGINT", onSigint);
+  process.on("SIGTERM", onSigterm);
+  return () => {
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
+  };
+}
+
 export function captureStagedSnapshot(
   repositoryRoot: string,
   options?: CaptureGitSnapshotOptions,
 ): StagedSnapshotCapture {
   const resolvedRepositoryRoot = resolveGitRepositoryRoot(repositoryRoot, options);
+  const unbindCaptureInterruptCleanup = bindCaptureInterruptCleanup(resolvedRepositoryRoot);
 
-  for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
-    const capture = captureStagedAttempt(
-      resolvedRepositoryRoot,
-      attemptNumber,
-      options,
-    );
+  try {
+    for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
+      const capture = captureStagedAttempt(
+        resolvedRepositoryRoot,
+        attemptNumber,
+        options,
+      );
 
-    if (capture !== null) {
-      return capture;
+      if (capture !== null) {
+        return capture;
+      }
     }
-  }
 
-  throw new GitSnapshotError("index_changed");
+    throw new GitSnapshotError("index_changed");
+  } finally {
+    unbindCaptureInterruptCleanup();
+  }
 }
 
 export function captureRepositorySnapshot(
