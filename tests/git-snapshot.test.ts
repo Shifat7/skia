@@ -348,6 +348,33 @@ test("git snapshot does not execute git from a checkout behind a linked-worktree
   assert.strictEqual(fs.existsSync(marker), false);
 });
 
+test("git snapshot does not execute git after core.worktree leaves the checkout", () => {
+  const repositoryRoot = createTempGitRepository();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "skia-outside-worktree-"));
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["config", "core.worktree", outside]);
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, {
+      process_env: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        TMPDIR: process.env.TMPDIR,
+      },
+    }),
+    /worktree is outside the trusted checkout/,
+  );
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
 test("git snapshot cleanup does not follow a replaced temporary directory", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
@@ -529,6 +556,23 @@ test("git snapshot directory cleanup does not require python", () => {
 
   assert.strictEqual(fs.existsSync(marker), false);
   assert.strictEqual(fs.existsSync(copiedIndexPath), false);
+});
+
+test("git snapshot reports cleanup failure when descriptor paths are unavailable", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, {
+      test_hooks: {
+        force_unavailable_descriptor_cleanup: true,
+      },
+    }),
+    /Git temporary cleanup failed/,
+  );
 });
 
 test("git snapshot rejects a copied index that changes before capture is accepted", () => {

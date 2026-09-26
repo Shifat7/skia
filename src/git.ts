@@ -56,6 +56,7 @@ export interface GitSnapshotTestHooks {
   readonly before_capture_temporary_removal?: () => void;
   readonly before_live_index_revalidation?: () => void;
   readonly force_path_temporary_removal?: boolean;
+  readonly force_unavailable_descriptor_cleanup?: boolean;
 }
 
 export interface CaptureGitSnapshotOptions {
@@ -717,7 +718,15 @@ function resolveGitRepositoryRoot(
     throw new GitSnapshotError("git_process_failed", "git returned an empty repository root");
   }
 
-  return path.resolve(requestedRoot, discoveredRoot);
+  const resolvedRoot = path.resolve(requestedRoot, discoveredRoot);
+  if (!resolvedPathInsideRepository(resolvedRoot, enclosingTrustRoots(requestedRoot))) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git worktree is outside the trusted checkout",
+    );
+  }
+
+  return resolvedRoot;
 }
 
 export function requireIgnoredSkiaOutputRoot(
@@ -1842,6 +1851,7 @@ interface CaptureCleanupRecord {
   paths: string[];
   beforeDelete: (() => void) | null;
   forcePathDeletion: boolean;
+  descriptorCleanupUnavailable: boolean;
 }
 
 function rememberCaptureTemporary(
@@ -1906,7 +1916,12 @@ function magicDirectoryMatches(directory: number, magic: string): boolean {
 function captureTemporaryDeletionRoot(
   directory: number,
   forcePathDeletion: boolean,
+  descriptorCleanupUnavailable: boolean,
 ): string | null {
+  if (descriptorCleanupUnavailable) {
+    return null;
+  }
+
   const candidates = forcePathDeletion
     ? [`/dev/fd/${directory}`]
     : [`/proc/self/fd/${directory}`, `/dev/fd/${directory}`];
@@ -1969,9 +1984,16 @@ function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
     const deletionRoot = captureTemporaryDeletionRoot(
       directory,
       record.forcePathDeletion,
+      record.descriptorCleanupUnavailable,
     );
     record.beforeDelete?.();
     if (deletionRoot === null) {
+      if (recordedChildNames(record).length > 0) {
+        throw new GitSnapshotError(
+          "git_process_failed",
+          "Git temporary cleanup failed",
+        );
+      }
       return;
     }
 
@@ -2029,6 +2051,8 @@ export function captureStagedSnapshot(
     paths: [],
     beforeDelete: options?.test_hooks?.before_capture_temporary_removal ?? null,
     forcePathDeletion: options?.test_hooks?.force_path_temporary_removal === true,
+    descriptorCleanupUnavailable:
+      options?.test_hooks?.force_unavailable_descriptor_cleanup === true,
   };
   const unbindCaptureInterruptCleanup = bindCaptureInterruptCleanup(cleanup);
 

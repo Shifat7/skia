@@ -412,8 +412,15 @@ function assertSerializedReceiptBytes(serialized: string): void {
 }
 
 function openNoFollow(filePath: string, label: string): number {
+  const linkStats = fs.lstatSync(filePath);
+
+  if (linkStats.isSymbolicLink() || !linkStats.isFile()) {
+    throw createStorageError(`${label} must be a regular file`);
+  }
+
+  let descriptor: number;
   try {
-    return fs.openSync(
+    descriptor = fs.openSync(
       filePath,
       fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
     );
@@ -428,6 +435,19 @@ function openNoFollow(filePath: string, label: string): number {
 
     throw error;
   }
+
+  const opened = fs.fstatSync(descriptor);
+  if (
+    opened.isSymbolicLink() ||
+    !opened.isFile() ||
+    opened.dev !== linkStats.dev ||
+    opened.ino !== linkStats.ino
+  ) {
+    fs.closeSync(descriptor);
+    throw createStorageError(`${label} must be a regular file`);
+  }
+
+  return descriptor;
 }
 
 function readBoundedBytes(filePath: string, label: string, limit: number): Uint8Array {

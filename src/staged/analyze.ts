@@ -5,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { MAX_STAGED_TEXT_CHARACTERS } from "../limits.js";
+import { jsonScalarFromUnknown } from "./json-scalar.js";
 import type { SourceAnchor } from "../types.js";
 import type {
   AnalyzeLiteralGuardFunctionOptions,
@@ -504,6 +505,87 @@ function baseRelationShifted(
   return sameRelation && shifted;
 }
 
+function spanText(source: string, range: PilotParserNodeRange): string | null {
+  const bytes = spanBytes(source, range);
+  return bytes === null ? null : Buffer.from(bytes).toString("utf8");
+}
+
+function jsonScalar(text: string): JsonScalar | undefined {
+  try {
+    const value = jsonScalarFromUnknown(JSON.parse(text) as unknown);
+    return typeof value === "string" && value.length > MAX_STAGED_TEXT_CHARACTERS
+      ? undefined
+      : value;
+  } catch {
+    return undefined;
+  }
+}
+
+function unwrapParentheses(text: string): string {
+  let value = text.trim();
+  while (value.startsWith("(") && value.endsWith(")")) {
+    value = value.slice(1, -1).trim();
+  }
+  return value;
+}
+
+function sameJsonScalar(left: JsonScalar, right: JsonScalar): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function parserSemanticsMatchSource(
+  source: string,
+  parsed: PilotParserSuccess,
+): boolean {
+  const entity = spanText(source, parsed.entity_range);
+  const guard = spanText(source, parsed.guard_range);
+  const matchedReturn = spanText(source, parsed.return_range);
+  if (entity === null || guard === null || matchedReturn === null) {
+    return false;
+  }
+
+  const escapedName = parsed.entity_name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!new RegExp(`(?:^|\\s)function\\s+${escapedName}\\s*\\(`).test(entity)) {
+    return false;
+  }
+
+  const parameterMatch = /\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::[^=,)]+)?\s*\)/.exec(entity);
+  if (parameterMatch?.[1] !== parsed.parameter_name) {
+    return false;
+  }
+
+  const guardMatch = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*===\s*(.+)$/.exec(unwrapParentheses(guard));
+  if (guardMatch?.[1] !== parsed.parameter_name || guardMatch[2] === undefined) {
+    return false;
+  }
+
+  const guardLiteral = jsonScalar(guardMatch[2].trim());
+  if (
+    guardLiteral === undefined ||
+    !sameJsonScalar(parsed.guard_value, guardLiteral) ||
+    parsed.guard_text !== `${parsed.parameter_name} === ${JSON.stringify(guardLiteral)}`
+  ) {
+    return false;
+  }
+
+  const returnMatch = /^return\s+([\s\S]*?)\s*;?$/.exec(matchedReturn.trim());
+  if (returnMatch?.[1] === undefined) {
+    return false;
+  }
+
+  const returnLiteralText = returnMatch[1].trim();
+  const returnLiteral = jsonScalar(returnLiteralText);
+  if (
+    returnLiteral === undefined ||
+    parsed.return_text !== returnLiteralText ||
+    !sameJsonScalar(parsed.return_value, returnLiteral)
+  ) {
+    return false;
+  }
+
+  return parsed.invocation === `${parsed.entity_name}(${JSON.stringify(parsed.guard_value)})`;
+}
+
 export function analyzeLiteralGuardFunction(
   options: AnalyzeLiteralGuardFunctionOptions,
 ): PilotAnalysis {
@@ -533,7 +615,8 @@ export function analyzeLiteralGuardFunction(
     !rangeFitsSource(parsed.guard_range, sourceLines) ||
     !rangeFitsSource(parsed.return_range, sourceLines) ||
     !rangeContained(parsed.entity_range, parsed.guard_range) ||
-    !rangeContained(parsed.entity_range, parsed.return_range)
+    !rangeContained(parsed.entity_range, parsed.return_range) ||
+    !parserSemanticsMatchSource(options.source, parsed)
   ) {
     return {
       kind: "failed",

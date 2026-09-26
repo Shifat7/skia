@@ -676,6 +676,59 @@ test("pilot analyzer rejects evidence ranges outside the parsed entity", () => {
   });
 });
 
+test("pilot analyzer rejects parser semantics that disagree with the source spans", () => {
+  const source = 'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }\n';
+  const entityStart = source.indexOf("function");
+  const entityEnd = source.lastIndexOf("}") + 1;
+  const guardText = 'code === "ready"';
+  const guardStart = source.indexOf(guardText);
+  const returnText = 'return "ok"';
+  const returnStart = source.indexOf(returnText);
+  const response = JSON.stringify({
+    kind: "supported",
+    entity_name: "gateStatus",
+    parameter_name: "code",
+    guard_text: guardText,
+    guard_value: "ready",
+    return_text: '"no"',
+    return_value: "no",
+    invocation: 'gateStatus("ready")',
+    entity_range: {
+      start_line: 1,
+      start_column: entityStart,
+      end_line: 1,
+      end_column: entityEnd,
+    },
+    guard_range: {
+      start_line: 1,
+      start_column: guardStart,
+      end_line: 1,
+      end_column: guardStart + guardText.length,
+    },
+    return_range: {
+      start_line: 1,
+      start_column: returnStart,
+      end_line: 1,
+      end_column: returnStart + returnText.length,
+    },
+  });
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1],
+    parser_command: {
+      command: NODE_EXECUTABLE,
+      args: ["-e", `process.stdout.write(${JSON.stringify(response)})`],
+    },
+    path: PATH,
+    source,
+  });
+
+  assert.deepStrictEqual(result, {
+    kind: "failed",
+    reason: "parse_failed",
+  });
+});
+
 test("pilot analyzer does not execute a repository preload from NODE_OPTIONS", () => {
   const repositoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-preload-"));
   const marker = path.join(repositoryRoot, "preload-ran");
