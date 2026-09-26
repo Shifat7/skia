@@ -569,7 +569,14 @@ function mainCheckoutForGitMarker(markerPath: string, containingDirectory: strin
 
   const commonDir = path.resolve(gitDir, commonText);
   const mainCheckout = path.dirname(commonDir);
-  return path.join(mainCheckout, ".git") === commonDir ? mainCheckout : null;
+  if (path.join(mainCheckout, ".git") === commonDir) {
+    return mainCheckout;
+  }
+
+  throw new GitSnapshotError(
+    "git_process_failed",
+    "separate git directory is outside the trusted checkout layout",
+  );
 }
 
 function enclosingTrustRoots(start: string): readonly string[] {
@@ -585,15 +592,20 @@ function enclosingTrustRoots(start: string): readonly string[] {
   let outermost: string | null = null;
   while (true) {
     const markerPath = path.join(current, ".git");
+    let markerPresent = false;
     try {
       fs.lstatSync(markerPath);
+      markerPresent = true;
+    } catch {
+      // A nested marker must not hide a worktree farther up.
+    }
+
+    if (markerPresent) {
       outermost = current;
       const mainCheckout = mainCheckoutForGitMarker(markerPath, current);
       if (mainCheckout !== null) {
         roots.add(mainCheckout);
       }
-    } catch {
-      // A nested marker must not hide a worktree farther up.
     }
 
     const parent = path.dirname(current);
@@ -1503,15 +1515,7 @@ export function readRepositoryBlob(
     ["cat-file", "blob", oid],
     gitCommandOptions(path.resolve(repositoryRoot)),
   ).stdout;
-  const algorithm = oid.length === 40 ? "sha1" : oid.length === 64 ? "sha256" : null;
-  const digest = algorithm === null
-    ? null
-    : createHash(algorithm)
-      .update(`blob ${bytes.byteLength}\0`)
-      .update(bytes)
-      .digest("hex");
-
-  if (digest !== oid) {
+  if (!gitBlobBytesMatchOid(oid, bytes)) {
     throw new GitSnapshotError(
       "git_process_failed",
       "Git blob bytes do not match the object id",
@@ -1519,6 +1523,18 @@ export function readRepositoryBlob(
   }
 
   return bytes;
+}
+
+function gitBlobBytesMatchOid(oid: string, bytes: Uint8Array): boolean {
+  const algorithm = oid.length === 40 ? "sha1" : oid.length === 64 ? "sha256" : null;
+  if (algorithm === null) {
+    return false;
+  }
+
+  return createHash(algorithm)
+    .update(`blob ${bytes.byteLength}\0`)
+    .update(bytes)
+    .digest("hex") === oid;
 }
 
 function readCapturedBlobs(
@@ -1537,6 +1553,12 @@ function readCapturedBlobs(
 
   for (const oid of blobOids) {
     const bytes = runGit(["cat-file", "blob", oid], commandOptions).stdout;
+    if (!gitBlobBytesMatchOid(oid, bytes)) {
+      throw new GitSnapshotError(
+        "git_process_failed",
+        "Git blob bytes do not match the object id",
+      );
+    }
 
     if (bytes.byteLength > MAX_GIT_CAPTURED_BLOB_BYTES - totalBytes) {
       throw new GitSnapshotError(
@@ -1592,7 +1614,6 @@ function captureStagedAttempt(
     )
     : null;
   let attributeWorkTree: string | null = null;
-  let copiedIndexCreated = false;
 
   try {
     attributeWorkTree = createTemporaryAttributeWorkTree(tmpRoot, attemptNumber);
@@ -1600,7 +1621,6 @@ function captureStagedAttempt(
 
     if (copiedIndexPath !== null) {
       createNewProtectedFile(copiedIndexPath, liveIndexBytes);
-      copiedIndexCreated = true;
       rememberCaptureTemporary(cleanup, tmpRoot, copiedIndexPath);
     }
 
@@ -1683,12 +1703,7 @@ function captureStagedAttempt(
       captured_blobs: capturedBlobs,
     };
   } finally {
-    if (copiedIndexCreated && copiedIndexPath !== null && fs.existsSync(copiedIndexPath)) {
-      fs.rmSync(copiedIndexPath, { force: true });
-    }
-    if (attributeWorkTree !== null) {
-      fs.rmSync(attributeWorkTree, { force: true, recursive: true });
-    }
+    removeRecordedCaptureTemporaries(cleanup);
   }
 }
 

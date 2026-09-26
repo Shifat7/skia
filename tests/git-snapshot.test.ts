@@ -252,6 +252,67 @@ test("git snapshot does not execute a git binary from the main checkout of a lin
   assert.strictEqual(fs.existsSync(marker), false);
 });
 
+test("git snapshot rejects a linked worktree whose main checkout uses a separate git directory", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "skia-separate-git-"));
+  const gitDir = path.join(parent, "gitdir");
+  const repositoryRoot = path.join(parent, "main");
+  const linkedRoot = path.join(parent, "linked");
+  fs.mkdirSync(repositoryRoot);
+  runGit(repositoryRoot, ["init", "-q", `--separate-git-dir=${gitDir}`]);
+  runGit(repositoryRoot, ["config", "user.name", "skia"]);
+  runGit(repositoryRoot, ["config", "user.email", "skia@example.com"]);
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["worktree", "add", "-q", "-b", "linked-review", linkedRoot]);
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  assert.throws(
+    () => captureStagedSnapshot(linkedRoot, {
+      process_env: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        TMPDIR: process.env.TMPDIR,
+      },
+    }),
+    /separate git directory/,
+  );
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot cleanup does not follow a replaced temporary directory", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_001;
+  const copiedName = `copied-index-${process.pid}-${stamp}-1.bin`;
+  const victimRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-victim-tmp-"));
+  const victimFile = path.join(victimRoot, copiedName);
+  fs.writeFileSync(victimFile, "keep\n");
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, {
+      temporary_stamp: stamp,
+      test_hooks: {
+        after_copied_index_created: () => {
+          const displaced = `${tmpRoot}.real`;
+          fs.renameSync(tmpRoot, displaced);
+          fs.symlinkSync(victimRoot, tmpRoot);
+        },
+      },
+    }),
+  );
+  assert.strictEqual(fs.readFileSync(victimFile, "utf8"), "keep\n");
+});
+
 test("readRepositoryBlob rejects a loose object whose bytes do not match its name", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, "blob.txt", "known\n");
@@ -277,6 +338,37 @@ test("readRepositoryBlob rejects a loose object whose bytes do not match its nam
 
   assert.throws(
     () => readRepositoryBlob(repositoryRoot, oid as GitObjectId),
+    /do not match|git_process_failed/,
+  );
+});
+
+test("repository snapshot rejects a loose object whose bytes do not match its name", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, "src/example.ts");
+  commitAll(repositoryRoot, "seed");
+  const oid = runGit(repositoryRoot, ["rev-parse", "HEAD:src/example.ts"]).stdout.trim();
+  const objectPath = path.join(
+    repositoryRoot,
+    ".git",
+    "objects",
+    oid.slice(0, 2),
+    oid.slice(2),
+  );
+  fs.chmodSync(objectPath, 0o644);
+  const corrupted = spawnSync("python3", [
+    "-c",
+    "import pathlib, zlib, sys; pathlib.Path(sys.argv[1]).write_bytes(zlib.compress(b'blob 4\\x00nope'))",
+    objectPath,
+  ]);
+  assert.strictEqual(
+    corrupted.status,
+    0,
+    `${corrupted.stderr?.toString() ?? ""} ${corrupted.error?.message ?? ""}`,
+  );
+
+  assert.throws(
+    () => captureRepositorySnapshot(repositoryRoot),
     /do not match|git_process_failed/,
   );
 });

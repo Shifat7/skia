@@ -29,7 +29,8 @@ A receipt can contain code-derived evidence and a developer prediction. It is
 local output, not a correctness verdict and not an equivalence proof.
 Lifecycle commands refuse a staged receipt, run-id claim, or staged
 artifact larger than 1 MiB before parsing or hashing it, refuse to write a
-claim above that size, and refuse to publish a receipt above that size.
+claim or staged artifact above that size, and refuse to publish a receipt
+above that size.
 
 Reports are still welcome for:
 

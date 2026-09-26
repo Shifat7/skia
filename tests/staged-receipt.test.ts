@@ -1361,6 +1361,34 @@ test("inspecting a staged run rejects a receipt above the byte limit", () => {
   );
 });
 
+test("writing a staged artifact rejects contents above the byte limit", () => {
+  const repositoryRoot = createSupportedRepository();
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+  );
+  const artifactPath = path.join(
+    repositoryRoot,
+    ".skia",
+    deriveStagedArtifactPath(
+      allocation.runId,
+      allocation.sessionId,
+      "behavior_cards",
+    ),
+  );
+
+  assert.throws(
+    () => writeStagedArtifactFile(
+      allocation,
+      "behavior_cards",
+      Buffer.alloc(MAX_STAGED_ARTIFACT_BYTES + 1),
+    ),
+    /exceeds/,
+  );
+  assert.strictEqual(fs.existsSync(artifactPath), false);
+});
+
 test("inspecting a staged run rejects an artifact above the byte limit", () => {
   const prepared = preparedMismatchReceipt();
   completeStagedRun(prepared.allocation, prepared.receipt);

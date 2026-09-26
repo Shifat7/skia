@@ -1839,6 +1839,11 @@ export function writeStagedArtifactFile(
   );
   assertNoSymlinkInPath(allocation.skiaRootPath, absolutePath);
   const bytes = asBytes(contents);
+  if (bytes.byteLength > MAX_STAGED_ARTIFACT_BYTES) {
+    throw createStorageError(
+      `staged artifact exceeds ${MAX_STAGED_ARTIFACT_BYTES} bytes`,
+    );
+  }
 
   writeNewFile(absolutePath, bytes);
   rememberCreatedStagedArtifact(allocation, absolutePath);
