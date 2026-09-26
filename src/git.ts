@@ -576,6 +576,11 @@ function mainCheckoutForGitMarker(markerPath: string, containingDirectory: strin
   const gitDir = path.resolve(containingDirectory, gitDirText);
   const commonText = readSmallRegularFile(path.join(gitDir, "commondir"), 4_096)?.trim();
   if (commonText === undefined || commonText.length === 0) {
+    const submoduleParent = submoduleParentCheckout(gitDir);
+    if (submoduleParent !== null) {
+      return submoduleParent;
+    }
+
     throw new GitSnapshotError(
       "git_process_failed",
       "git directory marker cannot be resolved",
@@ -592,6 +597,20 @@ function mainCheckoutForGitMarker(markerPath: string, containingDirectory: strin
     "git_process_failed",
     "separate git directory is outside the trusted checkout layout",
   );
+}
+
+function submoduleParentCheckout(gitDir: string): string | null {
+  const parts = gitDir.split(path.sep);
+  const gitIndex = parts.lastIndexOf(".git");
+  if (gitIndex < 1 || parts[gitIndex + 1] !== "modules") {
+    return null;
+  }
+
+  const parent = parts.slice(0, gitIndex).join(path.sep);
+  const modulesRoot = path.join(parent, ".git", "modules");
+  return gitDir === modulesRoot || gitDir.startsWith(`${modulesRoot}${path.sep}`)
+    ? parent
+    : null;
 }
 
 function enclosingTrustRoots(start: string): readonly string[] {
@@ -1620,24 +1639,33 @@ function captureStagedAttempt(
   const gitDirectory = absoluteGitDirectory(commandOptions);
   const indexWasPresent = liveIndexExists(indexPath);
   const liveIndexBytes = readLiveIndexBytes(indexPath);
-  const copiedIndexSha256 = sha256Hex(liveIndexBytes);
-  const copiedIndexPath = indexWasPresent
-    ? tempIndexFilePath(
-      tmpRoot,
-      attemptNumber,
-      options?.temporary_stamp ?? Date.now(),
-    )
-    : null;
+  const copiedIndexPath = tempIndexFilePath(
+    tmpRoot,
+    attemptNumber,
+    options?.temporary_stamp ?? Date.now(),
+  );
   let attributeWorkTree: string | null = null;
+  const originalLiveIndexSha256 = sha256Hex(liveIndexBytes);
+  let copiedIndexSha256 = originalLiveIndexSha256;
 
   try {
     attributeWorkTree = createTemporaryAttributeWorkTree(tmpRoot, attemptNumber);
     rememberCaptureTemporary(cleanup, tmpRoot, attributeWorkTree);
 
-    if (copiedIndexPath !== null) {
+    if (indexWasPresent) {
       createNewProtectedFile(copiedIndexPath, liveIndexBytes);
-      rememberCaptureTemporary(cleanup, tmpRoot, copiedIndexPath);
+    } else {
+      runGit(
+        ["read-tree", "--empty"],
+        commandOptions,
+        {
+          GIT_DIR: gitDirectory,
+          GIT_INDEX_FILE: copiedIndexPath,
+        },
+      );
+      copiedIndexSha256 = sha256Hex(readLiveIndexBytes(copiedIndexPath));
     }
+    rememberCaptureTemporary(cleanup, tmpRoot, copiedIndexPath);
 
     options?.test_hooks?.after_copied_index_created?.();
 
@@ -1645,16 +1673,11 @@ function captureStagedAttempt(
       headState.baseState === "present"
         ? assertValidGitObjectId(headState.baseCommit, "staged base commit")
         : (EMPTY_TREE_OIDS[objectFormat] as GitObjectId);
-    const copiedIndexEnv = copiedIndexPath === null
-      ? {
-          GIT_DIR: gitDirectory,
-          GIT_WORK_TREE: attributeWorkTree,
-        }
-      : {
-          GIT_DIR: gitDirectory,
-          GIT_INDEX_FILE: copiedIndexPath,
-          GIT_WORK_TREE: attributeWorkTree,
-        };
+    const copiedIndexEnv = {
+      GIT_DIR: gitDirectory,
+      GIT_INDEX_FILE: copiedIndexPath,
+      GIT_WORK_TREE: attributeWorkTree,
+    };
     const statusEntries = parseStatusEntries(
       runGit(
         ["diff-index", "--cached", "--name-status", "-z", "-M", "-C", "--find-copies-harder", comparisonBase],
@@ -1686,11 +1709,9 @@ function captureStagedAttempt(
 
     options?.test_hooks?.before_live_index_revalidation?.();
 
-    if (copiedIndexPath !== null) {
-      const copiedBytes = readLiveIndexBytes(copiedIndexPath);
-      if (sha256Hex(copiedBytes) !== copiedIndexSha256) {
-        return null;
-      }
+    const copiedBytes = readLiveIndexBytes(copiedIndexPath);
+    if (sha256Hex(copiedBytes) !== copiedIndexSha256) {
+      return null;
     }
 
     const revalidatedLiveIndexBytes = readLiveIndexBytes(indexPath);
@@ -1700,7 +1721,7 @@ function captureStagedAttempt(
 
     if (
       revalidatedIndexWasPresent !== indexWasPresent ||
-      liveIndexSha256 !== copiedIndexSha256 ||
+      liveIndexSha256 !== originalLiveIndexSha256 ||
       !sameHeadBaseState(headState, revalidatedHeadState)
     ) {
       return null;
@@ -1841,46 +1862,29 @@ function openCaptureTemporaryDirectory(tmpRoot: string): number | null {
   }
 }
 
-function directoryStillAtPath(directory: number, tmpRoot: string): boolean {
-  try {
-    const stats = fs.lstatSync(tmpRoot);
-    const viaDescriptor = fs.fstatSync(directory);
-    return (
-      !stats.isSymbolicLink() &&
-      stats.isDirectory() &&
-      stats.dev === viaDescriptor.dev &&
-      stats.ino === viaDescriptor.ino
-    );
-  } catch {
-    return false;
-  }
-}
-
 function captureTemporaryDeletionRoot(
   directory: number,
-  tmpRoot: string,
   forcePathDeletion: boolean,
 ): string | null {
-  if (!forcePathDeletion) {
-    const magic = `/proc/self/fd/${directory}`;
-    try {
-      const linkStats = fs.lstatSync(magic);
-      if (linkStats.isSymbolicLink()) {
-        const followed = fs.statSync(magic);
-        const viaDescriptor = fs.fstatSync(directory);
-        if (
-          followed.dev === viaDescriptor.dev &&
-          followed.ino === viaDescriptor.ino
-        ) {
-          return magic;
-        }
-      }
-    } catch {
-      // Platforms without this magic link use the checked path below.
-    }
+  if (forcePathDeletion) {
+    return null;
   }
 
-  return directoryStillAtPath(directory, tmpRoot) ? tmpRoot : null;
+  const magic = `/proc/self/fd/${directory}`;
+  try {
+    const linkStats = fs.lstatSync(magic);
+    if (!linkStats.isSymbolicLink()) {
+      return null;
+    }
+
+    const followed = fs.statSync(magic);
+    const viaDescriptor = fs.fstatSync(directory);
+    return followed.dev === viaDescriptor.dev && followed.ino === viaDescriptor.ino
+      ? magic
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
@@ -1905,22 +1909,17 @@ function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
 
     const deletionRoot = captureTemporaryDeletionRoot(
       directory,
-      record.tmpRoot,
       record.forcePathDeletion,
     );
     if (deletionRoot === null) {
       return;
     }
 
-    const descriptorRelative = deletionRoot !== record.tmpRoot;
     record.beforeDelete?.();
 
     for (const target of record.paths) {
       if (path.dirname(target) !== record.tmpRoot) {
         continue;
-      }
-      if (!descriptorRelative && !directoryStillAtPath(directory, record.tmpRoot)) {
-        return;
       }
 
       const childName = target.slice(record.tmpRoot.length + path.sep.length);

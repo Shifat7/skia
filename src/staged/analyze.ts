@@ -177,6 +177,45 @@ function anchor(
   };
 }
 
+function rangeStartsBefore(
+  leftLine: number,
+  leftColumn: number,
+  rightLine: number,
+  rightColumn: number,
+): boolean {
+  return leftLine < rightLine || (leftLine === rightLine && leftColumn <= rightColumn);
+}
+
+function rangeContained(
+  outer: PilotParserNodeRange,
+  inner: PilotParserNodeRange,
+): boolean {
+  return rangeStartsBefore(
+    outer.start_line,
+    outer.start_column,
+    outer.end_line,
+    outer.end_column,
+  ) &&
+    rangeStartsBefore(
+      inner.start_line,
+      inner.start_column,
+      inner.end_line,
+      inner.end_column,
+    ) &&
+    rangeStartsBefore(
+      outer.start_line,
+      outer.start_column,
+      inner.start_line,
+      inner.start_column,
+    ) &&
+    rangeStartsBefore(
+      inner.end_line,
+      inner.end_column,
+      outer.end_line,
+      outer.end_column,
+    );
+}
+
 function rangeFitsSource(
   range: PilotParserNodeRange,
   lines: readonly Uint8Array[],
@@ -356,6 +395,10 @@ function changedLineLeavesEntity(
     return false;
   }
 
+  if (lineNumber < entity.start_line || lineNumber > entity.end_line) {
+    return true;
+  }
+
   const start = lineNumber === entity.start_line ? entity.start_column : 0;
   const end = lineNumber === entity.end_line ? entity.end_column : line.length;
   return (
@@ -488,7 +531,9 @@ export function analyzeLiteralGuardFunction(
   if (
     !rangeFitsSource(parsed.entity_range, sourceLines) ||
     !rangeFitsSource(parsed.guard_range, sourceLines) ||
-    !rangeFitsSource(parsed.return_range, sourceLines)
+    !rangeFitsSource(parsed.return_range, sourceLines) ||
+    !rangeContained(parsed.entity_range, parsed.guard_range) ||
+    !rangeContained(parsed.entity_range, parsed.return_range)
   ) {
     return {
       kind: "failed",

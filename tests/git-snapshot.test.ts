@@ -369,7 +369,7 @@ test("git snapshot cleanup stays on the checked temporary directory after it is 
   assert.strictEqual(fs.existsSync(path.join(displaced, copiedName)), false);
 });
 
-test("git snapshot path cleanup removes temporaries when the directory is unchanged", () => {
+test("git snapshot path cleanup leaves temporaries when descriptor deletion is unavailable", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
@@ -390,7 +390,7 @@ test("git snapshot path cleanup removes temporaries when the directory is unchan
     },
   });
 
-  assert.strictEqual(fs.existsSync(copiedIndexPath), false);
+  assert.strictEqual(fs.existsSync(copiedIndexPath), true);
 });
 
 test("git snapshot path cleanup stops when the temporary directory is replaced", () => {
@@ -591,6 +591,55 @@ test("git snapshot preserves an absent unborn index instead of copying a corrupt
   assert.deepStrictEqual(snapshot.identity.entries, []);
   assert.deepStrictEqual(snapshot.status_entries, []);
   assert.strictEqual(fs.existsSync(liveIndexPath), false);
+});
+
+test("git snapshot ignores a live index created after an absent index was captured", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  const liveIndexPath = path.resolve(
+    repositoryRoot,
+    runGit(repositoryRoot, ["rev-parse", "--git-path", "index"]).stdout.trim(),
+  );
+  assert.strictEqual(fs.existsSync(liveIndexPath), false);
+
+  const snapshot = captureStagedSnapshot(repositoryRoot, {
+    test_hooks: {
+      after_copied_index_created: () => {
+        stagePaths(repositoryRoot, "src/example.ts");
+      },
+      before_live_index_revalidation: () => {
+        fs.rmSync(liveIndexPath, { force: true });
+      },
+    },
+  });
+
+  assert.deepStrictEqual(snapshot.identity.entries, []);
+  assert.strictEqual(fs.existsSync(liveIndexPath), false);
+});
+
+test("git snapshot keeps a submodule inside its parent checkout trust boundary", () => {
+  const parent = createTempGitRepository();
+  const child = path.join(parent, "child");
+  const gitDir = path.join(parent, ".git", "modules", "child");
+  fs.mkdirSync(path.dirname(gitDir), { recursive: true });
+  runGit(parent, ["init", "-q", `--separate-git-dir=${gitDir}`, child]);
+  writeRepoTextFile(child, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(child, "src/example.ts");
+  const marker = path.join(parent, "executed-local-git");
+  const bin = path.join(parent, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(child, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
 });
 
 test("git snapshot uses the repository object format for unborn SHA-256 snapshots", () => {

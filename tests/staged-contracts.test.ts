@@ -626,6 +626,42 @@ test("pilot analyzer rejects parser columns past the source line", () => {
   });
 });
 
+test("pilot analyzer rejects evidence ranges outside the parsed entity", () => {
+  const source = [
+    'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }',
+    "const extra = 1;",
+    "",
+  ].join("\n");
+  const response = JSON.stringify({
+    kind: "supported",
+    entity_name: "gateStatus",
+    parameter_name: "code",
+    guard_text: 'code === "ready"',
+    guard_value: "ready",
+    return_text: 'return "ok"',
+    return_value: "ok",
+    invocation: 'gateStatus("ready")',
+    entity_range: { start_line: 1, start_column: 0, end_line: 1, end_column: 20 },
+    guard_range: { start_line: 2, start_column: 0, end_line: 2, end_column: 5 },
+    return_range: { start_line: 1, start_column: 1, end_line: 1, end_column: 4 },
+  });
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [2],
+    parser_command: {
+      command: NODE_EXECUTABLE,
+      args: ["-e", `process.stdout.write(${JSON.stringify(response)})`],
+    },
+    path: PATH,
+    source,
+  });
+
+  assert.deepStrictEqual(result, {
+    kind: "failed",
+    reason: "parse_failed",
+  });
+});
+
 test("pilot analyzer does not execute a repository preload from NODE_OPTIONS", () => {
   const repositoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-preload-"));
   const marker = path.join(repositoryRoot, "preload-ran");
