@@ -772,49 +772,99 @@ function collectRemainingPaths(
   return remainingPaths.sort();
 }
 
+function descriptorPath(descriptor: number): string | null {
+  for (const magic of [`/proc/self/fd/${descriptor}`, `/dev/fd/${descriptor}`]) {
+    try {
+      const followed = fs.statSync(magic);
+      const viaDescriptor = fs.fstatSync(descriptor);
+      if (followed.dev === viaDescriptor.dev && followed.ino === viaDescriptor.ino) {
+        return magic;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function removeEntryThroughDirectory(directory: number, childName: string): void {
+  const magic = descriptorPath(directory);
+  if (
+    magic === null ||
+    childName.length === 0 ||
+    childName.includes("/") ||
+    childName.includes("\\")
+  ) {
+    throw new Error("storage directory descriptor is unavailable");
+  }
+
+  const childPath = path.join(magic, childName);
+  const stats = fs.lstatSync(childPath);
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    fs.unlinkSync(childPath);
+    return;
+  }
+
+  const child = fs.openSync(
+    childPath,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY,
+  );
+  try {
+    const childMagic = descriptorPath(child);
+    if (childMagic === null) {
+      throw new Error("storage directory descriptor is unavailable");
+    }
+    for (const name of fs.readdirSync(childMagic)) {
+      removeEntryThroughDirectory(child, name);
+    }
+  } finally {
+    fs.closeSync(child);
+  }
+  fs.rmdirSync(childPath);
+}
+
 function deleteTree(
   skiaRootPath: string,
   absolutePath: string,
 ): DeleteRunResult {
   assertContainedAbsolutePath(skiaRootPath, absolutePath);
   assertNoSymlinkInPath(skiaRootPath, absolutePath);
-  const failures: string[] = [];
-
-  function visit(entryPath: string): void {
-    let stats: ReturnType<typeof fs.lstatSync>;
-
-    try {
-      stats = fs.lstatSync(entryPath);
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-        return;
-      }
-
+  let stats: ReturnType<typeof fs.lstatSync> | null = null;
+  try {
+    stats = fs.lstatSync(absolutePath);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
-    }
-
-    if (stats.isSymbolicLink() || !stats.isDirectory()) {
-      try {
-        fs.unlinkSync(entryPath);
-      } catch {
-        failures.push(relativePathUnderSkia(skiaRootPath, entryPath));
-      }
-
-      return;
-    }
-
-    for (const childName of fs.readdirSync(entryPath)) {
-      visit(path.join(entryPath, childName));
-    }
-
-    try {
-      fs.rmdirSync(entryPath);
-    } catch {
-      failures.push(relativePathUnderSkia(skiaRootPath, entryPath));
     }
   }
 
-  visit(absolutePath);
+  if (stats !== null) {
+    const parentPath = path.dirname(absolutePath);
+    const childName = absolutePath.slice(parentPath.length + 1);
+    let parent: number | null = null;
+    try {
+      parent = fs.openSync(
+        parentPath,
+        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY,
+      );
+      const magic = descriptorPath(parent);
+      if (magic === null) {
+        throw new Error("storage directory descriptor is unavailable");
+      }
+      const seen = fs.lstatSync(path.join(magic, childName));
+      if (seen.dev !== stats.dev || seen.ino !== stats.ino) {
+        throw new Error("storage directory descriptor is unavailable");
+      }
+      removeEntryThroughDirectory(parent, childName);
+    } catch {
+      // A path that cannot be deleted through its directory descriptor stays reported.
+    } finally {
+      if (parent !== null) {
+        fs.closeSync(parent);
+      }
+    }
+  }
 
   const remainingPaths = collectRemainingPaths(skiaRootPath, absolutePath);
 

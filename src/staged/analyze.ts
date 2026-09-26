@@ -545,7 +545,7 @@ function parserSemanticsMatchSource(
   }
 
   const escapedName = parsed.entity_name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  if (!new RegExp(`(?:^|\\s)function\\s+${escapedName}\\s*\\(`).test(entity)) {
+  if (!new RegExp(`^function\\s+${escapedName}\\s*\\(`).test(entity.trimStart())) {
     return false;
   }
 

@@ -375,6 +375,38 @@ test("git snapshot does not execute git after core.worktree leaves the checkout"
   assert.strictEqual(fs.existsSync(marker), false);
 });
 
+test("git snapshot does not execute git from a checkout named by a directory commondir", () => {
+  const repositoryRoot = createTempGitRepository();
+  const other = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  const relativeCommon = path.relative(path.join(repositoryRoot, ".git"), path.join(other, ".git"));
+  fs.writeFileSync(path.join(repositoryRoot, ".git", "commondir"), `${relativeCommon}\n`);
+  const marker = path.join(other, "executed-local-git");
+  const bin = path.join(other, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  try {
+    captureStagedSnapshot(repositoryRoot, {
+      process_env: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        TMPDIR: process.env.TMPDIR,
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof GitSnapshotError)) {
+      throw error;
+    }
+  }
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
 test("git snapshot cleanup does not follow a replaced temporary directory", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
@@ -388,18 +420,16 @@ test("git snapshot cleanup does not follow a replaced temporary directory", () =
   fs.writeFileSync(victimFile, "keep\n");
   const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
 
-  assert.throws(
-    () => captureStagedSnapshot(repositoryRoot, {
-      temporary_stamp: stamp,
-      test_hooks: {
-        after_copied_index_created: () => {
-          const displaced = `${tmpRoot}.real`;
-          fs.renameSync(tmpRoot, displaced);
-          fs.symlinkSync(victimRoot, tmpRoot);
-        },
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      after_copied_index_created: () => {
+        const displaced = `${tmpRoot}.real`;
+        fs.renameSync(tmpRoot, displaced);
+        fs.symlinkSync(victimRoot, tmpRoot);
       },
-    }),
-  );
+    },
+  });
   assert.strictEqual(fs.readFileSync(victimFile, "utf8"), "keep\n");
 });
 
@@ -573,6 +603,42 @@ test("git snapshot reports cleanup failure when descriptor paths are unavailable
     }),
     /Git temporary cleanup failed/,
   );
+});
+
+test("git snapshot keeps the original copied index when its path is replaced", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    `${readGitFixture("sample.ts")}\nexport const reviewed = true;\n`,
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+  const stamp = 1_710_000_000_008;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
+
+  const snapshot = captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      after_copied_index_created: () => {
+        fs.unlinkSync(copiedIndexPath);
+        fs.writeFileSync(copiedIndexPath, Buffer.from("replaced-index"));
+      },
+    },
+  });
+
+  const paths = snapshot.raw_records.map((record) =>
+    Buffer.from(record.path_bytes).toString("utf8"),
+  );
+  assert.ok(paths.includes("src/example.ts"));
 });
 
 test("git snapshot rejects a copied index that changes before capture is accepted", () => {

@@ -577,6 +577,10 @@ function mainCheckoutForGitMarker(markerPath: string, containingDirectory: strin
     );
   }
 
+  if (stats.isDirectory()) {
+    return directoryMarkerCheckout(markerPath);
+  }
+
   if (!stats.isFile()) {
     return null;
   }
@@ -618,6 +622,34 @@ function mainCheckoutForGitMarker(markerPath: string, containingDirectory: strin
   const commonDir = path.resolve(gitDir, commonText);
   const mainCheckout = path.dirname(commonDir);
   if (path.join(mainCheckout, ".git") === commonDir) {
+    return mainCheckout;
+  }
+
+  throw new GitSnapshotError(
+    "git_process_failed",
+    "separate git directory is outside the trusted checkout layout",
+  );
+}
+
+function directoryMarkerCheckout(gitDir: string): string | null {
+  const commonText = readSmallRegularFile(path.join(gitDir, "commondir"), 4_096)?.trim();
+  if (commonText === undefined || commonText.length === 0) {
+    return null;
+  }
+
+  const commonDir = path.resolve(gitDir, commonText);
+  let resolved: string;
+  try {
+    resolved = fs.realpathSync(commonDir);
+  } catch {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git directory marker cannot be resolved",
+    );
+  }
+
+  const mainCheckout = path.dirname(resolved);
+  if (path.join(mainCheckout, ".git") === resolved) {
     return mainCheckout;
   }
 
@@ -1680,6 +1712,7 @@ function captureStagedAttempt(
   let attributeWorkTree: string | null = null;
   const originalLiveIndexSha256 = sha256Hex(liveIndexBytes);
   let copiedIndexSha256 = originalLiveIndexSha256;
+  let copiedIndexDescriptor: number | null = null;
 
   try {
     attributeWorkTree = createTemporaryAttributeWorkTree(tmpRoot, attemptNumber);
@@ -1699,6 +1732,17 @@ function captureStagedAttempt(
       copiedIndexSha256 = sha256Hex(readLiveIndexBytes(copiedIndexPath));
     }
     rememberCaptureTemporary(cleanup, tmpRoot, copiedIndexPath);
+    copiedIndexDescriptor = fs.openSync(
+      copiedIndexPath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+    const boundIndex = processDescriptorPath(copiedIndexDescriptor);
+    if (boundIndex === null) {
+      throw new GitSnapshotError(
+        "git_process_failed",
+        "Git index snapshot cannot be bound to its file",
+      );
+    }
 
     options?.test_hooks?.after_copied_index_created?.();
 
@@ -1708,7 +1752,7 @@ function captureStagedAttempt(
         : (EMPTY_TREE_OIDS[objectFormat] as GitObjectId);
     const copiedIndexEnv = {
       GIT_DIR: gitDirectory,
-      GIT_INDEX_FILE: copiedIndexPath,
+      GIT_INDEX_FILE: boundIndex,
       GIT_WORK_TREE: attributeWorkTree,
     };
     const statusEntries = parseStatusEntries(
@@ -1742,7 +1786,7 @@ function captureStagedAttempt(
 
     options?.test_hooks?.before_live_index_revalidation?.();
 
-    const copiedBytes = readLiveIndexBytes(copiedIndexPath);
+    const copiedBytes = readDescriptorBytes(copiedIndexDescriptor);
     if (sha256Hex(copiedBytes) !== copiedIndexSha256) {
       return null;
     }
@@ -1779,6 +1823,9 @@ function captureStagedAttempt(
       captured_blobs: capturedBlobs,
     };
   } finally {
+    if (copiedIndexDescriptor !== null) {
+      fs.closeSync(copiedIndexDescriptor);
+    }
     removeRecordedCaptureTemporaries(cleanup);
   }
 }
@@ -1894,6 +1941,60 @@ function openCaptureTemporaryDirectory(tmpRoot: string): number | null {
       return null;
     }
   }
+}
+
+function processDescriptorPath(descriptor: number): string | null {
+  const magic = `/proc/${process.pid}/fd/${descriptor}`;
+  try {
+    const followed = fs.statSync(magic);
+    const viaDescriptor = fs.fstatSync(descriptor);
+    return followed.dev === viaDescriptor.dev && followed.ino === viaDescriptor.ino
+      ? magic
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function descriptorPath(descriptor: number): string | null {
+  for (const magic of [`/proc/self/fd/${descriptor}`, `/dev/fd/${descriptor}`]) {
+    try {
+      const followed = fs.statSync(magic);
+      const viaDescriptor = fs.fstatSync(descriptor);
+      if (followed.dev === viaDescriptor.dev && followed.ino === viaDescriptor.ino) {
+        return magic;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function readDescriptorBytes(descriptor: number): Uint8Array {
+  const stats = fs.fstatSync(descriptor);
+  if (!stats.isFile()) {
+    throw new GitSnapshotError("git_process_failed", "Git index must be a regular file");
+  }
+  if (stats.size > MAX_GIT_INDEX_BYTES) {
+    throw new GitSnapshotError(
+      "git_index_limit_exceeded",
+      `Git index is ${stats.size} bytes; limit is ${MAX_GIT_INDEX_BYTES} bytes`,
+    );
+  }
+
+  const bytes = Buffer.alloc(stats.size);
+  let offset = 0;
+  while (offset < bytes.length) {
+    const read = fs.readSync(descriptor, bytes, offset, bytes.length - offset, offset);
+    if (read === 0) {
+      break;
+    }
+    offset += read;
+  }
+
+  return Buffer.from(bytes.subarray(0, offset));
 }
 
 function magicDirectoryMatches(directory: number, magic: string): boolean {
