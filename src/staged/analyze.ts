@@ -167,6 +167,22 @@ function anchor(
   };
 }
 
+function rangeFitsSource(
+  range: PilotParserNodeRange,
+  lines: readonly Uint8Array[],
+): boolean {
+  if (range.start_line < 1 || range.end_line > lines.length) {
+    return false;
+  }
+
+  const first = lines[range.start_line - 1];
+  const last = lines[range.end_line - 1];
+  return first !== undefined &&
+    last !== undefined &&
+    range.start_column <= first.length &&
+    range.end_column <= last.length;
+}
+
 function overlapsChangedLine(
   range: PilotParserNodeRange,
   changedLines: ReadonlySet<number>,
@@ -458,11 +474,11 @@ export function analyzeLiteralGuardFunction(
     };
   }
 
-  const sourceLineTotal = sourceLineBytes(options.source).length;
+  const sourceLines = sourceLineBytes(options.source);
   if (
-    parsed.entity_range.end_line > sourceLineTotal ||
-    parsed.guard_range.end_line > sourceLineTotal ||
-    parsed.return_range.end_line > sourceLineTotal
+    !rangeFitsSource(parsed.entity_range, sourceLines) ||
+    !rangeFitsSource(parsed.guard_range, sourceLines) ||
+    !rangeFitsSource(parsed.return_range, sourceLines)
   ) {
     return {
       kind: "failed",

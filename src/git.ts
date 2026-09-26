@@ -388,12 +388,87 @@ function buildGitEnvironment(
   return merged;
 }
 
+function gitCandidateNames(
+  requested: string,
+  processEnv: Readonly<Record<string, string | undefined>>,
+): readonly string[] {
+  if (process.platform !== "win32") {
+    return [requested];
+  }
+
+  const extensions = (processEnv.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
+    .split(";")
+    .filter((extension) => extension.length > 0);
+  const hasExtension = extensions.some((extension) =>
+    requested.toLowerCase().endsWith(extension.toLowerCase()),
+  );
+
+  return hasExtension
+    ? [requested]
+    : [requested, ...extensions.map((extension) => `${requested}${extension}`)];
+}
+
+function resolvedPathInsideRepository(
+  candidate: string,
+  repositoryRoot: string,
+): boolean {
+  let realRoot: string;
+  try {
+    realRoot = fs.realpathSync(repositoryRoot);
+  } catch {
+    return true;
+  }
+
+  let resolved = candidate;
+  try {
+    resolved = fs.realpathSync(candidate);
+  } catch {
+    resolved = path.resolve(candidate);
+  }
+
+  const relative = path.relative(realRoot, resolved);
+  return relative === "" || (
+    !relative.startsWith("..") && !path.isAbsolute(relative)
+  );
+}
+
+function gitCandidateOutsideRepository(
+  candidate: string,
+  repositoryRoot: string,
+): string | null {
+  if (resolvedPathInsideRepository(candidate, repositoryRoot)) {
+    return null;
+  }
+
+  try {
+    const stats = fs.statSync(candidate);
+    if (!stats.isFile()) {
+      return null;
+    }
+    if (process.platform !== "win32" && (stats.mode & 0o111) === 0) {
+      return null;
+    }
+
+    return fs.realpathSync(candidate);
+  } catch {
+    return null;
+  }
+}
+
 function resolveTrustedGitExecutable(
   requested: string,
   processEnv: Readonly<Record<string, string | undefined>>,
+  repositoryRoot: string,
 ): string {
   if (path.isAbsolute(requested)) {
-    return requested;
+    if (resolvedPathInsideRepository(requested, repositoryRoot)) {
+      throw new GitSnapshotError(
+        "git_process_failed",
+        "git executable must resolve outside the repository",
+      );
+    }
+
+    return gitCandidateOutsideRepository(requested, repositoryRoot) ?? requested;
   }
 
   if (requested.includes("/") || requested.includes("\\")) {
@@ -409,14 +484,14 @@ function resolveTrustedGitExecutable(
       continue;
     }
 
-    const candidate = path.join(entry, requested);
-    try {
-      const stats = fs.statSync(candidate);
-      if (stats.isFile() && (stats.mode & 0o111) !== 0) {
-        return candidate;
+    for (const name of gitCandidateNames(requested, processEnv)) {
+      const accepted = gitCandidateOutsideRepository(
+        path.join(entry, name),
+        repositoryRoot,
+      );
+      if (accepted !== null) {
+        return accepted;
       }
-    } catch {
-      continue;
     }
   }
 
@@ -434,6 +509,7 @@ function gitCommandOptions(
     gitExecutable: resolveTrustedGitExecutable(
       options?.git_executable ?? "git",
       options?.process_env ?? process.env,
+      repositoryRoot,
     ),
     outputLimitBytes:
       options?.output_limit_bytes ?? DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
@@ -926,92 +1002,31 @@ function blobContainsNul(
   return runGit(["cat-file", "blob", oid], commandOptions).stdout.includes(0);
 }
 
-function decodeQuotedGitAttributePath(value: string): string | null {
-  if (!value.startsWith("\"") || !value.endsWith("\"")) {
-    return null;
-  }
-
-  const bytes: number[] = [];
-  const body = value.slice(1, -1);
-  const simpleEscapes: Readonly<Record<string, number>> = {
-    "\\": 0x5c,
-    "\"": 0x22,
-    n: 0x0a,
-    r: 0x0d,
-    t: 0x09,
-    b: 0x08,
-    f: 0x0c,
-    v: 0x0b,
-    a: 0x07,
-  };
-
-  for (let index = 0; index < body.length; ) {
-    const character = body[index];
-    if (character === undefined) {
-      return null;
-    }
-    if (character !== "\\") {
-      bytes.push(...Buffer.from(character, "utf8"));
-      index += 1;
-      continue;
-    }
-
-    const escaped = body[index + 1];
-    if (escaped === undefined) {
-      return null;
-    }
-
-    const simple = simpleEscapes[escaped];
-    if (simple !== undefined) {
-      bytes.push(simple);
-      index += 2;
-      continue;
-    }
-
-    if (!/[0-7]/.test(escaped)) {
-      return null;
-    }
-
-    let octal = escaped;
-    let cursor = index + 1;
-    while (
-      octal.length < 3 &&
-      cursor + 1 < body.length &&
-      /[0-7]/.test(body[cursor + 1] ?? "")
-    ) {
-      cursor += 1;
-      octal += body[cursor];
-    }
-    bytes.push(Number.parseInt(octal, 8));
-    index = cursor + 1;
-  }
-
-  return Buffer.from(bytes).toString("utf8");
-}
-
 function cachedAttribute(
   commandOptions: GitCommandOptions,
   extraEnv: Readonly<Record<string, string | undefined>>,
   relativePath: string,
   attribute: "diff" | "text",
 ): string | null {
-  const stdout = bytesToUtf8(runGit(
-    ["check-attr", "--cached", attribute, "--", relativePath],
+  const fields: string[] = [];
+  const stdout = runGit(
+    ["check-attr", "-z", "--cached", attribute, "--", relativePath],
     commandOptions,
     extraEnv,
-  ).stdout).trim();
-  const marker = `: ${attribute}: `;
-  const markerIndex = stdout.lastIndexOf(marker);
-  if (markerIndex < 0) {
-    return null;
+  ).stdout;
+  let start = 0;
+  for (let index = 0; index <= stdout.length; index += 1) {
+    if (index < stdout.length && stdout[index] !== 0) {
+      continue;
+    }
+    fields.push(bytesToUtf8(stdout.subarray(start, index)));
+    start = index + 1;
   }
 
-  const rawPath = stdout.slice(0, markerIndex);
-  const decodedPath = rawPath.startsWith("\"")
-    ? decodeQuotedGitAttributePath(rawPath)
-    : rawPath;
-
-  return decodedPath === relativePath ? stdout.slice(markerIndex + marker.length) : null;
+  const [reportedPath, reportedAttribute, reportedValue] = fields;
+  return reportedPath === relativePath && reportedAttribute === attribute
+    ? reportedValue ?? null
+    : null;
 }
 
 function patchSectionHasHunk(patch: Uint8Array, relativePath: string): boolean {

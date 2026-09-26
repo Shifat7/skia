@@ -589,6 +589,42 @@ test("pilot analyzer rejects parser ranges that are not safe integers", () => {
   });
 });
 
+test("pilot analyzer rejects parser columns past the source line", () => {
+  const response = JSON.stringify({
+    kind: "supported",
+    entity_name: "gateStatus",
+    parameter_name: "code",
+    guard_text: 'code === "ready"',
+    guard_value: "ready",
+    return_text: 'return "ok"',
+    return_value: "ok",
+    invocation: 'gateStatus("ready")',
+    entity_range: {
+      start_line: 1,
+      start_column: 0,
+      end_line: 1,
+      end_column: Number.MAX_SAFE_INTEGER,
+    },
+    guard_range: { start_line: 1, start_column: 0, end_line: 1, end_column: 1 },
+    return_range: { start_line: 1, start_column: 1, end_line: 1, end_column: 2 },
+  });
+  const result = analyzeLiteralGuardFunction({
+    blob_oid: BLOB_OID,
+    changed_lines: [1],
+    parser_command: {
+      command: NODE_EXECUTABLE,
+      args: ["-e", `process.stdout.write(${JSON.stringify(response)})`],
+    },
+    path: PATH,
+    source: 'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }\n',
+  });
+
+  assert.deepStrictEqual(result, {
+    kind: "failed",
+    reason: "parse_failed",
+  });
+});
+
 test("pilot analyzer reports parser process failures as failed analysis", () => {
   const result = analyzeLiteralGuardFunction({
     blob_oid: BLOB_OID,

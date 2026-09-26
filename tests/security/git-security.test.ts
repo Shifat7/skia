@@ -140,7 +140,7 @@ test("git security freezes staged patch rendering against unstaged gitattributes
 
 test("git security maps spawn failures without stderr to a stable GitSnapshotError", () => {
   const repositoryRoot = createTempGitRepository();
-  const missingGit = path.join(repositoryRoot, "does-not-exist-git");
+  const missingGit = path.join(os.tmpdir(), "skia-does-not-exist-git");
 
   let thrown: unknown = null;
   try {

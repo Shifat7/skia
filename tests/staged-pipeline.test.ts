@@ -255,6 +255,40 @@ test("captured staged snapshot analyzes a source file marked binary by attribute
   assert.strictEqual(result.kind, "unsupported");
 });
 
+test("captured staged snapshot keeps a leading-space -diff path unsupported when its base contains NUL", () => {
+  const repositoryRoot = createRepository();
+  const relativePath = " src/gate-status.ts";
+  writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts -diff\n");
+  writeRepoBinaryFile(
+    repositoryRoot,
+    relativePath,
+    Buffer.from([0x00, 0x0a]),
+  );
+  stagePaths(repositoryRoot, ".gitattributes", relativePath);
+  commitAll(repositoryRoot, "suppress leading-space typescript diffs");
+  writeRepoTextFile(
+    repositoryRoot,
+    relativePath,
+    [
+      "export function gateStatus(code: string): string {",
+      '  if (code === "ready") return "ok";',
+      '  return "hold";',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  stagePaths(repositoryRoot, relativePath);
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "unsupported");
+  if (result.kind === "unsupported") {
+    assert.strictEqual(result.reason, "no_supported_staged_entity");
+  }
+});
+
 test("captured staged snapshot keeps combined diff and text suppression unsupported", () => {
   const repositoryRoot = createRepository();
   writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts -diff -text\n");
