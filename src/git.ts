@@ -486,6 +486,26 @@ function resolveTrustedGitExecutable(
     );
   }
 
+  const resolved = resolveTrustedPathExecutable(requested, processEnv, roots);
+  if (resolved === null) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git executable was not found on an absolute PATH entry",
+    );
+  }
+
+  return resolved;
+}
+
+function resolveTrustedPathExecutable(
+  requested: string,
+  processEnv: Readonly<Record<string, string | undefined>>,
+  roots: readonly string[],
+): string | null {
+  if (path.isAbsolute(requested) || requested.includes("/") || requested.includes("\\")) {
+    return null;
+  }
+
   const pathValue = processEnv.PATH ?? process.env.PATH ?? "";
   for (const entry of pathValue.split(path.delimiter)) {
     if (entry.length === 0 || !path.isAbsolute(entry)) {
@@ -503,10 +523,7 @@ function resolveTrustedGitExecutable(
     }
   }
 
-  throw new GitSnapshotError(
-    "git_process_failed",
-    "git executable was not found on an absolute PATH entry",
-  );
+  return null;
 }
 
 function readSmallRegularFile(filePath: string, limit: number): string | null {
@@ -573,7 +590,17 @@ function mainCheckoutForGitMarker(markerPath: string, containingDirectory: strin
     );
   }
 
-  const gitDir = path.resolve(containingDirectory, gitDirText);
+  const lexicalGitDir = path.resolve(containingDirectory, gitDirText);
+  let gitDir: string;
+  try {
+    gitDir = fs.realpathSync(lexicalGitDir);
+  } catch {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git directory marker cannot be resolved",
+    );
+  }
+
   const commonText = readSmallRegularFile(path.join(gitDir, "commondir"), 4_096)?.trim();
   if (commonText === undefined || commonText.length === 0) {
     const submoduleParent = submoduleParentCheckout(gitDir);
@@ -1827,6 +1854,8 @@ interface CaptureCleanupRecord {
   paths: string[];
   beforeDelete: (() => void) | null;
   forcePathDeletion: boolean;
+  processEnv: Readonly<Record<string, string | undefined>>;
+  trustRoots: readonly string[];
 }
 
 function rememberCaptureTemporary(
@@ -1952,14 +1981,39 @@ function recordedChildNames(record: CaptureCleanupRecord): string[] {
 function removeChildrenAtDirectoryDescriptor(
   directory: number,
   names: readonly string[],
+  record: CaptureCleanupRecord,
 ): void {
   if (names.length === 0) {
     return;
   }
 
-  spawnSync("python3", ["-c", DIRECTORY_DESCRIPTOR_CLEANUP, ...names], {
-    stdio: ["ignore", "pipe", "pipe", directory],
-  });
+  const python = resolveTrustedPathExecutable(
+    "python3",
+    record.processEnv,
+    record.trustRoots,
+  );
+  if (python === null) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "Git temporary cleanup failed",
+    );
+  }
+
+  const result = spawnSync(
+    python,
+    ["-I", "-c", DIRECTORY_DESCRIPTOR_CLEANUP, ...names],
+    {
+      cwd: path.dirname(python),
+      env: {},
+      stdio: ["ignore", "pipe", "pipe", directory],
+    },
+  );
+  if (result.error !== undefined || result.status !== 0) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "Git temporary cleanup failed",
+    );
+  }
 }
 
 function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
@@ -1989,7 +2043,7 @@ function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
     record.beforeDelete?.();
     const childNames = recordedChildNames(record);
     if (deletionRoot === null) {
-      removeChildrenAtDirectoryDescriptor(directory, childNames);
+      removeChildrenAtDirectoryDescriptor(directory, childNames, record);
       return;
     }
 
@@ -2045,6 +2099,8 @@ export function captureStagedSnapshot(
     paths: [],
     beforeDelete: options?.test_hooks?.before_capture_temporary_removal ?? null,
     forcePathDeletion: options?.test_hooks?.force_path_temporary_removal === true,
+    processEnv: options?.process_env ?? process.env,
+    trustRoots: enclosingTrustRoots(resolvedRepositoryRoot),
   };
   const unbindCaptureInterruptCleanup = bindCaptureInterruptCleanup(cleanup);
 

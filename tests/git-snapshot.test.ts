@@ -313,6 +313,41 @@ test("git snapshot rejects an unreadable linked-worktree git marker before runni
   assert.strictEqual(fs.existsSync(marker), false);
 });
 
+test("git snapshot does not execute git from a checkout behind a linked-worktree gitdir symlink", () => {
+  const repositoryRoot = createTempGitRepository();
+  const linkedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-linked-gitdir-"));
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["worktree", "add", "-q", "-b", "linked-gitdir", linkedRoot]);
+  const markerText = fs.readFileSync(path.join(linkedRoot, ".git"), "utf8");
+  const realGitDir = markerText.match(/^gitdir: (.+)\s*$/m)?.[1];
+  if (realGitDir === undefined) {
+    throw new Error("linked worktree gitdir missing");
+  }
+  const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-fake-gitdir-"));
+  const fakeGitDir = path.join(fakeRoot, ".git", "worktrees", "linked");
+  fs.mkdirSync(path.dirname(fakeGitDir), { recursive: true });
+  fs.symlinkSync(realGitDir, fakeGitDir);
+  fs.writeFileSync(path.join(linkedRoot, ".git"), `gitdir: ${fakeGitDir}\n`);
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(linkedRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
 test("git snapshot cleanup does not follow a replaced temporary directory", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
@@ -419,6 +454,76 @@ test("git snapshot directory cleanup ignores a replaced temporary directory with
 
   assert.strictEqual(fs.readFileSync(victimFile, "utf8"), "keep\n");
   assert.strictEqual(fs.existsSync(path.join(`${tmpRoot}.real`, copiedName)), false);
+});
+
+test("git snapshot directory cleanup does not execute a repository python", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_006;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
+  const marker = path.join(repositoryRoot, "executed-local-python");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  fs.writeFileSync(
+    path.join(bin, "python3"),
+    `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`,
+  );
+  fs.chmodSync(path.join(bin, "python3"), 0o755);
+
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+    test_hooks: {
+      force_path_temporary_removal: true,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+  assert.strictEqual(fs.existsSync(copiedIndexPath), false);
+});
+
+test("git snapshot directory cleanup fails when no trusted python exists", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_007;
+  const marker = path.join(repositoryRoot, "executed-local-python");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  fs.writeFileSync(
+    path.join(bin, "python3"),
+    `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`,
+  );
+  fs.chmodSync(path.join(bin, "python3"), 0o755);
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, {
+      git_executable: resolveGitExecutable(),
+      temporary_stamp: stamp,
+      process_env: {
+        PATH: bin,
+        TMPDIR: process.env.TMPDIR,
+      },
+      test_hooks: {
+        force_path_temporary_removal: true,
+      },
+    }),
+    /Git temporary cleanup failed/,
+  );
+  assert.strictEqual(fs.existsSync(marker), false);
 });
 
 test("git snapshot rejects a copied index that changes before capture is accepted", () => {
