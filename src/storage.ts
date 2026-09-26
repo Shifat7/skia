@@ -1082,7 +1082,8 @@ function serializeStagedReceipt(receipt: StagedReceipt): string {
 function validateStagedArtifactHashes(
   skiaRootPath: string,
   receipt: StagedReceipt,
-): void {
+): ReadonlyMap<string, Uint8Array> {
+  const hashedArtifacts = new Map<string, Uint8Array>();
   const receiptArtifacts = receipt.artifact_hashes.filter((artifact) => artifact.kind === "receipt");
 
   if (receiptArtifacts.length !== 1) {
@@ -1132,7 +1133,10 @@ function validateStagedArtifactHashes(
     if (actualSha256 !== artifact.sha256) {
       throw createStorageError(`staged artifact ${artifact.path} sha256 does not match the receipt`);
     }
+    hashedArtifacts.set(artifact.path, artifactBytes);
   }
+
+  return hashedArtifacts;
 }
 
 function assertCompleteStagedReceipt(receipt: StagedReceipt): void {
@@ -1278,6 +1282,7 @@ function assertReviewMatchesSnapshot(
 function validateStagedBehaviorCardArtifact(
   skiaRootPath: string,
   receipt: StagedReceipt,
+  hashedArtifacts: ReadonlyMap<string, Uint8Array>,
   earliestInstant?: string,
 ): void {
   if (receipt.review === undefined) {
@@ -1294,11 +1299,17 @@ function validateStagedBehaviorCardArtifact(
     );
   }
 
-  const card = parseRegularJson<unknown>(
-    skiaRootPath,
-    validateContainedPath(skiaRootPath, artifact.path),
-    "staged behavior-card artifact",
-  );
+  const artifactBytes = hashedArtifacts.get(artifact.path);
+  if (artifactBytes === undefined) {
+    throw createStorageError("staged behavior-card artifact was not hashed");
+  }
+
+  let card: unknown;
+  try {
+    card = JSON.parse(Buffer.from(artifactBytes).toString("utf8")) as unknown;
+  } catch {
+    throw createStorageError("staged behavior-card artifact must be JSON");
+  }
 
   if (receipt.review.card_status === "complete") {
     if (!isDeepStrictEqual(card, receipt.review.entity.prediction)) {
@@ -2031,10 +2042,14 @@ export function completeStagedRun(
     );
   }
 
-  validateStagedArtifactHashes(allocation.skiaRootPath, validation.value);
+  const hashedArtifacts = validateStagedArtifactHashes(
+    allocation.skiaRootPath,
+    validation.value,
+  );
   validateStagedBehaviorCardArtifact(
     allocation.skiaRootPath,
     validation.value,
+    hashedArtifacts,
     runInstant ?? undefined,
   );
   assertReviewMatchesSnapshot(
@@ -2046,10 +2061,14 @@ export function completeStagedRun(
     allocation.skiaRootPath,
     validation.value,
   );
-  validateStagedArtifactHashes(allocation.skiaRootPath, validation.value);
+  const rehashedArtifacts = validateStagedArtifactHashes(
+    allocation.skiaRootPath,
+    validation.value,
+  );
   validateStagedBehaviorCardArtifact(
     allocation.skiaRootPath,
     validation.value,
+    rehashedArtifacts,
     runInstant ?? undefined,
   );
   const absolutePath = receiptFilePath(
@@ -2059,10 +2078,14 @@ export function completeStagedRun(
   const serializedReceipt = serializeStagedReceipt(validation.value);
   assertSerializedReceiptBytes(serializedReceipt);
   writeNewFileAtomically(absolutePath, serializedReceipt, () => {
-    validateStagedArtifactHashes(allocation.skiaRootPath, validation.value);
+    const publishedArtifacts = validateStagedArtifactHashes(
+      allocation.skiaRootPath,
+      validation.value,
+    );
     validateStagedBehaviorCardArtifact(
       allocation.skiaRootPath,
       validation.value,
+      publishedArtifacts,
       runInstant ?? undefined,
     );
   });
@@ -2091,8 +2114,8 @@ export function writeStagedReceipt(
   }
 
   const { skiaRootPath } = ensureStorageRoots(repositoryRoot, RECEIPTS_DIRECTORY_NAME);
-  validateStagedArtifactHashes(skiaRootPath, validation.value);
-  validateStagedBehaviorCardArtifact(skiaRootPath, validation.value);
+  const hashedArtifacts = validateStagedArtifactHashes(skiaRootPath, validation.value);
+  validateStagedBehaviorCardArtifact(skiaRootPath, validation.value, hashedArtifacts);
   assertReviewMatchesSnapshot(repositoryRoot, validation.value);
 
   let claimPath: string;
@@ -2136,8 +2159,12 @@ export function writeStagedReceipt(
     const serializedReceipt = serializeStagedReceipt(validation.value);
     assertSerializedReceiptBytes(serializedReceipt);
     writeNewFileAtomically(absolutePath, serializedReceipt, () => {
-      validateStagedArtifactHashes(skiaRootPath, validation.value);
-      validateStagedBehaviorCardArtifact(skiaRootPath, validation.value);
+      const publishedArtifacts = validateStagedArtifactHashes(skiaRootPath, validation.value);
+      validateStagedBehaviorCardArtifact(
+        skiaRootPath,
+        validation.value,
+        publishedArtifacts,
+      );
     });
 
     return {
@@ -2209,10 +2236,14 @@ export function listRuns(repositoryRoot: string): readonly RunListEntry[] {
 
       const receipt = validateStagedReceiptFile(repositoryReceiptsRoots.skiaRootPath, receiptPath);
       assertReceiptFileBinding(entryName, receipt);
-      validateStagedArtifactHashes(repositoryReceiptsRoots.skiaRootPath, receipt);
+      const hashedArtifacts = validateStagedArtifactHashes(
+        repositoryReceiptsRoots.skiaRootPath,
+        receipt,
+      );
       validateStagedBehaviorCardArtifact(
         repositoryReceiptsRoots.skiaRootPath,
         receipt,
+        hashedArtifacts,
       );
       runs.push({
         run_id: receipt.run_id,
@@ -2344,8 +2375,12 @@ export function inspectRun(repositoryRoot: string, runIdInput: string): Inspecte
     const absoluteReceiptPath = path.join(receiptsRoots.leafRootPath, targets.receiptName);
     const receipt = validateStagedReceiptFile(receiptsRoots.skiaRootPath, absoluteReceiptPath);
     assertReceiptFileBinding(targets.receiptName, receipt);
-    validateStagedArtifactHashes(receiptsRoots.skiaRootPath, receipt);
-    validateStagedBehaviorCardArtifact(receiptsRoots.skiaRootPath, receipt);
+    const hashedArtifacts = validateStagedArtifactHashes(receiptsRoots.skiaRootPath, receipt);
+    validateStagedBehaviorCardArtifact(
+      receiptsRoots.skiaRootPath,
+      receipt,
+      hashedArtifacts,
+    );
 
     return {
       kind: "review",

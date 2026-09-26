@@ -408,13 +408,10 @@ function gitCandidateNames(
     : [requested, ...extensions.map((extension) => `${requested}${extension}`)];
 }
 
-function resolvedPathInsideRepository(
-  candidate: string,
-  repositoryRoot: string,
-): boolean {
+function pathIsInsideRoot(root: string, candidate: string): boolean {
   let realRoot: string;
   try {
-    realRoot = fs.realpathSync(repositoryRoot);
+    realRoot = fs.realpathSync(root);
   } catch {
     return true;
   }
@@ -434,11 +431,18 @@ function resolvedPathInsideRepository(
   return !relative.split(path.sep).includes("..");
 }
 
+function resolvedPathInsideRepository(
+  candidate: string,
+  roots: readonly string[],
+): boolean {
+  return roots.some((root) => pathIsInsideRoot(root, candidate));
+}
+
 function gitCandidateOutsideRepository(
   candidate: string,
-  repositoryRoot: string,
+  roots: readonly string[],
 ): string | null {
-  if (resolvedPathInsideRepository(candidate, repositoryRoot)) {
+  if (resolvedPathInsideRepository(candidate, roots)) {
     return null;
   }
 
@@ -460,17 +464,17 @@ function gitCandidateOutsideRepository(
 function resolveTrustedGitExecutable(
   requested: string,
   processEnv: Readonly<Record<string, string | undefined>>,
-  repositoryRoot: string,
+  roots: readonly string[],
 ): string {
   if (path.isAbsolute(requested)) {
-    if (resolvedPathInsideRepository(requested, repositoryRoot)) {
+    if (resolvedPathInsideRepository(requested, roots)) {
       throw new GitSnapshotError(
         "git_process_failed",
         "git executable must resolve outside the repository",
       );
     }
 
-    return gitCandidateOutsideRepository(requested, repositoryRoot) ?? requested;
+    return gitCandidateOutsideRepository(requested, roots) ?? requested;
   }
 
   if (requested.includes("/") || requested.includes("\\")) {
@@ -489,7 +493,7 @@ function resolveTrustedGitExecutable(
     for (const name of gitCandidateNames(requested, processEnv)) {
       const accepted = gitCandidateOutsideRepository(
         path.join(entry, name),
-        repositoryRoot,
+        roots,
       );
       if (accepted !== null) {
         return accepted;
@@ -503,7 +507,72 @@ function resolveTrustedGitExecutable(
   );
 }
 
-function enclosingWorktreeRoot(start: string): string {
+function readSmallRegularFile(filePath: string, limit: number): string | null {
+  let descriptor: number;
+  try {
+    descriptor = fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+  } catch {
+    return null;
+  }
+
+  try {
+    const stats = fs.fstatSync(descriptor);
+    if (!stats.isFile() || stats.size > limit) {
+      return null;
+    }
+
+    const bytes = Buffer.alloc(stats.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = fs.readSync(descriptor, bytes, offset, bytes.length - offset, null);
+      if (read === 0) {
+        break;
+      }
+      offset += read;
+    }
+
+    return Buffer.from(bytes.subarray(0, offset)).toString("utf8");
+  } catch {
+    return null;
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function mainCheckoutForGitMarker(markerPath: string, containingDirectory: string): string | null {
+  let stats: ReturnType<typeof fs.lstatSync>;
+  try {
+    stats = fs.lstatSync(markerPath);
+  } catch {
+    return null;
+  }
+
+  if (!stats.isFile()) {
+    return null;
+  }
+
+  const marker = readSmallRegularFile(markerPath, 4_096);
+  const gitDirMatch = marker?.match(/^gitdir: ([^\r\n]+)\s*$/m);
+  const gitDirText = gitDirMatch?.[1];
+  if (gitDirText === undefined) {
+    return null;
+  }
+
+  const gitDir = path.resolve(containingDirectory, gitDirText);
+  const commonText = readSmallRegularFile(path.join(gitDir, "commondir"), 4_096)?.trim();
+  if (commonText === undefined || commonText.length === 0) {
+    return null;
+  }
+
+  const commonDir = path.resolve(gitDir, commonText);
+  const mainCheckout = path.dirname(commonDir);
+  return path.join(mainCheckout, ".git") === commonDir ? mainCheckout : null;
+}
+
+function enclosingTrustRoots(start: string): readonly string[] {
   let current = path.resolve(start);
   try {
     current = fs.realpathSync(current);
@@ -512,18 +581,25 @@ function enclosingWorktreeRoot(start: string): string {
   }
 
   const fallback = current;
+  const roots = new Set<string>();
   let outermost: string | null = null;
   while (true) {
+    const markerPath = path.join(current, ".git");
     try {
-      fs.lstatSync(path.join(current, ".git"));
+      fs.lstatSync(markerPath);
       outermost = current;
+      const mainCheckout = mainCheckoutForGitMarker(markerPath, current);
+      if (mainCheckout !== null) {
+        roots.add(mainCheckout);
+      }
     } catch {
       // A nested marker must not hide a worktree farther up.
     }
 
     const parent = path.dirname(current);
     if (parent === current) {
-      return outermost ?? fallback;
+      roots.add(outermost ?? fallback);
+      return [...roots];
     }
     current = parent;
   }
@@ -537,7 +613,7 @@ function gitCommandOptions(
     gitExecutable: resolveTrustedGitExecutable(
       options?.git_executable ?? "git",
       options?.process_env ?? process.env,
-      enclosingWorktreeRoot(repositoryRoot),
+      enclosingTrustRoots(repositoryRoot),
     ),
     outputLimitBytes:
       options?.output_limit_bytes ?? DEFAULT_GIT_OUTPUT_LIMIT_BYTES,
@@ -1423,10 +1499,26 @@ export function readRepositoryBlob(
     );
   }
 
-  return runGit(
+  const bytes = runGit(
     ["cat-file", "blob", oid],
     gitCommandOptions(path.resolve(repositoryRoot)),
   ).stdout;
+  const algorithm = oid.length === 40 ? "sha1" : oid.length === 64 ? "sha256" : null;
+  const digest = algorithm === null
+    ? null
+    : createHash(algorithm)
+      .update(`blob ${bytes.byteLength}\0`)
+      .update(bytes)
+      .digest("hex");
+
+  if (digest !== oid) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "Git blob bytes do not match the object id",
+    );
+  }
+
+  return bytes;
 }
 
 function readCapturedBlobs(
@@ -1479,6 +1571,7 @@ function uniqueObjectIds(values: readonly GitObjectId[]): readonly GitObjectId[]
 function captureStagedAttempt(
   repositoryRoot: string,
   attemptNumber: number,
+  cleanup: CaptureCleanupRecord,
   options?: CaptureGitSnapshotOptions,
 ): StagedSnapshotCapture | null {
   const commandOptions = gitCommandOptions(repositoryRoot, options);
@@ -1503,10 +1596,12 @@ function captureStagedAttempt(
 
   try {
     attributeWorkTree = createTemporaryAttributeWorkTree(tmpRoot, attemptNumber);
+    rememberCaptureTemporary(cleanup, tmpRoot, attributeWorkTree);
 
     if (copiedIndexPath !== null) {
       createNewProtectedFile(copiedIndexPath, liveIndexBytes);
       copiedIndexCreated = true;
+      rememberCaptureTemporary(cleanup, tmpRoot, copiedIndexPath);
     }
 
     options?.test_hooks?.after_copied_index_created?.();
@@ -1658,28 +1753,84 @@ function parseRepositoryEntries(
   return entries;
 }
 
-function removeOwnCaptureTemporaries(repositoryRoot: string): void {
-  const tmpRoot = path.join(repositoryRoot, SKIA_DIRECTORY_NAME, TMP_DIRECTORY_NAME);
-  let names: readonly string[];
+interface CaptureCleanupRecord {
+  tmpRoot: string | null;
+  tmpDev: number;
+  tmpIno: number;
+  paths: string[];
+}
+
+function rememberCaptureTemporary(
+  record: CaptureCleanupRecord,
+  tmpRoot: string,
+  createdPath: string,
+): void {
+  const stats = fs.lstatSync(tmpRoot);
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "Git temporary directory must be a real directory",
+    );
+  }
+
+  if (
+    record.tmpRoot !== null &&
+    (record.tmpRoot !== tmpRoot || record.tmpDev !== stats.dev || record.tmpIno !== stats.ino)
+  ) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "Git temporary directory changed during capture",
+    );
+  }
+
+  record.tmpRoot = tmpRoot;
+  record.tmpDev = stats.dev;
+  record.tmpIno = stats.ino;
+  record.paths.push(createdPath);
+}
+
+function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
+  if (record.tmpRoot === null) {
+    return;
+  }
+
+  let stats: ReturnType<typeof fs.lstatSync>;
   try {
-    names = fs.readdirSync(tmpRoot);
+    stats = fs.lstatSync(record.tmpRoot);
   } catch {
     return;
   }
 
-  const copiedPrefix = `copied-index-${process.pid}-`;
-  const worktreePrefix = `attribute-worktree-${process.pid}-`;
-  for (const name of names) {
-    if (name.startsWith(copiedPrefix) || name.startsWith(worktreePrefix)) {
-      fs.rmSync(path.join(tmpRoot, name), { force: true, recursive: true });
+  if (
+    stats.isSymbolicLink() ||
+    !stats.isDirectory() ||
+    stats.dev !== record.tmpDev ||
+    stats.ino !== record.tmpIno
+  ) {
+    return;
+  }
+
+  for (const target of record.paths) {
+    if (path.dirname(target) !== record.tmpRoot) {
+      continue;
+    }
+
+    try {
+      const child = fs.lstatSync(target);
+      if (child.isSymbolicLink()) {
+        continue;
+      }
+      fs.rmSync(target, { force: true, recursive: child.isDirectory() });
+    } catch {
+      // The capture temporary is already gone.
     }
   }
 }
 
-function bindCaptureInterruptCleanup(repositoryRoot: string): () => void {
+function bindCaptureInterruptCleanup(record: CaptureCleanupRecord): () => void {
   const cleanupAndExit = (exitCode: number): void => {
     try {
-      removeOwnCaptureTemporaries(repositoryRoot);
+      removeRecordedCaptureTemporaries(record);
     } catch {
       // Exit still has to leave the interrupted capture.
     }
@@ -1704,13 +1855,20 @@ export function captureStagedSnapshot(
   options?: CaptureGitSnapshotOptions,
 ): StagedSnapshotCapture {
   const resolvedRepositoryRoot = resolveGitRepositoryRoot(repositoryRoot, options);
-  const unbindCaptureInterruptCleanup = bindCaptureInterruptCleanup(resolvedRepositoryRoot);
+  const cleanup: CaptureCleanupRecord = {
+    tmpRoot: null,
+    tmpDev: 0,
+    tmpIno: 0,
+    paths: [],
+  };
+  const unbindCaptureInterruptCleanup = bindCaptureInterruptCleanup(cleanup);
 
   try {
     for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
       const capture = captureStagedAttempt(
         resolvedRepositoryRoot,
         attemptNumber,
+        cleanup,
         options,
       );
 

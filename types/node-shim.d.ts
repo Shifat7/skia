@@ -58,6 +58,8 @@ declare module "node:fs" {
     isDirectory(): boolean;
     isFile(): boolean;
     isSymbolicLink(): boolean;
+    readonly dev: number;
+    readonly ino: number;
     readonly size: number;
     readonly mode: number;
   }

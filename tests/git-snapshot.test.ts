@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,10 +8,12 @@ import process from "node:process";
 import test from "node:test";
 
 import { MAX_GIT_CAPTURED_BLOB_BYTES, TMP_DIRECTORY_NAME } from "../src/limits.js";
+import type { GitObjectId } from "../src/types.js";
 import {
   captureRepositorySnapshot,
   captureStagedSnapshot,
   GitSnapshotError,
+  readRepositoryBlob,
 } from "../src/git.js";
 import {
   asBinary,
@@ -222,6 +225,60 @@ test("git snapshot removes its copied index when interrupted during capture", ()
   assert.strictEqual(observedExit, 130);
   assert.strictEqual(fs.existsSync(copiedIndexPath), false);
   assert.strictEqual(process.listenerCount("SIGINT"), before);
+});
+
+test("git snapshot does not execute a git binary from the main checkout of a linked worktree", () => {
+  const repositoryRoot = createTempGitRepository();
+  const linkedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-linked-review-"));
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["worktree", "add", "-q", "-b", "linked-review", linkedRoot]);
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(linkedRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("readRepositoryBlob rejects a loose object whose bytes do not match its name", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "blob.txt", "known\n");
+  const oid = runGit(repositoryRoot, ["hash-object", "-w", "blob.txt"]).stdout.trim();
+  const objectPath = path.join(
+    repositoryRoot,
+    ".git",
+    "objects",
+    oid.slice(0, 2),
+    oid.slice(2),
+  );
+  fs.chmodSync(objectPath, 0o644);
+  const corrupted = spawnSync("python3", [
+    "-c",
+    "import pathlib, zlib, sys; pathlib.Path(sys.argv[1]).write_bytes(zlib.compress(b'blob 4\\x00nope'))",
+    objectPath,
+  ]);
+  assert.strictEqual(
+    corrupted.status,
+    0,
+    `${corrupted.stderr?.toString() ?? ""} ${corrupted.error?.message ?? ""}`,
+  );
+
+  assert.throws(
+    () => readRepositoryBlob(repositoryRoot, oid as GitObjectId),
+    /do not match|git_process_failed/,
+  );
 });
 
 test("git snapshot does not execute a git binary in a dot-prefixed repository directory", () => {
