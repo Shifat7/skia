@@ -36,6 +36,7 @@ export interface StagedReviewRunOptions {
   readonly repository_root?: string;
   readonly session_id?: string;
   readonly before_allocation?: () => void;
+  readonly after_run_allocated?: () => void;
 }
 
 export interface StagedReviewRunResult {
@@ -136,12 +137,17 @@ interface PredictionInput {
   readonly promptWasEmitted: boolean;
 }
 
-function bindInterruptCleanup(allocation: StagedRunAllocation): () => void {
+function bindInterruptCleanup(
+  allocationRef: { current: StagedRunAllocation | null },
+): () => void {
   const abortAndExit = (exitCode: number): void => {
-    try {
-      abortStagedRun(allocation);
-    } catch {
-      // Process exit leaves no caller to report cleanup failure.
+    const allocation = allocationRef.current;
+    if (allocation !== null) {
+      try {
+        abortStagedRun(allocation);
+      } catch {
+        // Process exit leaves no caller to report cleanup failure.
+      }
     }
     process.exit(exitCode);
   };
@@ -419,27 +425,36 @@ export function runStagedReview(
       };
     }
 
-    options.before_allocation?.();
-    requireIgnoredSkiaOutputRoot(
-      repositoryRoot,
-      createdAt,
-      sessionId,
-      temporaryStamp,
-    );
-    const activeAllocation = allocateStagedRun(
-      repositoryRoot,
-      sessionId,
-      createdAt,
-      pipeline.snapshot,
-      pipeline.coverage,
-      capture.captured_blobs,
-    );
-    allocation = activeAllocation;
+    const allocationRef: { current: StagedRunAllocation | null } = {
+      current: null,
+    };
+    const unbindInterruptCleanup = bindInterruptCleanup(allocationRef);
     const prompt = promptOutput(pipeline);
-    const unbindInterruptCleanup = bindInterruptCleanup(activeAllocation);
+    let activeAllocation: StagedRunAllocation;
     let pendingInput: PredictionInput | Promise<PredictionInput>;
-
     try {
+      options.before_allocation?.();
+      requireIgnoredSkiaOutputRoot(
+        repositoryRoot,
+        createdAt,
+        sessionId,
+        temporaryStamp,
+      );
+      activeAllocation = allocateStagedRun(
+        repositoryRoot,
+        sessionId,
+        createdAt,
+        pipeline.snapshot,
+        pipeline.coverage,
+        capture.captured_blobs,
+        (created) => {
+          allocationRef.current = created;
+          allocation = created;
+          options.after_run_allocated?.();
+        },
+      );
+      allocationRef.current = activeAllocation;
+      allocation = activeAllocation;
       pendingInput = readPredictionInput(options, prompt);
     } catch (error) {
       unbindInterruptCleanup();

@@ -1624,6 +1624,7 @@ export function allocateStagedRun(
   stagedSnapshot?: StagedSnapshotIdentity,
   stagedCoverage?: CoverageEnvelope,
   capturedBlobs: readonly { readonly oid: string; readonly bytes: Uint8Array }[] = [],
+  onAllocated?: (allocation: StagedRunAllocation) => void,
 ): StagedRunAllocation {
   const validatedSessionId = validateSessionId(sessionId);
   const { skiaRootPath, leafRootPath: artifactsRootPath } =
@@ -1676,6 +1677,7 @@ export function allocateStagedRun(
         stagedSnapshot,
         stagedCoverage,
       );
+      onAllocated?.(allocation);
       return allocation;
     } catch (error) {
       releaseRunIdClaim(claimPath);

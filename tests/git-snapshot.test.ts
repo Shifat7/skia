@@ -180,7 +180,7 @@ test("git snapshot does not stop at a nested git marker before the enclosing wor
         TMPDIR: process.env.TMPDIR,
       },
     }),
-    /not a git repository/,
+    /cannot be resolved/,
   );
   assert.strictEqual(fs.existsSync(marker), false);
 });
@@ -285,6 +285,34 @@ test("git snapshot rejects a linked worktree whose main checkout uses a separate
   assert.strictEqual(fs.existsSync(marker), false);
 });
 
+test("git snapshot rejects an unreadable linked-worktree git marker before running Git", () => {
+  const repositoryRoot = createTempGitRepository();
+  const linkedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-linked-marker-"));
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["worktree", "add", "-q", "-b", "linked-marker", linkedRoot]);
+  fs.writeFileSync(path.join(linkedRoot, ".git"), "not a gitdir\n");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  assert.throws(
+    () => captureStagedSnapshot(linkedRoot, {
+      process_env: {
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        TMPDIR: process.env.TMPDIR,
+      },
+    }),
+    /cannot be resolved/,
+  );
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
 test("git snapshot cleanup does not follow a replaced temporary directory", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
@@ -311,6 +339,60 @@ test("git snapshot cleanup does not follow a replaced temporary directory", () =
     }),
   );
   assert.strictEqual(fs.readFileSync(victimFile, "utf8"), "keep\n");
+});
+
+test("git snapshot cleanup stays on the checked temporary directory after it is replaced", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_002;
+  const copiedName = `copied-index-${process.pid}-${stamp}-1.bin`;
+  const victimRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-victim-fd-"));
+  const victimFile = path.join(victimRoot, copiedName);
+  fs.writeFileSync(victimFile, "keep\n");
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+  const displaced = `${tmpRoot}.real`;
+
+  captureStagedSnapshot(repositoryRoot, {
+    temporary_stamp: stamp,
+    test_hooks: {
+      before_capture_temporary_removal: () => {
+        fs.renameSync(tmpRoot, displaced);
+        fs.symlinkSync(victimRoot, tmpRoot);
+      },
+    },
+  });
+
+  assert.strictEqual(fs.readFileSync(victimFile, "utf8"), "keep\n");
+  assert.strictEqual(fs.existsSync(path.join(displaced, copiedName)), false);
+});
+
+test("git snapshot rejects a copied index that changes before capture is accepted", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const stamp = 1_710_000_000_003;
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, {
+      temporary_stamp: stamp,
+      test_hooks: {
+        before_live_index_revalidation: () => {
+          for (const name of fs.readdirSync(tmpRoot)) {
+            if (name.startsWith("copied-index-")) {
+              fs.writeFileSync(path.join(tmpRoot, name), Buffer.from("changed\n"));
+            }
+          }
+        },
+      },
+    }),
+    /index_changed/,
+  );
 });
 
 test("readRepositoryBlob rejects a loose object whose bytes do not match its name", () => {

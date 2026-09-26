@@ -53,6 +53,7 @@ type GitObjectFormat = keyof typeof EMPTY_TREE_OIDS;
 
 export interface GitSnapshotTestHooks {
   readonly after_copied_index_created?: () => void;
+  readonly before_capture_temporary_removal?: () => void;
   readonly before_live_index_revalidation?: () => void;
 }
 
@@ -550,6 +551,13 @@ function mainCheckoutForGitMarker(markerPath: string, containingDirectory: strin
     return null;
   }
 
+  if (stats.isSymbolicLink()) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git directory marker cannot be resolved",
+    );
+  }
+
   if (!stats.isFile()) {
     return null;
   }
@@ -557,14 +565,20 @@ function mainCheckoutForGitMarker(markerPath: string, containingDirectory: strin
   const marker = readSmallRegularFile(markerPath, 4_096);
   const gitDirMatch = marker?.match(/^gitdir: ([^\r\n]+)\s*$/m);
   const gitDirText = gitDirMatch?.[1];
-  if (gitDirText === undefined) {
-    return null;
+  if (marker === null || gitDirText === undefined) {
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git directory marker cannot be resolved",
+    );
   }
 
   const gitDir = path.resolve(containingDirectory, gitDirText);
   const commonText = readSmallRegularFile(path.join(gitDir, "commondir"), 4_096)?.trim();
   if (commonText === undefined || commonText.length === 0) {
-    return null;
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "git directory marker cannot be resolved",
+    );
   }
 
   const commonDir = path.resolve(gitDir, commonText);
@@ -1671,6 +1685,13 @@ function captureStagedAttempt(
 
     options?.test_hooks?.before_live_index_revalidation?.();
 
+    if (copiedIndexPath !== null) {
+      const copiedBytes = readLiveIndexBytes(copiedIndexPath);
+      if (sha256Hex(copiedBytes) !== copiedIndexSha256) {
+        return null;
+      }
+    }
+
     const revalidatedLiveIndexBytes = readLiveIndexBytes(indexPath);
     const liveIndexSha256 = sha256Hex(revalidatedLiveIndexBytes);
     const revalidatedIndexWasPresent = liveIndexExists(indexPath);
@@ -1773,6 +1794,7 @@ interface CaptureCleanupRecord {
   tmpDev: number;
   tmpIno: number;
   paths: string[];
+  beforeDelete: (() => void) | null;
 }
 
 function rememberCaptureTemporary(
@@ -1809,36 +1831,67 @@ function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
     return;
   }
 
-  let stats: ReturnType<typeof fs.lstatSync>;
+  let directory: number;
   try {
-    stats = fs.lstatSync(record.tmpRoot);
+    directory = fs.openSync(
+      record.tmpRoot,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY,
+    );
   } catch {
     return;
   }
 
-  if (
-    stats.isSymbolicLink() ||
-    !stats.isDirectory() ||
-    stats.dev !== record.tmpDev ||
-    stats.ino !== record.tmpIno
-  ) {
-    return;
-  }
-
-  for (const target of record.paths) {
-    if (path.dirname(target) !== record.tmpRoot) {
-      continue;
+  try {
+    const stats = fs.fstatSync(directory);
+    if (
+      !stats.isDirectory() ||
+      stats.dev !== record.tmpDev ||
+      stats.ino !== record.tmpIno
+    ) {
+      return;
     }
 
+    const deletionRoot = `/proc/self/fd/${directory}`;
+    let deletionRootStats: ReturnType<typeof fs.lstatSync>;
     try {
-      const child = fs.lstatSync(target);
-      if (child.isSymbolicLink()) {
+      deletionRootStats = fs.lstatSync(deletionRoot);
+    } catch {
+      return;
+    }
+    if (!deletionRootStats.isSymbolicLink()) {
+      return;
+    }
+
+    record.beforeDelete?.();
+
+    for (const target of record.paths) {
+      if (path.dirname(target) !== record.tmpRoot) {
         continue;
       }
-      fs.rmSync(target, { force: true, recursive: child.isDirectory() });
-    } catch {
-      // The capture temporary is already gone.
+
+      const childName = target.slice(record.tmpRoot.length + path.sep.length);
+      if (
+        childName.length === 0 ||
+        childName.includes(path.sep) ||
+        childName.includes("/") ||
+        childName.includes("\\")
+      ) {
+        continue;
+      }
+
+      const childPath = path.join(deletionRoot, childName);
+      try {
+        const child = fs.lstatSync(childPath);
+        if (child.isSymbolicLink()) {
+          continue;
+        }
+        fs.rmSync(childPath, { force: true, recursive: child.isDirectory() });
+      } catch {
+        // The capture temporary is already gone.
+      }
     }
+  } finally {
+    fs.closeSync(directory);
   }
 }
 
@@ -1875,6 +1928,7 @@ export function captureStagedSnapshot(
     tmpDev: 0,
     tmpIno: 0,
     paths: [],
+    beforeDelete: options?.test_hooks?.before_capture_temporary_removal ?? null,
   };
   const unbindCaptureInterruptCleanup = bindCaptureInterruptCleanup(cleanup);
 

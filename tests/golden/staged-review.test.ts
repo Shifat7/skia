@@ -260,6 +260,34 @@ test("skia review uses the signal-specific status when prediction input is inter
   }
 });
 
+test("skia review removes a run allocated before prediction input is installed", () => {
+  const repositoryRoot = createSupportedRepository();
+  const originalExit = process.exit;
+  let observedExit: number | undefined;
+  const before = process.listenerCount("SIGINT");
+  process.exit = ((code: number): never => {
+    observedExit = code;
+    throw new Error(`process exit ${code}`);
+  }) as typeof process.exit;
+
+  try {
+    runCli(["review"], {
+      after_run_allocated: () => {
+        (process as unknown as { emit(event: "SIGINT"): boolean }).emit("SIGINT");
+      },
+      now: () => new Date("2026-09-22T01:02:03Z"),
+      repository_root: repositoryRoot,
+      session_id: "8f5d1a2c",
+    });
+  } finally {
+    process.exit = originalExit;
+  }
+
+  assert.strictEqual(observedExit, 130);
+  assert.strictEqual(process.listenerCount("SIGINT"), before);
+  assert.deepStrictEqual(listRuns(repositoryRoot), []);
+});
+
 test("skia review unbinds interrupt cleanup when prediction input throws", () => {
   const repositoryRoot = createSupportedRepository();
   const before = process.listenerCount("SIGINT");

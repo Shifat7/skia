@@ -106,6 +106,7 @@ declare module "node:fs" {
   export function unlinkSync(path: string): void;
 
   export const constants: {
+    readonly O_DIRECTORY: number;
     readonly O_NOFOLLOW: number;
     readonly O_RDONLY: number;
   };
