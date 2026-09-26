@@ -129,6 +129,54 @@ test("git snapshot does not execute a git binary above the requested nested dire
   assert.strictEqual(fs.existsSync(marker), false);
 });
 
+test("git snapshot does not execute a git binary reached through a symlinked root", () => {
+  const repositoryRoot = createTempGitRepository();
+  const nestedRoot = path.join(repositoryRoot, "packages", "app");
+  fs.mkdirSync(nestedRoot, { recursive: true });
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+  const linkedRoot = path.join(os.tmpdir(), `skia-linked-root-${process.pid}`);
+  fs.symlinkSync(nestedRoot, linkedRoot);
+
+  captureStagedSnapshot(linkedRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot does not execute a git binary in a dot-prefixed repository directory", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  stagePaths(repositoryRoot, ".gitignore");
+  commitAll(repositoryRoot, "initial");
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "..bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(repositoryRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
 test("git snapshot captures explicit branch state, raw staged records, and canonical full-index patch bytes", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));

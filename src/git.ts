@@ -427,9 +427,11 @@ function resolvedPathInsideRepository(
   }
 
   const relative = path.relative(realRoot, resolved);
-  return relative === "" || (
-    !relative.startsWith("..") && !path.isAbsolute(relative)
-  );
+  if (relative === "" || path.isAbsolute(relative)) {
+    return relative === "";
+  }
+
+  return !relative.split(path.sep).includes("..");
 }
 
 function gitCandidateOutsideRepository(
@@ -503,6 +505,12 @@ function resolveTrustedGitExecutable(
 
 function enclosingWorktreeRoot(start: string): string {
   let current = path.resolve(start);
+  try {
+    current = fs.realpathSync(current);
+  } catch {
+    current = path.resolve(start);
+  }
+
   while (true) {
     try {
       fs.lstatSync(path.join(current, ".git"));
