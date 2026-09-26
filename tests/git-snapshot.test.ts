@@ -369,7 +369,7 @@ test("git snapshot cleanup stays on the checked temporary directory after it is 
   assert.strictEqual(fs.existsSync(path.join(displaced, copiedName)), false);
 });
 
-test("git snapshot path cleanup leaves temporaries when descriptor deletion is unavailable", () => {
+test("git snapshot directory cleanup removes temporaries without procfs", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
@@ -390,10 +390,10 @@ test("git snapshot path cleanup leaves temporaries when descriptor deletion is u
     },
   });
 
-  assert.strictEqual(fs.existsSync(copiedIndexPath), true);
+  assert.strictEqual(fs.existsSync(copiedIndexPath), false);
 });
 
-test("git snapshot path cleanup stops when the temporary directory is replaced", () => {
+test("git snapshot directory cleanup ignores a replaced temporary directory without procfs", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
@@ -418,6 +418,7 @@ test("git snapshot path cleanup stops when the temporary directory is replaced",
   });
 
   assert.strictEqual(fs.readFileSync(victimFile, "utf8"), "keep\n");
+  assert.strictEqual(fs.existsSync(path.join(`${tmpRoot}.real`, copiedName)), false);
 });
 
 test("git snapshot rejects a copied index that changes before capture is accepted", () => {
@@ -642,6 +643,67 @@ test("git snapshot keeps a submodule inside its parent checkout trust boundary",
   assert.strictEqual(fs.existsSync(marker), false);
 });
 
+test("git snapshot does not execute git from a checkout behind a submodule modules symlink", () => {
+  const parent = createTempGitRepository();
+  const other = createTempGitRepository();
+  const child = path.join(parent, "child");
+  const realModules = path.join(other, ".git", "modules");
+  fs.mkdirSync(realModules, { recursive: true });
+  fs.symlinkSync(realModules, path.join(parent, ".git", "modules"));
+  const gitDir = path.join(realModules, "child");
+  runGit(parent, ["init", "-q", `--separate-git-dir=${gitDir}`, child]);
+  fs.writeFileSync(path.join(child, ".git"), "gitdir: ../.git/modules/child\n");
+  const marker = path.join(other, "executed-local-git");
+  const bin = path.join(other, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(child, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
+test("git snapshot keeps an ignored submodule gitlink in the staged records", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, "src/example.ts");
+  commitAll(repositoryRoot, "seed");
+  const commit = headCommit(repositoryRoot);
+  writeRepoTextFile(
+    repositoryRoot,
+    ".gitmodules",
+    "[submodule \"sub\"]\n\tpath = sub\n\turl = ./sub\n\tignore = all\n",
+  );
+  stagePaths(repositoryRoot, ".gitmodules");
+  runGit(repositoryRoot, [
+    "update-index",
+    "--add",
+    "--cacheinfo",
+    `160000,${commit},sub`,
+  ]);
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    `${readGitFixture("sample.ts")}\nexport const reviewed = true;\n`,
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+
+  const snapshot = captureStagedSnapshot(repositoryRoot);
+  const paths = snapshot.raw_records.map((record) =>
+    Buffer.from(record.path_bytes).toString("utf8"),
+  );
+
+  assert.ok(paths.includes("src/example.ts"));
+  assert.ok(paths.includes("sub"));
+});
+
 test("git snapshot uses the repository object format for unborn SHA-256 snapshots", () => {
   const repositoryRoot = createTempGitRepository("sha256");
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
@@ -665,7 +727,7 @@ test("staged snapshot rejects raw records with a mixed object-id format", () => 
 while [ "$1" = "-c" ]; do
   shift 2
 done
-if [ "$1" = "diff-index" ] && [ "$2" = "--cached" ] && [ "$3" = "--raw" ]; then
+if [ "$1" = "diff-index" ] && [ "$2" = "--cached" ] && [ "$3" = "--ignore-submodules=none" ] && [ "$4" = "--raw" ]; then
   "${realGit}" "$@" | perl -0pe 's/ ([0-9a-f]*[1-9a-f][0-9a-f]{39}) / " " . $1 . ("0" x 24) . " "/e'
   exit 0
 fi

@@ -600,7 +600,14 @@ function mainCheckoutForGitMarker(markerPath: string, containingDirectory: strin
 }
 
 function submoduleParentCheckout(gitDir: string): string | null {
-  const parts = gitDir.split(path.sep);
+  let resolved = gitDir;
+  try {
+    resolved = fs.realpathSync(gitDir);
+  } catch {
+    return null;
+  }
+
+  const parts = resolved.split(path.sep);
   const gitIndex = parts.lastIndexOf(".git");
   if (gitIndex < 1 || parts[gitIndex + 1] !== "modules") {
     return null;
@@ -608,7 +615,7 @@ function submoduleParentCheckout(gitDir: string): string | null {
 
   const parent = parts.slice(0, gitIndex).join(path.sep);
   const modulesRoot = path.join(parent, ".git", "modules");
-  return gitDir === modulesRoot || gitDir.startsWith(`${modulesRoot}${path.sep}`)
+  return resolved === modulesRoot || resolved.startsWith(`${modulesRoot}${path.sep}`)
     ? parent
     : null;
 }
@@ -1236,6 +1243,7 @@ function stagedPatchBytes(
     "diff.suppressBlankEmpty=false",
     "diff-index",
     "--cached",
+    "--ignore-submodules=none",
     "-p",
     "--binary",
     "--full-index",
@@ -1296,6 +1304,7 @@ function stagedPatchBytes(
         "diff.suppressBlankEmpty=false",
         "diff-index",
         "--cached",
+        "--ignore-submodules=none",
         "-p",
         "--text",
         "--full-index",
@@ -1680,14 +1689,14 @@ function captureStagedAttempt(
     };
     const statusEntries = parseStatusEntries(
       runGit(
-        ["diff-index", "--cached", "--name-status", "-z", "-M", "-C", "--find-copies-harder", comparisonBase],
+        ["diff-index", "--cached", "--ignore-submodules=none", "--name-status", "-z", "-M", "-C", "--find-copies-harder", comparisonBase],
         commandOptions,
         copiedIndexEnv,
       ).stdout,
     );
     const rawRecords = parseRawRecords(
       runGit(
-        ["diff-index", "--cached", "--raw", "-z", "-M", "-C", "--find-copies-harder", "--full-index", comparisonBase],
+        ["diff-index", "--cached", "--ignore-submodules=none", "--raw", "-z", "-M", "-C", "--find-copies-harder", "--full-index", comparisonBase],
         commandOptions,
         copiedIndexEnv,
       ).stdout,
@@ -1887,6 +1896,72 @@ function captureTemporaryDeletionRoot(
   }
 }
 
+const DIRECTORY_DESCRIPTOR_CLEANUP = [
+  "import os, stat, sys",
+  "parent = 3",
+  "def remove(dir_fd, name):",
+  "    try:",
+  "        info = os.lstat(name, dir_fd=dir_fd)",
+  "    except FileNotFoundError:",
+  "        return",
+  "    if stat.S_ISLNK(info.st_mode):",
+  "        return",
+  "    if stat.S_ISDIR(info.st_mode):",
+  "        child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)",
+  "        try:",
+  "            entries = os.listdir(child)",
+  "        finally:",
+  "            pass",
+  "        for entry in entries:",
+  "            remove(child, entry)",
+  "        os.close(child)",
+  "        os.rmdir(name, dir_fd=dir_fd)",
+  "        return",
+  "    os.unlink(name, dir_fd=dir_fd)",
+  "for name in sys.argv[1:]:",
+  "    remove(parent, name)",
+].join("\n");
+
+function recordedChildNames(record: CaptureCleanupRecord): string[] {
+  if (record.tmpRoot === null) {
+    return [];
+  }
+
+  const names: string[] = [];
+  for (const target of record.paths) {
+    if (path.dirname(target) !== record.tmpRoot) {
+      continue;
+    }
+
+    const childName = target.slice(record.tmpRoot.length + path.sep.length);
+    if (
+      childName.length === 0 ||
+      childName.includes(path.sep) ||
+      childName.includes("/") ||
+      childName.includes("\\")
+    ) {
+      continue;
+    }
+
+    names.push(childName);
+  }
+
+  return names;
+}
+
+function removeChildrenAtDirectoryDescriptor(
+  directory: number,
+  names: readonly string[],
+): void {
+  if (names.length === 0) {
+    return;
+  }
+
+  spawnSync("python3", ["-c", DIRECTORY_DESCRIPTOR_CLEANUP, ...names], {
+    stdio: ["ignore", "pipe", "pipe", directory],
+  });
+}
+
 function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
   if (record.tmpRoot === null) {
     return;
@@ -1911,27 +1986,14 @@ function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
       directory,
       record.forcePathDeletion,
     );
+    record.beforeDelete?.();
+    const childNames = recordedChildNames(record);
     if (deletionRoot === null) {
+      removeChildrenAtDirectoryDescriptor(directory, childNames);
       return;
     }
 
-    record.beforeDelete?.();
-
-    for (const target of record.paths) {
-      if (path.dirname(target) !== record.tmpRoot) {
-        continue;
-      }
-
-      const childName = target.slice(record.tmpRoot.length + path.sep.length);
-      if (
-        childName.length === 0 ||
-        childName.includes(path.sep) ||
-        childName.includes("/") ||
-        childName.includes("\\")
-      ) {
-        continue;
-      }
-
+    for (const childName of childNames) {
       const childPath = path.join(deletionRoot, childName);
       try {
         const child = fs.lstatSync(childPath);

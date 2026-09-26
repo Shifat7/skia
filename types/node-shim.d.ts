@@ -261,6 +261,7 @@ declare module "node:child_process" {
     readonly input?: string | Uint8Array;
     readonly maxBuffer?: number;
     readonly shell?: boolean;
+    readonly stdio?: readonly (string | number)[];
     readonly timeout?: number;
   }
 
