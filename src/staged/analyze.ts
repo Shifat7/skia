@@ -280,8 +280,8 @@ function hasNonWhitespace(bytes: Uint8Array): boolean {
 }
 
 function isExportPrefix(bytes: Uint8Array): boolean {
-  const text = Buffer.from(bytes).toString("utf8").trim();
-  return text === "" || text === "export";
+  const text = Buffer.from(bytes).toString("utf8").trim().replace(/\s+/g, " ");
+  return text === "" || text === "export" || text === "export default";
 }
 
 function spanBytes(

@@ -1300,23 +1300,11 @@ function stagedPatchBytes(
       relativePath,
       "diff",
     );
-    const textAttribute = cachedAttribute(
-      commandOptions,
-      extraEnv,
-      relativePath,
-      "text",
-    );
     if (diffAttribute === "unset") {
       continue;
     }
 
-    if (
-      blobContainsNul(commandOptions, record.base_blob_oid) ||
-      blobContainsNul(commandOptions, record.staged_blob_oid) ||
-      textAttribute === "unset"
-    ) {
-      textPaths.push(relativePath);
-    }
+    textPaths.push(relativePath);
   }
 
   if (textPaths.length === 0) {
@@ -1854,8 +1842,6 @@ interface CaptureCleanupRecord {
   paths: string[];
   beforeDelete: (() => void) | null;
   forcePathDeletion: boolean;
-  processEnv: Readonly<Record<string, string | undefined>>;
-  trustRoots: readonly string[];
 }
 
 function rememberCaptureTemporary(
@@ -1900,56 +1886,38 @@ function openCaptureTemporaryDirectory(tmpRoot: string): number | null {
   }
 }
 
-function captureTemporaryDeletionRoot(
-  directory: number,
-  forcePathDeletion: boolean,
-): string | null {
-  if (forcePathDeletion) {
-    return null;
-  }
-
-  const magic = `/proc/self/fd/${directory}`;
+function magicDirectoryMatches(directory: number, magic: string): boolean {
   try {
     const linkStats = fs.lstatSync(magic);
-    if (!linkStats.isSymbolicLink()) {
-      return null;
+    if (!linkStats.isSymbolicLink() && !linkStats.isDirectory()) {
+      return false;
     }
 
     const followed = fs.statSync(magic);
     const viaDescriptor = fs.fstatSync(directory);
-    return followed.dev === viaDescriptor.dev && followed.ino === viaDescriptor.ino
-      ? magic
-      : null;
+    return followed.isDirectory()
+      && followed.dev === viaDescriptor.dev
+      && followed.ino === viaDescriptor.ino;
   } catch {
-    return null;
+    return false;
   }
 }
 
-const DIRECTORY_DESCRIPTOR_CLEANUP = [
-  "import os, stat, sys",
-  "parent = 3",
-  "def remove(dir_fd, name):",
-  "    try:",
-  "        info = os.lstat(name, dir_fd=dir_fd)",
-  "    except FileNotFoundError:",
-  "        return",
-  "    if stat.S_ISLNK(info.st_mode):",
-  "        return",
-  "    if stat.S_ISDIR(info.st_mode):",
-  "        child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)",
-  "        try:",
-  "            entries = os.listdir(child)",
-  "        finally:",
-  "            pass",
-  "        for entry in entries:",
-  "            remove(child, entry)",
-  "        os.close(child)",
-  "        os.rmdir(name, dir_fd=dir_fd)",
-  "        return",
-  "    os.unlink(name, dir_fd=dir_fd)",
-  "for name in sys.argv[1:]:",
-  "    remove(parent, name)",
-].join("\n");
+function captureTemporaryDeletionRoot(
+  directory: number,
+  forcePathDeletion: boolean,
+): string | null {
+  const candidates = forcePathDeletion
+    ? [`/dev/fd/${directory}`]
+    : [`/proc/self/fd/${directory}`, `/dev/fd/${directory}`];
+  for (const magic of candidates) {
+    if (magicDirectoryMatches(directory, magic)) {
+      return magic;
+    }
+  }
+
+  return null;
+}
 
 function recordedChildNames(record: CaptureCleanupRecord): string[] {
   if (record.tmpRoot === null) {
@@ -1978,44 +1946,6 @@ function recordedChildNames(record: CaptureCleanupRecord): string[] {
   return names;
 }
 
-function removeChildrenAtDirectoryDescriptor(
-  directory: number,
-  names: readonly string[],
-  record: CaptureCleanupRecord,
-): void {
-  if (names.length === 0) {
-    return;
-  }
-
-  const python = resolveTrustedPathExecutable(
-    "python3",
-    record.processEnv,
-    record.trustRoots,
-  );
-  if (python === null) {
-    throw new GitSnapshotError(
-      "git_process_failed",
-      "Git temporary cleanup failed",
-    );
-  }
-
-  const result = spawnSync(
-    python,
-    ["-I", "-c", DIRECTORY_DESCRIPTOR_CLEANUP, ...names],
-    {
-      cwd: path.dirname(python),
-      env: {},
-      stdio: ["ignore", "pipe", "pipe", directory],
-    },
-  );
-  if (result.error !== undefined || result.status !== 0) {
-    throw new GitSnapshotError(
-      "git_process_failed",
-      "Git temporary cleanup failed",
-    );
-  }
-}
-
 function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
   if (record.tmpRoot === null) {
     return;
@@ -2041,11 +1971,11 @@ function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
       record.forcePathDeletion,
     );
     record.beforeDelete?.();
-    const childNames = recordedChildNames(record);
     if (deletionRoot === null) {
-      removeChildrenAtDirectoryDescriptor(directory, childNames, record);
       return;
     }
+
+    const childNames = recordedChildNames(record);
 
     for (const childName of childNames) {
       const childPath = path.join(deletionRoot, childName);
@@ -2099,8 +2029,6 @@ export function captureStagedSnapshot(
     paths: [],
     beforeDelete: options?.test_hooks?.before_capture_temporary_removal ?? null,
     forcePathDeletion: options?.test_hooks?.force_path_temporary_removal === true,
-    processEnv: options?.process_env ?? process.env,
-    trustRoots: enclosingTrustRoots(resolvedRepositoryRoot),
   };
   const unbindCaptureInterruptCleanup = bindCaptureInterruptCleanup(cleanup);
 

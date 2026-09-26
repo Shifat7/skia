@@ -167,6 +167,20 @@ test("pilot analyzer refuses a same-line edit that changes the guard and text ou
   }
 });
 
+test("pilot analyzer keeps a same-line default-export guard edit supported", () => {
+  const base =
+    'export default function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }\n';
+  const result = analyzeLiteralGuardFunction({
+    base_source: base,
+    blob_oid: BLOB_OID,
+    changed_lines: [1],
+    path: PATH,
+    source: base.replace('code === "ready"', 'code === "go"'),
+  });
+
+  assert.strictEqual(result.kind, "supported");
+});
+
 test("pilot analyzer keeps a same-line guard edit supported", () => {
   const base =
     'export function gateStatus(code: string): string { if (code === "ready") return "ok"; return "hold"; }\n';

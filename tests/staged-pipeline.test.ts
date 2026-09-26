@@ -465,6 +465,37 @@ test("captured staged snapshot produces one supported pilot analysis", () => {
   assert.strictEqual(result.coverage.events[1]?.units, 5);
 });
 
+test("captured staged snapshot analyzes a custom binary diff driver as text", () => {
+  const repositoryRoot = createRepository();
+  writeRepoTextFile(repositoryRoot, ".gitattributes", "*.ts diff=custom\n");
+  runGit(repositoryRoot, ["config", "diff.custom.binary", "true"]);
+  const initial = [
+    "export function gateStatus(code: string): string {",
+    '  if (code === "old") {',
+    '    return "ok";',
+    "  }",
+    "",
+    '  return "hold";',
+    "}",
+    "",
+  ].join("\n");
+  writeRepoTextFile(repositoryRoot, "src/gate-status.ts", initial);
+  stagePaths(repositoryRoot, ".gitattributes", "src/gate-status.ts");
+  commitAll(repositoryRoot, "add custom binary diff");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/gate-status.ts",
+    initial.replace('"old"', '"ready"'),
+  );
+  stagePaths(repositoryRoot, "src/gate-status.ts");
+
+  const result = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+
+  assert.strictEqual(result.kind, "supported");
+});
+
 test("captured staged snapshot supports a modified guard line", () => {
   const repositoryRoot = createRepository();
   const initial = [

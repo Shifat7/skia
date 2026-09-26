@@ -493,13 +493,19 @@ test("git snapshot directory cleanup does not execute a repository python", () =
   assert.strictEqual(fs.existsSync(copiedIndexPath), false);
 });
 
-test("git snapshot directory cleanup fails when no trusted python exists", () => {
+test("git snapshot directory cleanup does not require python", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
   stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
   commitAll(repositoryRoot, "initial");
   const stamp = 1_710_000_000_007;
+  const copiedIndexPath = path.join(
+    repositoryRoot,
+    ".skia",
+    TMP_DIRECTORY_NAME,
+    `copied-index-${process.pid}-${stamp}-1.bin`,
+  );
   const marker = path.join(repositoryRoot, "executed-local-python");
   const bin = path.join(repositoryRoot, "bin");
   fs.mkdirSync(bin);
@@ -509,21 +515,20 @@ test("git snapshot directory cleanup fails when no trusted python exists", () =>
   );
   fs.chmodSync(path.join(bin, "python3"), 0o755);
 
-  assert.throws(
-    () => captureStagedSnapshot(repositoryRoot, {
-      git_executable: resolveGitExecutable(),
-      temporary_stamp: stamp,
-      process_env: {
-        PATH: bin,
-        TMPDIR: process.env.TMPDIR,
-      },
-      test_hooks: {
-        force_path_temporary_removal: true,
-      },
-    }),
-    /Git temporary cleanup failed/,
-  );
+  captureStagedSnapshot(repositoryRoot, {
+    git_executable: resolveGitExecutable(),
+    temporary_stamp: stamp,
+    process_env: {
+      PATH: bin,
+      TMPDIR: process.env.TMPDIR,
+    },
+    test_hooks: {
+      force_path_temporary_removal: true,
+    },
+  });
+
   assert.strictEqual(fs.existsSync(marker), false);
+  assert.strictEqual(fs.existsSync(copiedIndexPath), false);
 });
 
 test("git snapshot rejects a copied index that changes before capture is accepted", () => {
