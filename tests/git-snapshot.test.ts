@@ -621,20 +621,55 @@ test("git snapshot directory cleanup does not require python", () => {
   assert.strictEqual(fs.existsSync(copiedIndexPath), false);
 });
 
-test("git snapshot reports cleanup failure when descriptor paths are unavailable", () => {
+test("git snapshot removes capture temporaries without a descriptor path", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
   stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
   commitAll(repositoryRoot, "initial");
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+
+  const snapshot = captureStagedSnapshot(repositoryRoot, {
+    test_hooks: {
+      force_unavailable_descriptor_cleanup: true,
+    },
+  });
+
+  assert.strictEqual(snapshot.identity.kind, "staged");
+  assert.deepStrictEqual(
+    fs.readdirSync(tmpRoot).filter((name) =>
+      name.startsWith("copied-index-") || name.startsWith("attribute-worktree-"),
+    ),
+    [],
+  );
+});
+
+test("git snapshot cleanup without a descriptor path does not follow a replaced directory", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+  const displaced = `${tmpRoot}-real`;
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "skia-outside-tmp-"));
+  fs.writeFileSync(path.join(outside, "keep.txt"), "keep\n");
 
   assert.throws(
     () => captureStagedSnapshot(repositoryRoot, {
       test_hooks: {
         force_unavailable_descriptor_cleanup: true,
+        before_capture_temporary_removal: () => {
+          fs.renameSync(tmpRoot, displaced);
+          fs.symlinkSync(outside, tmpRoot);
+        },
       },
     }),
     /Git temporary cleanup failed/,
+  );
+  assert.strictEqual(fs.readFileSync(path.join(outside, "keep.txt"), "utf8"), "keep\n");
+  assert.ok(
+    fs.readdirSync(displaced).some((name) => name.startsWith("copied-index-")),
   );
 });
 
@@ -807,6 +842,67 @@ test("git snapshot captures when the copied index has no descriptor path", () =>
     Buffer.from(record.path_bytes).toString("utf8"),
   );
   assert.ok(paths.includes("src/example.ts"));
+});
+
+test("git snapshot rejects a path-bound copied index replaced by another file", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const cleanIndex = fs.readFileSync(path.join(repositoryRoot, ".git", "index"));
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    `${readGitFixture("sample.ts")}\nexport const reviewed = true;\n`,
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+
+  assert.throws(
+    () => captureStagedSnapshot(repositoryRoot, {
+      test_hooks: {
+        force_path_index_binding: true,
+        after_copied_index_created: () => {
+          for (const name of fs.readdirSync(tmpRoot)) {
+            if (!name.startsWith("copied-index-")) {
+              continue;
+            }
+            const indexPath = path.join(tmpRoot, name);
+            fs.renameSync(indexPath, `${indexPath}.aside`);
+            fs.writeFileSync(indexPath, cleanIndex);
+          }
+        },
+      },
+    }),
+    /index_changed/,
+  );
+});
+
+test("git snapshot counts a quoted UTF-8 diff path once", () => {
+  const repositoryRoot = createTempGitRepository();
+  runGit(repositoryRoot, ["config", "core.quotePath", "true"]);
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  const relativePath = "src/café.ts";
+  writeRepoTextFile(repositoryRoot, relativePath, readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", relativePath);
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    relativePath,
+    `${readGitFixture("sample.ts")}\nexport const reviewed = true;\n`,
+  );
+  stagePaths(repositoryRoot, relativePath);
+
+  const snapshot = captureStagedSnapshot(repositoryRoot);
+  const patch = Buffer.from(snapshot.patch_bytes).toString("utf8");
+  assert.strictEqual(patch.match(/diff --git /g)?.length, 1);
+  assert.match(patch, /diff --git "a\/src\/caf\\303\\251\.ts"/);
+  assert.ok(
+    snapshot.raw_records.some((record) =>
+      Buffer.from(record.path_bytes).toString("utf8") === relativePath,
+    ),
+  );
 });
 
 test("git snapshot rejects a path-bound copied index that changes before capture is accepted", () => {

@@ -1282,17 +1282,171 @@ function cachedAttribute(
     : null;
 }
 
-function patchSectionHasHunk(patch: Uint8Array, relativePath: string): boolean {
-  const text = new TextDecoder("utf-8", { fatal: false }).decode(patch);
-  const header = `diff --git a/${relativePath} b/${relativePath}`;
-  const start = text.indexOf(header);
-  if (start < 0) {
-    return false;
+function decodeGitQuotedPath(value: string): string | null {
+  if (!value.endsWith("\"")) {
+    return null;
   }
 
-  const next = text.indexOf("\ndiff --git ", start + header.length);
-  const section = next < 0 ? text.slice(start) : text.slice(start, next);
-  return section.includes("\n@@");
+  const bytes: number[] = [];
+  const body = value.slice(1, -1);
+
+  for (let index = 0; index < body.length; ) {
+    const codePoint = body.codePointAt(index);
+
+    if (codePoint === undefined) {
+      return null;
+    }
+
+    const character = String.fromCodePoint(codePoint);
+
+    if (character !== "\\") {
+      bytes.push(...Buffer.from(character, "utf8"));
+      index += character.length;
+      continue;
+    }
+
+    index += 1;
+    const escaped = body[index];
+
+    if (escaped === undefined) {
+      return null;
+    }
+
+    const simpleEscapes: Readonly<Record<string, number>> = {
+      "\\": 0x5c,
+      "\"": 0x22,
+      n: 0x0a,
+      r: 0x0d,
+      t: 0x09,
+      b: 0x08,
+      f: 0x0c,
+      v: 0x0b,
+      a: 0x07,
+    };
+    const simple = simpleEscapes[escaped];
+
+    if (simple !== undefined) {
+      bytes.push(simple);
+      index += 1;
+      continue;
+    }
+
+    if (!/[0-7]/.test(escaped)) {
+      return null;
+    }
+
+    let octal = escaped;
+    while (
+      octal.length < 3 &&
+      index + 1 < body.length &&
+      /[0-7]/.test(body[index + 1] ?? "")
+    ) {
+      index += 1;
+      octal += body[index];
+    }
+    bytes.push(Number.parseInt(octal, 8));
+    index += 1;
+  }
+
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bytes));
+  } catch {
+    return null;
+  }
+}
+
+function readDiffHeaderToken(
+  value: string,
+): { readonly path: string; readonly consumed: number } | null {
+  if (value.startsWith("\"")) {
+    let index = 1;
+    while (index < value.length) {
+      if (value[index] === "\\") {
+        index += 2;
+        continue;
+      }
+
+      if (value[index] === "\"") {
+        const decoded = decodeGitQuotedPath(value.slice(0, index + 1));
+        return decoded === null ? null : { path: decoded, consumed: index + 1 };
+      }
+
+      index += 1;
+    }
+
+    return null;
+  }
+
+  const space = value.indexOf(" ");
+  const token = space < 0 ? value : value.slice(0, space);
+  if (token.length === 0) {
+    return null;
+  }
+
+  return { path: token, consumed: token.length };
+}
+
+function diffHeaderPaths(line: string): readonly [string, string] | null {
+  const prefix = "diff --git ";
+  if (!line.startsWith(prefix)) {
+    return null;
+  }
+
+  const first = readDiffHeaderToken(line.slice(prefix.length));
+  if (first === null) {
+    return null;
+  }
+
+  const remainder = line.slice(prefix.length + first.consumed);
+  if (!remainder.startsWith(" ")) {
+    return null;
+  }
+
+  const second = readDiffHeaderToken(remainder.slice(1));
+  if (second === null || second.consumed !== remainder.length - 1) {
+    return null;
+  }
+
+  return [first.path, second.path];
+}
+
+function diffSidePath(token: string, side: "a" | "b"): string | null {
+  const prefix = `${side}/`;
+  return token.startsWith(prefix) ? token.slice(prefix.length) : null;
+}
+
+function patchSectionHasHunk(patch: Uint8Array, relativePath: string): boolean {
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(patch);
+  let searchFrom = 0;
+
+  while (searchFrom < text.length) {
+    const start = text.indexOf("diff --git ", searchFrom);
+    if (start < 0) {
+      return false;
+    }
+
+    if (start !== 0 && text[start - 1] !== "\n") {
+      searchFrom = start + "diff --git ".length;
+      continue;
+    }
+
+    const lineEnd = text.indexOf("\n", start);
+    const line = lineEnd < 0 ? text.slice(start) : text.slice(start, lineEnd);
+    const paths = diffHeaderPaths(line);
+    const next = text.indexOf("\ndiff --git ", start + 1);
+    if (
+      paths !== null &&
+      (diffSidePath(paths[0], "a") === relativePath ||
+        diffSidePath(paths[1], "b") === relativePath)
+    ) {
+      const section = next < 0 ? text.slice(start) : text.slice(start, next);
+      return section.includes("\n@@");
+    }
+
+    searchFrom = lineEnd < 0 ? text.length : lineEnd + 1;
+  }
+
+  return false;
 }
 
 function stagedPatchBytes(
@@ -1738,6 +1892,9 @@ function captureStagedAttempt(
     copiedIndexDescriptor = boundIndex.descriptor;
 
     options?.test_hooks?.after_copied_index_created?.();
+    if (!boundIndexPathMatches(copiedIndexPath, boundIndex.gitPath, boundIndex.descriptor)) {
+      return null;
+    }
 
     const comparisonBase =
       headState.baseState === "present"
@@ -1778,6 +1935,9 @@ function captureStagedAttempt(
     );
 
     options?.test_hooks?.before_live_index_revalidation?.();
+    if (!boundIndexPathMatches(copiedIndexPath, boundIndex.gitPath, boundIndex.descriptor)) {
+      return null;
+    }
 
     const copiedBytes = readDescriptorBytes(copiedIndexDescriptor);
     if (sha256Hex(copiedBytes) !== copiedIndexSha256) {
@@ -1975,6 +2135,27 @@ function writeEntireDescriptor(descriptor: number, bytes: Uint8Array): void {
   }
 
   fs.fsyncSync(descriptor);
+}
+
+function boundIndexPathMatches(
+  copiedIndexPath: string,
+  gitPath: string,
+  descriptor: number,
+): boolean {
+  if (gitPath !== copiedIndexPath) {
+    return true;
+  }
+
+  try {
+    const viaDescriptor = fs.fstatSync(descriptor);
+    const seen = fs.lstatSync(gitPath);
+    return !seen.isSymbolicLink()
+      && seen.isFile()
+      && seen.dev === viaDescriptor.dev
+      && seen.ino === viaDescriptor.ino;
+  } catch {
+    return false;
+  }
 }
 
 function magicFilePath(descriptor: number): string | null {
@@ -2195,6 +2376,28 @@ function captureTemporaryDeletionRoot(
   return null;
 }
 
+function captureTemporaryPathFallback(
+  directory: number,
+  directoryPath: string,
+): string | null {
+  try {
+    const viaDescriptor = fs.fstatSync(directory);
+    const seen = fs.lstatSync(directoryPath);
+    if (
+      seen.isSymbolicLink() ||
+      !seen.isDirectory() ||
+      seen.dev !== viaDescriptor.dev ||
+      seen.ino !== viaDescriptor.ino
+    ) {
+      return null;
+    }
+
+    return directoryPath;
+  } catch {
+    return null;
+  }
+}
+
 function recordedChildNames(record: CaptureCleanupRecord): string[] {
   if (record.tmpRoot === null) {
     return [];
@@ -2242,12 +2445,13 @@ function removeRecordedCaptureTemporaries(record: CaptureCleanupRecord): void {
       return;
     }
 
-    const deletionRoot = captureTemporaryDeletionRoot(
+    const magicRoot = captureTemporaryDeletionRoot(
       directory,
       record.forcePathDeletion,
       record.descriptorCleanupUnavailable,
     );
     record.beforeDelete?.();
+    const deletionRoot = magicRoot ?? captureTemporaryPathFallback(directory, record.tmpRoot);
     if (deletionRoot === null) {
       if (recordedChildNames(record).length > 0) {
         throw new GitSnapshotError(

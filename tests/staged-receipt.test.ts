@@ -1535,6 +1535,77 @@ test("completing a staged run leaves a pre-existing receipt temporary in place",
   assert.strictEqual(fs.readFileSync(temporaryPath, "utf8"), "kept\n");
 });
 
+test("staged receipt publication stays inside the checked receipts directory", () => {
+  const repositoryRoot = createSupportedRepository();
+  const pipeline = analyzeCapturedStagedSnapshot(
+    captureStagedSnapshot(repositoryRoot),
+  );
+  assert.strictEqual(pipeline.kind, "supported");
+  if (pipeline.kind !== "supported") {
+    return;
+  }
+  const allocation = allocateStagedRun(
+    repositoryRoot,
+    validateSessionId("8f5d1a2c"),
+    new Date("2026-09-22T01:02:03Z"),
+    pipeline.snapshot,
+    pipeline.coverage,
+  );
+  const session = createPredictionSession(pipeline.analysis);
+  const artifacts: ReturnType<typeof writeStagedArtifactFile>[] = [];
+  const sealed = session.persistPrediction(
+    { kind: "return_value", value: "ok" },
+    (record) => {
+      artifacts.push(
+        writeStagedArtifactFile(
+          allocation,
+          "behavior_cards",
+          `${JSON.stringify(record, null, 2)}\n`,
+        ),
+      );
+    },
+    new Date("2026-09-22T01:02:04Z"),
+  );
+  const artifact = artifacts[0];
+  if (artifact === undefined) {
+    throw new Error("expected behavior-card artifact");
+  }
+  const receipt = createStagedReviewReceipt({
+    allocation,
+    analysis: pipeline.analysis,
+    behavior_card_artifact: artifact,
+    completed_at: new Date("2026-09-22T01:02:05Z"),
+    coverage: pipeline.coverage,
+    sealed_prediction: sealed,
+    snapshot: pipeline.snapshot,
+    source_check: session.sourceCheck(),
+  });
+  const receiptsDirectory = path.join(repositoryRoot, ".skia", "receipts");
+  const displacedDirectory = `${receiptsDirectory}-real`;
+  const outsideDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "skia-outside-receipts-"));
+  setStorageTestHooks({
+    beforeBoundFileCreate: () => {
+      fs.renameSync(receiptsDirectory, displacedDirectory);
+      fs.symlinkSync(outsideDirectory, receiptsDirectory);
+    },
+  });
+
+  try {
+    const completed = completeStagedRun(allocation, receipt);
+    const fileName = completed.receiptPath.slice(
+      completed.receiptPath.lastIndexOf(path.sep) + 1,
+    );
+    assert.strictEqual(fs.existsSync(path.join(outsideDirectory, fileName)), false);
+    assert.ok(
+      fs.readFileSync(path.join(displacedDirectory, fileName), "utf8").includes(
+        allocation.runId,
+      ),
+    );
+  } finally {
+    setStorageTestHooks(null);
+  }
+});
+
 test("staged artifact creation stays inside the checked artifacts directory", () => {
   const prepared = preparedMismatchReceipt();
   const artifactsDirectory = path.join(prepared.repositoryRoot, ".skia", "artifacts");

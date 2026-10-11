@@ -569,37 +569,61 @@ function writeNewFileAtomically(
 ): void {
   const directoryPath = path.dirname(filePath);
   const filename = filePath.slice(directoryPath.length + 1);
-  const temporaryPath = path.join(
-    directoryPath,
-    `.${filename}.tmp-${allocateStagedReceiptTemporarySuffix()}`,
-  );
+  assertChildName(filename);
+  const temporaryName = `.${filename}.tmp-${allocateStagedReceiptTemporarySuffix()}`;
+  assertChildName(temporaryName);
+  const directoryStats = fs.lstatSync(directoryPath);
+  if (directoryStats.isSymbolicLink() || !directoryStats.isDirectory()) {
+    throw createStorageError("staged receipt directory cannot be bound");
+  }
 
+  const directory = fs.openSync(
+    directoryPath,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY,
+  );
   let published = false;
   let created = false;
+  let boundTemporaryPath: string | null = null;
 
   try {
-    writeNewFile(temporaryPath, data);
+    const viaDescriptor = fs.fstatSync(directory);
+    if (
+      !viaDescriptor.isDirectory() ||
+      viaDescriptor.dev !== directoryStats.dev ||
+      viaDescriptor.ino !== directoryStats.ino
+    ) {
+      throw createStorageError("staged receipt directory cannot be bound");
+    }
+
+    const location = removalLocation(directory, directoryPath);
+    storageTestHooks?.beforeBoundFileCreate?.();
+    boundTemporaryPath = path.join(location, temporaryName);
+    writeNewFile(boundTemporaryPath, data);
     created = true;
     storageTestHooks?.beforeStagedReceiptPublish?.({
-      temporaryPath,
+      temporaryPath: path.join(directoryPath, temporaryName),
       receiptPath: filePath,
     });
     beforeLink?.();
-    fs.linkSync(temporaryPath, filePath);
+    fs.linkSync(boundTemporaryPath, path.join(location, filename));
     published = true;
   } finally {
-    if (created && fs.existsSync(temporaryPath)) {
-      try {
-        if (storageTestHooks?.unlinkStagedReceiptTemporary !== undefined) {
-          storageTestHooks.unlinkStagedReceiptTemporary(temporaryPath);
-        } else {
-          fs.unlinkSync(temporaryPath);
-        }
-      } catch (error) {
-        if (!published) {
-          throw error;
+    try {
+      if (created && boundTemporaryPath !== null && fs.existsSync(boundTemporaryPath)) {
+        try {
+          if (storageTestHooks?.unlinkStagedReceiptTemporary !== undefined) {
+            storageTestHooks.unlinkStagedReceiptTemporary(boundTemporaryPath);
+          } else {
+            fs.unlinkSync(boundTemporaryPath);
+          }
+        } catch (error) {
+          if (!published) {
+            throw error;
+          }
         }
       }
+    } finally {
+      fs.closeSync(directory);
     }
   }
 }
