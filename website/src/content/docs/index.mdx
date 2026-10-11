@@ -8,7 +8,7 @@ prev: false
 next: false
 banner:
   content: |
-    <a href="/skia/status/">Alpha · foundation shipping · product CLI not released → /status/</a>
+    <a href="/status/">Alpha · foundation shipping · product CLI not released → /status/</a>
 hero:
   title: Read the AI diff before you trust the commit
   tagline: Local pre-PR comprehension for vibecoders. Map what a generated change appears to do, then keep every analysis gap visible.
@@ -18,16 +18,17 @@ hero:
       icon: external
       variant: primary
     - text: What's real vs planned
-      link: /skia/status/
+      link: /status/
       icon: right-arrow
       variant: secondary
 ---
 
 import { LinkButton, Steps } from '@astrojs/starlight/components';
+import { withBase } from '../../lib/withBase';
 
 ## What ships today
 
-Phase 1 foundation is in the repository. Planned items stay on <a href="/skia/status/">Status</a> — they do not get a green check here.
+Phase 1 foundation is in the repository. Planned items stay on <a href={withBase('/status/')}>Status</a> — they do not get a green check here.
 
 ## How it works
 
@@ -76,7 +77,7 @@ AI tools can produce a working-looking diff faster than you can build a mental m
 	</details>
 	<details>
 		<summary>Does my code leave the machine?</summary>
-		<p>Foundation work keeps snapshot and parse artifacts local. Skia does not operate a review backend and does not send product telemetry. A future repository mode may send bounded context to an endpoint you configure, after consent. See <a href="/skia/privacy/">Privacy</a>.</p>
+		<p>Foundation work keeps snapshot and parse artifacts local. Skia does not operate a review backend and does not send product telemetry. A future repository mode may send bounded context to an endpoint you configure, after consent. See <a href={withBase('/privacy/')}>Privacy</a>.</p>
 	</details>
 	<details>
 		<summary>Is this a CodeRabbit or Greptile replacement?</summary>
@@ -84,7 +85,7 @@ AI tools can produce a working-looking diff faster than you can build a mental m
 	</details>
 	<details>
 		<summary>How do I install it?</summary>
-		<p>You do not install a review CLI yet. Contributors run the foundation with Node 24+ from the repository (<a href="/skia/contribute/">Contribute</a>). No <code>npm i -g skia</code> command is published here.</p>
+		<p>You do not install a review CLI yet. Contributors run the foundation with Node 24+ from the repository (<a href={withBase('/contribute/')}>Contribute</a>). No <code>npm i -g skia</code> command is published here.</p>
 	</details>
 	<details>
 		<summary>Which languages are analyzed today?</summary>
@@ -101,6 +102,6 @@ AI tools can produce a working-looking diff faster than you can build a mental m
 	<p class="cta-band__note">Marketing drafts stay unpublished until a stranger can run a real review. No curl or global install here.</p>
 	<div class="cta-row">
 		<LinkButton href="https://github.com/Shifat7/skia" variant="primary" icon="external">View on GitHub</LinkButton>
-		<LinkButton href="/skia/status/" variant="secondary" icon="right-arrow">What's real vs planned</LinkButton>
+		<LinkButton href={withBase('/status/')} variant="secondary" icon="right-arrow">What's real vs planned</LinkButton>
 	</div>
 </div>

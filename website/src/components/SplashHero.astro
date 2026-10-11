@@ -1,5 +1,6 @@
 ---
 import { LinkButton } from '@astrojs/starlight/components';
+import { withBase } from '../lib/withBase';
 import HeroDemo from './HeroDemo.astro';
 
 const { data } = Astro.locals.starlightRoute.entry;
@@ -29,7 +30,13 @@ const isKnownTitle = titleText === knownTitle;
 				<div class="splash-hero__actions">
 					{actions.map(
 						({ attrs: { class: className, ...attrs } = {}, icon, link: href, text, variant }) => (
-							<LinkButton {href} {variant} icon={icon?.name} class:list={[className]} {...attrs}>
+							<LinkButton
+								href={typeof href === 'string' ? withBase(href) : href}
+								{variant}
+								icon={icon?.name}
+								class:list={[className]}
+								{...attrs}
+							>
 								{text}
 								{icon?.html && <Fragment set:html={icon.html} />}
 							</LinkButton>

@@ -259,7 +259,7 @@ src/billing/processInvoices.ts:1-18
 invoice.total <= 0                 -> skipped; no charge
 invoice.total > 0                  -> charge customer; record audit; append result
 audit callback                     -> unmapped: callback metadata path
-billing.charge failure             -> not_checkable: SDK exception behavior
+billing.charge failure             -> unmapped: SDK exception behavior
 ```
 
 Prediction question:
@@ -269,7 +269,7 @@ Given: invoices=[{id:"a", total:0}, {id:"b", total:25}]
 What can be predicted safely?  > "a" is skipped; "b" attempts a charge, but its final status depends on the SDK
 ```
 
-The honest answer is not “the batch succeeds.” It is a supported prediction for the first invoice plus an explicit boundary around the second. This is where Skia is most useful: it points at the exact source and dependency behavior that still needs human verification, instead of hiding it behind a polished summary.
+The honest answer is not “the batch succeeds.” It is a supported prediction for the first invoice plus an explicit boundary around the second. Coverage for the SDK failure is `unmapped`. A source check of a prediction about that exception is `not_checkable`, which is a grading outcome, not a coverage state. This is where Skia is most useful: it points at the exact source and dependency behavior that still needs human verification, instead of hiding it behind a polished summary.
 
 </details>
 

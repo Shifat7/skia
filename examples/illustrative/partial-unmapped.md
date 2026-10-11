@@ -41,7 +41,7 @@ src/billing/processInvoices.ts:1-18
 invoice.total <= 0                 -> skipped; no charge
 invoice.total > 0                  -> charge customer; record audit; append result
 audit callback                     -> unmapped: callback metadata path
-billing.charge failure             -> not_checkable: SDK exception behavior
+billing.charge failure             -> unmapped: SDK exception behavior
 ```
 
 ## Prediction prompt
@@ -76,9 +76,15 @@ branch that was not analyzed is the wrong output.
 
 ## Coverage for this sample
 
-| Region | State in this illustration | Next action |
-|---|---|---|
-| `invoice.total <= 0` | Shown as a skip with no charge | Compare with the original source |
-| Audit callback metadata | `unmapped` | Open the callback in the source |
-| `billing.charge` failure | `not_checkable` in this reading | Inspect the SDK contract |
-| Unrelated files in the warning list | `partial`, `unsupported`, `failed`, or `unchecked` | Do not invent a behavior summary |
+Coverage for a region is one of `supported`, `partial`, `unmapped`,
+`unsupported`, `excluded`, `failed`, or `unchecked`. `not_checkable` is not
+a coverage state. It is a source-check grading outcome
+(`source_check.status`) when a prediction sits outside the safe comparison
+subset, including an SDK exception this reading cannot grade.
+
+| Region | Coverage | Source check | Next action |
+|---|---|---|---|
+| `invoice.total <= 0` | `supported` | not graded in this sample | Compare with the original source |
+| Audit callback metadata | `unmapped` | not graded in this sample | Open the callback in the source |
+| `billing.charge` failure | `unmapped` | `not_checkable` | Inspect the SDK contract |
+| Unrelated files in the warning list | `partial`, `unsupported`, `failed`, or `unchecked` | not graded in this sample | Do not invent a behavior summary |

@@ -16,7 +16,8 @@ stays the primary action.
 
 ## Build
 
-From `website/`, with Node.js 22 or newer:
+From `website/`, with Node.js >=22.12.0 (the Astro engine floor locked in
+this package):
 
 ```sh
 npm ci

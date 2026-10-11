@@ -4,6 +4,9 @@
   "type": "module",
   "version": "0.0.0",
   "description": "Astro Starlight marketing site for Skia. Not the CLI package and not published to npm.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
