@@ -1,0 +1,11 @@
+---
+/**
+ * Splash pages stay product-first: no site search chrome.
+ * Inner docs pages keep the default Starlight search.
+ */
+import Default from '@astrojs/starlight/components/Search.astro';
+
+const isSplash = Astro.locals.starlightRoute.entry.data.template === 'splash';
+---
+
+{isSplash ? null : <Default {...Astro.props} />}

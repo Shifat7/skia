@@ -32,7 +32,9 @@ validation remain deferred.
 
 ## 1. Install and verify the repository
 
-Requirements: Node.js and npm.
+Requirements: Node.js 24.x (`>=24.0.0 <25` in `package.json`) and npm 11.18.0 (`packageManager`).
+
+This is a checkout of the foundation and the narrow staged-review pilot, not a global install. The npm package is private at `0.0.0`. After `npm run build`, `node dist/src/main.js review` runs the pilot for exactly one supported staged file. The adopter overview is <https://shifat7.github.io/skia/> once GitHub Pages is serving the Actions workflow.
 
 ```sh
 npm ci
@@ -106,9 +108,9 @@ test.
 Work on one bounded seam from the implementation plan. Read the relevant
 architecture and contract first, then add or update focused tests.
 
-Do not start by implementing the future CLI, semantic reduction, repository
-scanner, agent transport, HLD/LLD generation, or behavioral study unless the
-maintainer has explicitly scoped that work.
+Do not broaden the pilot grammar or start the repository scanner, agent
+transport, HLD/LLD generation, or behavioral study unless the maintainer has
+explicitly scoped that work.
 
 ## 5. Rules that prevent misleading output
 

@@ -1,0 +1,278 @@
+---
+/**
+ * Illustrative reading-check island for the splash hero.
+ * Stacked TUI cards: simplified view, one prediction, coverage labels.
+ * README pricing example. Not a live CLI session. Not executable.
+ */
+---
+
+<figure class="hero-demo" aria-label="Illustrative Skia demo">
+	<div class="hero-demo__chrome">
+		<span class="hd-dollar" aria-hidden="true">$</span>
+		<span class="hero-demo__title">illustrative · not a live session</span>
+		<span class="hero-demo__badge">ILLUSTRATIVE</span>
+	</div>
+
+	<div class="hero-demo__stack">
+		<section class="hero-demo__card" aria-label="Simplified view">
+			<p class="hero-demo__head">
+				<span class="hero-demo__kicker">SIMPLIFIED VIEW — not executable</span>
+				<span class="hero-demo__diff">
+					<span class="hd-file">calculateFinalPrice</span>
+					<span class="hd-add">+3</span>
+					<span class="hd-del">−1</span>
+				</span>
+			</p>
+			<p class="hero-demo__path">src/pricing.ts:12-18</p>
+			<pre class="hero-demo__code"><code>if (member)        total = total * 0.90
+if (promotion &gt; 0) total = total - promotion
+return round(max(total, 0))</code></pre>
+		</section>
+
+		<section class="hero-demo__card" aria-label="Prediction prompt">
+			<p class="hero-demo__kicker">PREDICT</p>
+			<p class="hero-demo__scenario">total=100, member=true, promotion=10</p>
+			<p class="hero-demo__prompt">What should calculateFinalPrice(...) return?</p>
+			<p class="hero-demo__answer">
+				<span class="hd-prompt" aria-hidden="true">&gt;</span>
+				<span>80</span>
+				<span class="hd-note">developer_supplied</span>
+			</p>
+		</section>
+
+		<section class="hero-demo__card hero-demo__card--warn" aria-label="Coverage and uncertainty">
+			<ul class="hero-demo__chips">
+				<li><span class="hd-chip">supported</span> branches shown</li>
+				<li><span class="hd-chip hd-chip--warn">not_available</span> no runtime result</li>
+			</ul>
+		</section>
+	</div>
+
+	<figcaption class="hero-demo__caption">Illustrative — not a live CLI session</figcaption>
+</figure>
+
+<style>
+	.hero-demo {
+		--demo-bg: #050507;
+		--demo-elev: #101212;
+		--demo-border: rgb(255 255 255 / 10%);
+		--demo-fg: #f4f6f6;
+		--demo-muted: #8d9696;
+		--demo-accent: var(--sl-color-accent);
+		margin: 0;
+		width: 100%;
+		border: 1px solid var(--demo-border);
+		border-radius: 6px;
+		overflow: hidden;
+		background: var(--demo-bg);
+		color: var(--demo-fg);
+	}
+
+	.hero-demo__chrome {
+		display: flex;
+		align-items: center;
+		gap: 0.55rem;
+		padding: 0.45rem 0.7rem;
+		border-bottom: 1px solid var(--demo-border);
+		background: #0c0d10;
+		font-family: var(--sl-font-mono);
+		font-size: 0.72rem;
+		color: var(--demo-muted);
+	}
+
+	.hd-dollar {
+		color: var(--demo-accent);
+		font-weight: 560;
+		flex: none;
+	}
+
+	.hero-demo__title {
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.hero-demo__badge {
+		border: 1px solid color-mix(in srgb, var(--demo-accent) 70%, transparent);
+		border-radius: 2px;
+		padding: 0.06rem 0.4rem;
+		color: var(--demo-accent);
+		letter-spacing: 0.16em;
+		white-space: nowrap;
+	}
+
+	.hero-demo__stack {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		padding: 0.45rem;
+	}
+
+	.hero-demo__card {
+		border: 1px solid var(--demo-border);
+		border-radius: 4px;
+		background: var(--demo-elev);
+		padding: 0.5rem 0.65rem 0.55rem;
+	}
+
+	.hero-demo__card--warn {
+		border-color: color-mix(in srgb, var(--demo-accent) 45%, transparent);
+		background: #0c1414;
+		padding-block: 0.4rem;
+	}
+
+	.hero-demo__head,
+	.hero-demo__kicker,
+	.hero-demo__path,
+	.hero-demo__scenario,
+	.hero-demo__prompt,
+	.hero-demo__answer {
+		margin: 0;
+	}
+
+	.hero-demo__head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.25rem 0.75rem;
+	}
+
+	.hero-demo__kicker {
+		font-family: var(--sl-font-mono);
+		font-size: 0.68rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--demo-accent);
+	}
+
+	.hero-demo__diff {
+		display: inline-flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		font-family: var(--sl-font-mono);
+		font-size: 0.68rem;
+		color: var(--demo-muted);
+	}
+
+	.hero-demo__path,
+	.hero-demo__scenario,
+	.hd-note {
+		font-family: var(--sl-font-mono);
+		font-size: 0.7rem;
+		color: var(--demo-muted);
+	}
+
+	.hero-demo__path,
+	.hero-demo__scenario {
+		margin-top: 0.2rem;
+	}
+
+	.hero-demo__code {
+		margin: 0.3rem 0 0;
+		overflow-x: auto;
+		font-family: var(--sl-font-mono);
+		font-size: 0.76rem;
+		line-height: 1.45;
+		color: var(--demo-fg);
+	}
+
+	.hero-demo__prompt {
+		margin-top: 0.28rem;
+		font-size: 0.9rem;
+		line-height: 1.35;
+		color: var(--demo-fg);
+	}
+
+	.hero-demo__answer {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 0.4rem;
+		margin-top: 0.28rem;
+		font-family: var(--sl-font-mono);
+		font-size: 0.9rem;
+	}
+
+	.hd-prompt {
+		color: var(--demo-accent);
+	}
+
+	.hd-file {
+		color: var(--demo-fg);
+	}
+
+	.hd-add {
+		color: #7dcea0;
+	}
+
+	.hd-del {
+		color: #e7a09a;
+	}
+
+	.hero-demo__chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem 0.8rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		font-family: var(--sl-font-mono);
+		font-size: 0.7rem;
+		color: var(--demo-muted);
+	}
+
+	.hero-demo__chips li {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.hd-chip {
+		border: 1px solid rgb(255 255 255 / 16%);
+		border-radius: 2px;
+		padding: 0.02rem 0.38rem;
+		color: var(--demo-fg);
+	}
+
+	.hd-chip--warn {
+		border-color: color-mix(in srgb, var(--demo-accent) 70%, transparent);
+		color: var(--demo-accent);
+	}
+
+	.hero-demo__caption {
+		padding: 0.4rem 0.75rem 0.45rem;
+		border-top: 1px solid var(--demo-border);
+		background: #0c0d10;
+		font-family: var(--sl-font-mono);
+		font-size: 0.68rem;
+		color: var(--demo-muted);
+		text-align: start;
+	}
+
+	@media (max-width: 49.99rem) {
+		.hero-demo {
+			border-radius: 0;
+			border-inline: 0;
+		}
+
+		.hero-demo__stack {
+			gap: 0.28rem;
+			padding: 0.32rem;
+		}
+
+		.hero-demo__card {
+			padding-block: 0.4rem;
+		}
+
+		.hero-demo__code {
+			font-size: 0.72rem;
+		}
+
+		.hero-demo__caption {
+			padding-block: 0.32rem;
+		}
+	}
+</style>
