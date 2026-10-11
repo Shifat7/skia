@@ -4,9 +4,7 @@ Hand-written pictures of the reading experience described in the
 [README](../README.md). They are **illustrative intended UX**, not output from
 a Skia command.
 
-`skia review` is not runnable. The package is private at `0.0.0`. Do not
-treat these files as receipts, benchmarks, or proof that a function returns
-a given value.
+The narrow `skia review` pilot is runnable for one staged literal-guard function. These files are still not its output. The package is private at `0.0.0`. Do not treat these files as receipts, benchmarks, or proof that a function returns a given value.
 
 | File | What it illustrates |
 |---|---|

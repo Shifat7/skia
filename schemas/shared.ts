@@ -1,5 +1,6 @@
 import type { AnySchemaObject } from "ajv/dist/2020.js";
 
+import { MAX_STAGED_TEXT_CHARACTERS } from "../src/limits.js";
 import {
   ANCHOR_SIDES,
   ARTIFACT_STATES,
@@ -78,7 +79,14 @@ export const stableIssueSchema = {
       anyOf: [relativePathSchema, { type: "null" }],
     },
     detail: {
-      anyOf: [{ type: "string", minLength: 1 }, { type: "null" }],
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          maxLength: MAX_STAGED_TEXT_CHARACTERS,
+        },
+        { type: "null" },
+      ],
     },
   },
 } as const;
@@ -393,6 +401,7 @@ export const commonEnvelopeProperties = {
   privacy_caveat: {
     type: "string",
     minLength: 1,
+    maxLength: MAX_STAGED_TEXT_CHARACTERS,
   },
 } as const;
 

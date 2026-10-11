@@ -1,10 +1,10 @@
 # Skia Architecture -- Proposed Target
 
-> **Foundation implemented; product workflows remain proposed.** The repository
-> contains a TypeScript package, source code, tests, schemas, Git snapshot
-> capture, language analysis, and local storage foundation. The staged/repository
-> CLI workflows, semantic reduction, agent boundary, and generated HLD/LLD
-> consumers described below remain unimplemented and are proposal-level design.
+> **Foundation and narrow staged pilot implemented.** The repository contains
+> the TypeScript foundation plus a runnable `skia review` path for one staged
+> `.ts` file with one named literal guard-return function. Broader staged
+> semantics, repository review, the agent boundary, and generated HLD/LLD
+> consumers remain proposal-level design.
 
 ---
 
@@ -60,13 +60,12 @@ src/
     python.ts         Python parsing and declarations
   coverage.ts         included/excluded/unsupported/failed accounting
   staged/
-    entities.ts       changed-entity ownership and mapping
-    collapse.ts       collapsed equivalence evidence
-    card.ts           minimal prediction card and validation
-    source_check.ts   narrow path comparison
-    probe.ts          structured unexecuted probe specification
-    receipt.ts        staged receipt schema and writer
-    prompt.ts         staged terminal interaction
+    parser-child.ts   isolated pilot-shape extraction
+    analyze.ts        source-anchored literal guard-return analysis
+    pipeline.ts       patch-line mapping, coverage, and composition
+    card.ts           prediction sealing and narrow source check
+    receipt.ts        complete/skipped pilot receipt assembly
+    types.ts          staged pilot contracts
   repository/
     inventory.ts      committed-tree file classification
     structure.ts      packages, entry points, exports, imports, direct calls

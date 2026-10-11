@@ -6,12 +6,12 @@
 [![Install: npm first, unpublished](https://img.shields.io/badge/install-npm_first_unpublished-blue)](#run-the-repository-today)
 [![Telemetry: none](https://img.shields.io/badge/telemetry-none-success)](SECURITY.md)
 
-**Alpha · foundation shipping · product CLI not released.**
+**Alpha · foundation shipping · narrow `skia review` pilot · package not released.**
 [What's real vs planned](https://shifat7.github.io/skia/status/).
 
 > **AI wrote the code. Read it before you trust the commit.**
 
-Skia is a local pre-PR comprehension checkpoint for one developer. Planned shape: a short reading of what a change appears to do, one prediction, and a visible record of anything it could not analyze. The shell in [`src/main.ts`](src/main.ts) is unimplemented (`implemented: false`). The package is private at `0.0.0`.
+Skia is a local pre-PR comprehension checkpoint for one developer. Planned shape: a short reading of what a change appears to do, one prediction, and a visible record of anything it could not analyze. The shell in [`src/main.ts`](src/main.ts) is partial (`implemented: "partial"`): `skia review` runs for exactly one staged `.ts` file containing one named function with a strict literal guard and literal return. `skia repo review` is not implemented. The package is private at `0.0.0`.
 
 Marketing site (GitHub Pages via Actions when published):
 <https://shifat7.github.io/skia/>
@@ -293,31 +293,39 @@ The next action is to inspect those files. Skia must not invent a clean-looking 
 
 ## What works today
 
-The Phase 1 TypeScript foundation is implemented:
+The Phase 1 TypeScript foundation and one narrow staged-review pilot are
+implemented:
 
 - exact staged and committed-`HEAD` Git snapshots;
 - schema and coverage validation;
 - TypeScript, TSX, and Python source analysis;
-- explicit `supported`, `partial`, `unmapped`, `unsupported`, `failed`, and `unchecked` outcomes; and
-- local, path-safe run storage.
+- explicit `supported`, `partial`, `unmapped`, `unsupported`, `failed`, and `unchecked` outcomes;
+- local, path-safe run storage; and
+- runnable `skia review` support for exactly one staged `.ts` file containing one named function with a strict literal guard and literal return.
 
-The future `skia review` and `skia repo review` commands are product examples, not runnable workflows yet. The current CLI is a side-effect-free bootstrap shell. Staged semantic reduction, repository scanning, agent transport, HLD/LLD generation, and behavioral validation remain deferred.
+The pilot emits one deterministic relation, asks for one JSON-scalar prediction or skip, persists the response before source-derived feedback, and writes a validated local receipt. Prediction input is limited to 4,096 UTF-8 bytes; enter the bare word `skip` to skip, or JSON `"skip"` to predict that string. Other TypeScript shapes, TSX/Python reduction, multiple staged files, `skia repo review`, agent transport, HLD/LLD generation, and behavioral validation remain unimplemented.
+
+After building, add `.skia/` to the target repository's ignore rules, then run the pilot with exactly one supported staged file:
+
+```sh
+node /path/to/skia/dist/src/main.js review
+```
 
 ## Limitations
 
 Skia is an early local checkpoint. Longer pages: [status](https://shifat7.github.io/skia/status/) and [privacy](https://shifat7.github.io/skia/privacy/).
 
-- The review commands are product examples. The shell sets `implemented: false`.
+- `skia review` is a narrow pilot, not the full product workflow. `skia repo review` remains a product example. The shell sets `implemented: "partial"`.
 - The job is a diff- and snapshot-oriented reading for one developer. CodeRabbit, Greptile, and Copilot Review remain hosted PR tools. This README states no catch rate against them.
 - A future finding is advisory. The implementation plan excludes CI review comments.
 - Quality of any later model draft follows the provider you configure. `model_derived` text is not deterministic proof.
 - Phase 0 has no product telemetry and no Skia review backend. A future repository mode can send bounded context only to an endpoint you configure, after consent. A cloud model means the prompt leaves the machine.
-- Public stars are not a quality signal. Use the foundation tests and the labeled samples in [`examples/illustrative/`](examples/illustrative/).
-- npm is the first install channel, and the package is still private. Homebrew and a curl installer have no commands until they work. Node.js 24.x (`>=24.0.0 <25`) is the engine floor.
+- Public stars are not a quality signal. Use the foundation tests and the labeled samples in [`examples/illustrative/`](examples/illustrative/). Those samples are illustrative intended UX, not captured pilot output.
+- npm is the first install channel, and the package is still private. Homebrew and a curl installer have no commands until they work. Node.js 24.x (`>=24.0.0 <25`) and npm `11.18.0` are the package contract.
 
 ## Run the repository today
 
-These commands need Node.js 24.x and npm. They check the foundation. They do not install a review CLI.
+These commands need Node.js 24.x (`>=24.0.0 <25`) and npm 11.18.0. They check the foundation and the narrow staged-review pilot. They do not install a published review CLI.
 
 ```sh
 git clone https://github.com/Shifat7/skia.git
@@ -338,7 +346,7 @@ python3 scripts/check_docs.py
 git diff --check
 ```
 
-These commands verify the implemented foundation. They do not run the future `skia review` or `skia repo review` product workflows.
+These commands verify the foundation and the narrow staged-review pilot. They do not run `skia repo review`.
 
 ## How to read coverage results
 
@@ -357,7 +365,7 @@ Skia must not turn an unknown result into a confident-looking simplified code bl
 
 | Term | Meaning today |
 |---|---|
-| `collapsed equivalence evidence` | The planned staged reduction view; not implemented yet. |
+| `source-derived relation evidence` | Implemented for one staged TypeScript literal guard and return. `collapsed equivalence evidence` remains unimplemented. |
 | `model_derived` | A claim generated by a configured agent; not deterministic proof. |
 | `repo-hld-20260805T001500Z.md` | An example future artifact name; the current repository does not generate it. |
 
@@ -371,7 +379,7 @@ Skia must not turn an unknown result into a confident-looking simplified code bl
 | How are TS, TSX, and Python files analyzed? | [`src/languages/registry.ts`](src/languages/registry.ts) |
 | How are local runs and artifacts protected? | [`src/storage.ts`](src/storage.ts) and [`src/paths.ts`](src/paths.ts) |
 | Where are the behavior tests? | [`tests/`](tests) and [`fixtures/`](fixtures) |
-| What does the bootstrap CLI currently do? | [`src/main.ts`](src/main.ts) |
+| What does the staged-review CLI currently do? | [`src/main.ts`](src/main.ts) and [`src/staged/`](src/staged/) |
 
 ## Your first contribution
 
@@ -381,7 +389,7 @@ Choose one small path:
 2. **Fixture or contract:** add a synthetic case for a supported, partial, unmapped, unsupported, failed, or unchecked result.
 3. **Foundation code:** take one bounded item from [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), read its contract first, and add focused tests.
 
-Do not start by implementing the future CLI, semantic reduction, repository scanner, agent transport, HLD/LLD generation, or behavioral study unless that work is explicitly scoped by a maintainer. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request.
+Do not broaden the pilot grammar or start the repository scanner, agent transport, HLD/LLD generation, or behavioral study unless that work is explicitly scoped by a maintainer. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request.
 
 ## Rules that keep Skia honest
 

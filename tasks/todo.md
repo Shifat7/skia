@@ -54,3 +54,12 @@
 - [x] Checkpoint B: Shared schema/path/storage/Git foundations verified.
 - [x] Checkpoint C: TypeScript/TSX/Python parser foundation and Phase 1 exit
       criteria verified.
+
+## Staged pilot
+
+- [x] Implement one literal guard-return TypeScript path through `skia review`.
+  - Includes changed-line coverage, deterministic evidence, prediction or skip,
+    persist-before-feedback behavior, source-derived check, local receipt,
+    golden interaction tests, and executable no-target-execution coverage.
+  - Does not complete AC-4 through AC-6 or broaden support to methods,
+    TSX/Python reduction, multiple staged files, probes, or source-view menus.

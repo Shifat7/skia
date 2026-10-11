@@ -7,9 +7,9 @@ tab offers it. Do not place exploit details, secrets, private source, personal
 data, repository architecture, or a proof of concept in a public issue.
 
 If private reporting is unavailable, open a public issue containing only a
-request for private follow-up and no sensitive detail. Before runnable code or
-an external-agent adapter is released, the maintainer must enable GitHub private
-vulnerability reporting and publish a monitored private security contact.
+request for private follow-up and no sensitive detail. Before an external-agent
+adapter is released, the maintainer must enable GitHub private vulnerability
+reporting and publish a monitored private security contact.
 
 This volunteer pre-release project does not yet promise a response SLA.
 A release policy must define acknowledgement, triage, remediation, disclosure,
@@ -17,8 +17,22 @@ and supported-version timelines before users are asked to install code.
 
 ## Current scope
 
-There is a bootstrap package shell and test harness, but no implemented
-review/repository workflow. Reports are still welcome for:
+The repository has a bootstrap package shell, a test harness, and one staged
+`skia review` pilot. The pilot reads exactly one staged TypeScript file and one
+terminal prediction, then writes a local receipt under `.skia/`. It does not
+run `skia repo review`, call a model, or generate HLD/LLD.
+
+That pilot treats the target repository, terminal input, and existing `.skia/`
+files as untrusted. Staged mode has no network capability and does not modify
+source, Git state, hooks, package configuration, or project documentation.
+A receipt can contain code-derived evidence and a developer prediction. It is
+local output, not a correctness verdict and not an equivalence proof.
+Lifecycle commands refuse a staged receipt, run-id claim, or staged
+artifact larger than 1 MiB before parsing or hashing it, refuse to write a
+claim or staged artifact above that size, and refuse to publish a receipt
+above that size.
+
+Reports are still welcome for:
 
 - misleading security, privacy, equivalence, coverage, or agent claims;
 - credentials, personal data, proprietary code, or sensitive architecture

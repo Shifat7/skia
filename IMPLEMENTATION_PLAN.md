@@ -1,8 +1,9 @@
 # Skia -- Proposed Implementation Plan
 
-> **Planning only.** No source, package, tests, generated artifact,
-> or runnable command exists. This plan defines gates for implementing the
-> reduced-reading staged mode and the TypeScript/Python repository mode.
+> **Implementation in progress.** Phase 1 foundations and one narrow
+> literal guard-return `skia review` pilot exist. This plan defines the
+> remaining gates for broader staged mode and TypeScript/Python repository
+> mode.
 
 ---
 
@@ -223,6 +224,13 @@ Implement AC-4 through AC-6 as one vertical slice:
 - golden terminal output.
 
 Expand operators/entities only through failing fixtures.
+
+**Pilot status:** One named TypeScript function with a strict literal guard and
+literal return now runs end to end with line coverage, one prediction or skip,
+persist-before-feedback behavior, a validated receipt, golden terminal tests,
+and executable security tests. This is not completion of AC-4 through AC-6:
+broader relation families, methods, TSX/Python reduction, original-source menu
+actions, probe specifications, and behavioral reading-reduction gates remain.
 
 ### Step 4: Repository deterministic vertical slice
 

@@ -34,8 +34,8 @@ What is in the repository today:
 
 What is not ready:
 
-- `skia review` and `skia repo review` (the CLI shell is unimplemented)
-- a public npm package (`private`, `0.0.0`; Node.js 24.x when it ships)
+- `skia repo review`, and `skia review` beyond the literal-guard pilot (`implemented: "partial"`)
+- a public npm package (`private`, `0.0.0`; Node.js 24.x and npm 11.18.0 are the package contract)
 - Homebrew, curl, Cursor, Claude Code, Codex, and GitHub Actions adapters
 
 Intended output, hand-written and labeled, is in `examples/`. The simplified
@@ -78,9 +78,10 @@ coverage states when the tool cannot analyze a path (`partial`, `unmapped`,
 `unsupported`, `failed`, `unchecked`).
 
 The repository has the Phase 1 foundation (Git snapshots, TS/TSX/Python
-parsers, schemas, local storage). The review command is not runnable, and
-the package is not on npm. I am posting the problem and the boundary, not
-an install.
+parsers, schemas, local storage) and a narrow `skia review` pilot: one
+staged `.ts` file, one named function, a strict literal guard, and a
+literal return. Broader review is not runnable, and the package is not on
+npm. I am posting the problem and the boundary, not an install.
 
 Samples of the intended reading view, labeled as such:
 https://github.com/Shifat7/skia/tree/main/examples
@@ -100,8 +101,9 @@ status update that is not atomic with the audit write, a retry that only
 catches timeouts.
 
 Skia is an early local CLI aimed at that moment, before the PR. It is not
-shipped. `package.json` is private at 0.0.0, and `skia review` is still an
-unimplemented shell. Node.js 24.x is the planned runtime. npm would be the
+shipped as a package. `package.json` is private at 0.0.0. `skia review` is
+a narrow pilot (`implemented: "partial"`), not a general review command.
+Node.js 24.x and npm 11.18.0 are the package contract. npm would be the
 first install channel; there is no Homebrew or curl command.
 
 The README walks a pricing function and an archive endpoint as intended UX,
@@ -110,7 +112,7 @@ https://github.com/Shifat7/skia
 
 I am collecting the cases where a single concrete prediction would have
 caught a wrong assumption. I am not collecting stars, and I cannot demo a
-live review yet.
+general review yet.
 
 ## Product Hunt
 
@@ -132,9 +134,10 @@ designed to turn a generated change into a short source-backed reading, ask
 for one prediction before feedback, and keep unanalyzed paths visible.
 
 Early preview. The open-source repository contains Git snapshots, TypeScript
-/ TSX / Python analysis, and local storage. The review CLI is not runnable
-yet, and there is no published npm package. Homebrew, curl, and editor
-adapters are planned without install commands.
+/ TSX / Python analysis, local storage, and a narrow staged `skia review`
+pilot. Broader review is not runnable, and there is no published npm
+package. Homebrew, curl, and editor adapters are planned without install
+commands.
 
 Skia does not host a review backend and does not send product telemetry.
 It is not a pull-request bot and not a replacement for tests.

@@ -1,5 +1,6 @@
 export const SKIA_DIRECTORY_NAME = ".skia";
 export const DIST_DIRECTORY_NAME = "dist";
+export const ARTIFACTS_DIRECTORY_NAME = "artifacts";
 export const RECEIPTS_DIRECTORY_NAME = "receipts";
 export const RUN_ID_CLAIMS_DIRECTORY_NAME = "run-ids";
 export const TMP_DIRECTORY_NAME = "tmp";
@@ -13,6 +14,13 @@ export const DEFAULT_GIT_OUTPUT_LIMIT_BYTES = 1_000_000;
 export const MAX_GIT_INDEX_BYTES = 16 * 1024 * 1024;
 export const MAX_GIT_CAPTURED_BLOB_COUNT = 4_096;
 export const MAX_GIT_CAPTURED_BLOB_BYTES = 16 * 1024 * 1024;
+export const MAX_TERMINAL_INPUT_BYTES = 4_096;
+export const MAX_STAGED_TEXT_CHARACTERS = 4_096;
+export const MAX_STAGED_RECEIPT_BYTES = 1024 * 1024;
+export const MAX_RUN_ID_CLAIM_BYTES = 1024 * 1024;
+export const MAX_STAGED_ARTIFACT_BYTES = 1024 * 1024;
+export const MAX_STAGED_CHANGED_LINES = 150;
+export const TOOL_VERSION = "0.0.0";
 
 export const LOCAL_RETENTION_CAVEAT =
   "There is no age-based automatic retention or background cleanup. Complete runs remain local until explicit exact-ID deletion succeeds.";

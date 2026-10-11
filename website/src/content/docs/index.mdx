@@ -32,11 +32,11 @@ Phase 1 foundation is in the repository. Planned items stay on <a href={withBase
 
 ## How it works
 
-`skia review` is a documented name. The shell in `src/main.ts` is unimplemented. Planned loop:
+`skia review` runs for one narrow staged TypeScript shape. The shell in `src/main.ts` is `implemented: "partial"`. `skia repo review` is still planned. The intended loop:
 
 <Steps>
 
-1. Stage or point at a change — exact Git snapshot when the product CLI lands.
+1. Stage one supported `.ts` file. The pilot captures an exact Git snapshot. Broader inputs stay outside the pilot.
 
 2. Read the simplified view. It is a map. It is not executable.
 
@@ -73,7 +73,7 @@ AI tools can produce a working-looking diff faster than you can build a mental m
 <div class="faq">
 	<details>
 		<summary>Is <code>skia review</code> available today?</summary>
-		<p>No. The package is private at 0.0.0, and the shell does not run a review. There is no working global npm install, Homebrew formula, or curl installer.</p>
+		<p>Only as a narrow pilot: one staged <code>.ts</code> file, one named function, a strict literal guard, and a literal return, via <code>node dist/src/main.js review</code> after a build. The package is private at 0.0.0. There is no working global npm install, Homebrew formula, or curl installer. <code>skia repo review</code> does not run.</p>
 	</details>
 	<details>
 		<summary>Does my code leave the machine?</summary>

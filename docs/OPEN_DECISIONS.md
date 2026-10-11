@@ -38,6 +38,11 @@ direct side effects, literal errors, declared contract changes, and an explicit
 fallback. Every relation has source anchors and supported/partial/unmapped/
 unsupported coverage.
 
+**Implemented pilot:** One strict TypeScript relation,
+`<parameter> === <JSON scalar> -> return <JSON scalar>`, for one named function
+in one staged file. This is feasibility evidence, not closure of the broader
+grammar decision.
+
 **Unknowns:**
 
 - canonical relation syntax and ordering;
@@ -61,6 +66,11 @@ turning scenario selection into an untrusted generated answer?
 **Current proposal:** System supplies the scenario; developer predicts `THEN`;
 `BECAUSE` is conditional after mismatch or explicit/risk request; `IMPACT` is
 conditional for high-risk paths.
+
+**Implemented pilot:** The system uses the strict guard literal as `GIVEN`,
+renders the named invocation as `WHEN`, and accepts one JSON-scalar `THEN` or
+skip. The prediction is persisted before a narrow source-derived comparison.
+Representative/adversarial scenario selection remains open beyond this shape.
 
 **Unknowns:**
 

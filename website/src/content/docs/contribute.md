@@ -18,7 +18,7 @@ npm ci
 npm test
 ```
 
-`npm test` builds first and checks Git snapshots, parsers, schemas, and storage. It does not run `skia review` or `skia repo review`.
+`npm test` builds first and checks Git snapshots, parsers, schemas, storage, and the narrow staged-review pilot. It does not run `skia repo review`.
 
 Optional checks for a documentation or foundation change:
 
@@ -36,6 +36,6 @@ git diff --check
 2. A synthetic fixture for `supported`, `partial`, `unmapped`, `unsupported`, `failed`, or `unchecked`.
 3. One bounded foundation item from the implementation plan, with tests.
 
-Do not start by implementing the review command, semantic reduction, repository scanner, agent transport, or HLD/LLD generation unless a maintainer has scoped that work.
+Do not broaden the pilot grammar or start the repository scanner, agent transport, or HLD/LLD generation unless a maintainer has scoped that work.
 
 There is no Homebrew formula, curl installer, or editor plugin to add in a first contribution. Those stay planned until a real command exists.

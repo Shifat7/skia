@@ -16,7 +16,7 @@ includes the repository link is a product post and stays on HOLD.
 |---|---|
 | Read recent threads in r/programming and r/webdev. Comment only where you have a genuine technical point. No Skia link, no "I built" line. | Karma allowed |
 | Re-read [docs/VALIDATION.md](../VALIDATION.md) claims that must not be made | Required |
-| Confirm `src/main.ts` still has `implemented: false` before anyone drafts a demo sentence | Required |
+| Confirm `src/main.ts` is still only the narrow `review` pilot (`implemented: "partial"`) before anyone drafts a broader demo sentence | Required |
 | Show HN, Reddit launch, Product Hunt | HOLD |
 
 ## Week 2 — drafts stay in git
@@ -59,7 +59,7 @@ includes the repository link is a product post and stays on HOLD.
 
 | Activity | Flag |
 |---|---|
-| Write down whether Gate A is met. If the shell is still unimplemented, reset the launch week | Required |
+| Write down whether Gate A is met for a general demo. The narrow pilot does not reset that check, and a still-unimplemented broader review does | Required |
 | If Gate A is met, run the demo on a clean checkout and paste the command plus the date into the launch draft | Only then |
 | If Gate B is unmet, the post still has no npm, brew, or curl command | Required |
 | Show HN, Reddit, Product Hunt, Dev.to launch article | HOLD while either gate fails |
@@ -78,7 +78,7 @@ includes the repository link is a product post and stays on HOLD.
 
 Work that still moves the repository:
 
-- keep the Pages site and README aligned with `implemented: false`
+- keep the Pages site and README aligned with `implemented: "partial"` and the narrow literal-guard pilot
 - extend synthetic fixtures for coverage states
 - tighten a foundation test that already has a contract
 

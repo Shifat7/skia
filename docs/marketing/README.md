@@ -8,7 +8,7 @@ live post, a release note, or evidence that `skia review` runs.
 | Item | State |
 |---|---|
 | Phase 1 foundation | In the repository (snapshots, parsers, schemas, storage) |
-| `skia` CLI shell | `implemented: false` in `src/main.ts` |
+| `skia` CLI shell | `implemented: "partial"` in `src/main.ts` (narrow `review` pilot only) |
 | npm package | Private, `0.0.0`. Not published |
 | This pack | Draft. Launch posts stay on HOLD |
 
@@ -46,8 +46,10 @@ URL, after GitHub Pages uses the Actions workflow, is
 ## Gates
 
 **Gate A — runnable demo.** A stranger can run a real review command on a
-synthetic fixture in this repository and read labeled output. Until
-`src/main.ts` grows past `implemented: false`, Gate A is unmet.
+synthetic fixture in this repository and read labeled output. The shell is
+`implemented: "partial"`: that gate is met only for one staged `.ts` file
+with one named function, a strict literal guard, and a literal return.
+Broader review output is still unmet.
 
 **Gate B — public install.** Gate A is met, OD-1 is explicitly accepted or
 the project is renamed, `private` is no longer set, and someone ran the

@@ -22,6 +22,7 @@ import {
   RUN_METADATA_FILENAME,
   setStorageTestHooks,
   allocateRepositoryRun,
+  allocateStagedRun,
   completeRepositoryRun,
   deleteRun,
   inspectRun,
@@ -752,6 +753,36 @@ test("repository completion writes a manifest only after validated artifacts, an
   assert.strictEqual(inspectedReceiptRun.receipt.run_id, "20260810T020304Z");
 });
 
+test("allocation does not treat a non-collision error as an exhausted run id", () => {
+  const repositoryRoot = createTempRepository();
+  const denied = Object.assign(
+    new Error("could not use the existing directory"),
+    { code: "EACCES" },
+  );
+
+  setStorageTestHooks({
+    afterRunIdClaim: () => {
+      throw denied;
+    },
+  });
+
+  let thrown: unknown = null;
+
+  try {
+    allocateStagedRun(
+      repositoryRoot,
+      validateSessionId("8f5d1a2c"),
+      new Date("2026-08-10T01:02:03Z"),
+    );
+  } catch (error) {
+    thrown = error;
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  assert.strictEqual(thrown, denied);
+});
+
 test("staged receipt run-id claims stay unique under interleaved writers", () => {
   const repositoryRoot = createTempRepository();
   const runId = brand<RunId>("20260810T020304Z");
@@ -831,6 +862,146 @@ test("staged receipt lookup rejects a filename whose envelope identity differs",
   assert.throws(
     () => inspectRun(repositoryRoot, runId),
     /filename .* does not match its envelope identity/i,
+  );
+});
+
+test("receipt deletion does not remove a file that replaces the artifact inode", () => {
+  const repositoryRoot = createTempRepository();
+  const runId = brand<RunId>("20260810T030408Z");
+  const sessionId = "8f5d1a2c";
+  const artifactPath = deriveStagedArtifactPath(
+    runId,
+    validateSessionId(sessionId),
+    "hld",
+  );
+  const owned = "owned\n";
+  const artifactAbsolutePath = absoluteSkiaPath(repositoryRoot, artifactPath);
+  fs.mkdirSync(path.dirname(artifactAbsolutePath), { recursive: true });
+  fs.writeFileSync(artifactAbsolutePath, owned, "utf8");
+  const artifactSha = createHash("sha256").update(owned).digest("hex");
+  writeStagedReceipt(
+    repositoryRoot,
+    createStagedReceipt(runId, sessionId, [
+      {
+        kind: "hld",
+        path: artifactPath,
+        sha256: brand<Sha256Hex>(artifactSha),
+      },
+    ]),
+  );
+  const aside = `${artifactAbsolutePath}.aside`;
+  setStorageTestHooks({
+    beforeBoundChildRename: (childName) => {
+      if (childName !== artifactAbsolutePath.slice(artifactAbsolutePath.lastIndexOf(path.sep) + 1)) {
+        return;
+      }
+      fs.renameSync(artifactAbsolutePath, aside);
+      fs.writeFileSync(artifactAbsolutePath, "victim\n");
+    },
+  });
+
+  try {
+    const result = deleteRun(repositoryRoot, runId);
+    assert.strictEqual(result.deleted, false);
+    assert.ok(result.remaining_paths.includes(artifactPath));
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  assert.strictEqual(fs.readFileSync(artifactAbsolutePath, "utf8"), "victim\n");
+  assert.strictEqual(fs.readFileSync(aside, "utf8"), owned);
+});
+
+test("deleteRun removes a receipt when descriptor paths are unavailable", () => {
+  const repositoryRoot = createTempRepository();
+  const runId = brand<RunId>("20260810T030409Z");
+  const sessionId = "8f5d1a2c";
+  const artifactPath = deriveStagedArtifactPath(
+    runId,
+    validateSessionId(sessionId),
+    "hld",
+  );
+  const artifactContents = "# hld\n";
+  const artifactAbsolutePath = absoluteSkiaPath(repositoryRoot, artifactPath);
+  fs.mkdirSync(path.dirname(artifactAbsolutePath), { recursive: true });
+  fs.writeFileSync(artifactAbsolutePath, artifactContents, "utf8");
+  const artifactSha = createHash("sha256").update(artifactContents).digest("hex");
+  writeStagedReceipt(
+    repositoryRoot,
+    createStagedReceipt(runId, sessionId, [
+      {
+        kind: "hld",
+        path: artifactPath,
+        sha256: brand<Sha256Hex>(artifactSha),
+      },
+    ]),
+  );
+  setStorageTestHooks({
+    forcePathDescriptorBinding: true,
+  });
+
+  try {
+    assert.deepStrictEqual(deleteRun(repositoryRoot, runId), {
+      deleted: true,
+      remaining_paths: [],
+    });
+  } finally {
+    setStorageTestHooks(null);
+  }
+
+  assert.strictEqual(fs.existsSync(artifactAbsolutePath), false);
+  assert.strictEqual(
+    fs.existsSync(absoluteSkiaPath(repositoryRoot, `receipts/${runId}-${sessionId}-session.json`)),
+    false,
+  );
+});
+
+test("deleteRun leaves owned artifacts in place when a receipt temporary cannot be removed", () => {
+  const repositoryRoot = createTempRepository();
+  const runId = brand<RunId>("20260810T030410Z");
+  const sessionId = "8f5d1a2c";
+  const artifactPath = deriveStagedArtifactPath(
+    runId,
+    validateSessionId(sessionId),
+    "hld",
+  );
+  const artifactContents = "# hld\n";
+  const artifactAbsolutePath = absoluteSkiaPath(repositoryRoot, artifactPath);
+  fs.mkdirSync(path.dirname(artifactAbsolutePath), { recursive: true });
+  fs.writeFileSync(artifactAbsolutePath, artifactContents, "utf8");
+  const artifactSha = createHash("sha256").update(artifactContents).digest("hex");
+  writeStagedReceipt(
+    repositoryRoot,
+    createStagedReceipt(runId, sessionId, [
+      {
+        kind: "hld",
+        path: artifactPath,
+        sha256: brand<Sha256Hex>(artifactSha),
+      },
+    ]),
+  );
+  const receiptName = `${runId}-${sessionId}-session.json`;
+  const temporaryPath = absoluteSkiaPath(
+    repositoryRoot,
+    `receipts/.${receiptName}.tmp-12345-1`,
+  );
+  fs.writeFileSync(temporaryPath, "stale\n");
+  const receiptsDirectory = path.dirname(temporaryPath);
+  fs.chmodSync(receiptsDirectory, 0o500);
+
+  let result: ReturnType<typeof deleteRun>;
+  try {
+    result = deleteRun(repositoryRoot, runId);
+  } finally {
+    fs.chmodSync(receiptsDirectory, 0o700);
+  }
+
+  assert.strictEqual(result.deleted, false);
+  assert.ok(result.remaining_paths.some((remaining) => remaining.includes(".tmp-")));
+  assert.strictEqual(fs.readFileSync(artifactAbsolutePath, "utf8"), artifactContents);
+  assert.strictEqual(
+    fs.existsSync(absoluteSkiaPath(repositoryRoot, `receipts/${receiptName}`)),
+    true,
   );
 });
 

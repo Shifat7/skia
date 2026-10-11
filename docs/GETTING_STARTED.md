@@ -11,28 +11,30 @@ prediction question, and making uncertainty visible.
 
 ## What exists today
 
-The Phase 1 TypeScript foundation is implemented:
+The Phase 1 TypeScript foundation and one narrow staged-review pilot are
+implemented:
 
 - exact staged and committed-`HEAD` Git snapshots;
 - schema and coverage validation;
 - TypeScript, TSX, and Python source analysis;
-- explicit `supported`, `partial`, `unsupported`, `failed`, and `unchecked`
-  outcomes; and
-- local, path-safe run storage.
+- explicit `supported`, `partial`, `unmapped`, `unsupported`, `failed`, and
+  `unchecked` outcomes;
+- local, path-safe run storage; and
+- `skia review` for one staged `.ts` file containing one named function with a
+  strict literal guard and literal return.
 
-The future `skia review` and `skia repo review` commands are documented
-product examples. They are not runnable workflows yet. Staged semantic
-reduction, repository scanning, agent transport, HLD/LLD generation, and
-behavioral validation remain deferred.
+The pilot writes local receipts beneath `.skia/` and refuses before writing
+unless the target repository's Git ignore rules cover `.skia/`.
+
+Broader staged reduction, TSX/Python behavior reduction, multiple staged files,
+`skia repo review`, agent transport, HLD/LLD generation, and behavioral
+validation remain deferred.
 
 ## 1. Install and verify the repository
 
-Requirements: Node.js 24.x (`>=24.0.0 <25` in `package.json`) and npm.
+Requirements: Node.js 24.x (`>=24.0.0 <25` in `package.json`) and npm 11.18.0 (`packageManager`).
 
-This is a checkout of the foundation, not a global install. The npm package
-is private at `0.0.0`, and `skia review` is not a runnable command. The
-adopter overview is <https://shifat7.github.io/skia/> once GitHub Pages is
-serving the Actions workflow.
+This is a checkout of the foundation and the narrow staged-review pilot, not a global install. The npm package is private at `0.0.0`. After `npm run build`, `node dist/src/main.js review` runs the pilot for exactly one supported staged file. The adopter overview is <https://shifat7.github.io/skia/> once GitHub Pages is serving the Actions workflow.
 
 ```sh
 npm ci
@@ -45,7 +47,7 @@ git diff --check
 
 If all commands pass, your checkout is ready for a documentation or foundation
 change. The test suite covers Git snapshot safety, language parsing, schemas,
-storage lifecycle, and security boundaries.
+storage lifecycle, the staged pilot, and security boundaries.
 
 ## 2. Understand the intended user experience
 
@@ -106,9 +108,9 @@ test.
 Work on one bounded seam from the implementation plan. Read the relevant
 architecture and contract first, then add or update focused tests.
 
-Do not start by implementing the future CLI, semantic reduction, repository
-scanner, agent transport, HLD/LLD generation, or behavioral study unless the
-maintainer has explicitly scoped that work.
+Do not broaden the pilot grammar or start the repository scanner, agent
+transport, HLD/LLD generation, or behavioral study unless the maintainer has
+explicitly scoped that work.
 
 ## 5. Rules that prevent misleading output
 

@@ -5,8 +5,10 @@
 - This repository has an implemented Phase 1 TypeScript foundation: exact Git
   snapshots, schema and coverage validation, TS/TSX/Python analysis, and local
   path-safe storage.
-- There is still no runnable `skia review` or `skia repo review` workflow and
-  no generated HLD/LLD artifact.
+- A narrow `skia review` pilot is runnable for exactly one staged `.ts` file
+  containing one named function with a strict literal guard and literal
+  return. Broader staged reduction, `skia repo review`, and generated HLD/LLD
+  remain unimplemented.
 - The proposed product has two workflows: `skia review` for staged changes and
   `skia repo review` for committed repositories. Supported source languages are
   exactly `typescript | tsx | python`.
@@ -72,9 +74,10 @@ npm run test:golden
 npm run test:security
 ```
 
-Do not describe the proposed `skia review` / `skia repo review` behavior as
-implemented. Do not describe a simplified code view as executable or as proof
-of semantic equivalence.
+Describe only the literal guard-return `skia review` pilot as implemented. Do
+not describe broader staged behavior or `skia repo review` as implemented, and
+do not describe a simplified code view as executable or as proof of semantic
+equivalence.
 
 ## Documentation conventions
 

@@ -2,7 +2,7 @@
   "name": "skia",
   "version": "0.0.0",
   "private": true,
-  "description": "Bootstrap shell for the Skia local comprehension CLI.",
+  "description": "Local comprehension CLI with a narrow staged TypeScript review pilot.",
   "type": "module",
   "sideEffects": false,
   "packageManager": "npm@11.18.0",
@@ -20,7 +20,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
     "test": "node --test dist/tests/*.test.js dist/tests/golden/*.test.js dist/tests/security/*.test.js",
-    "test:golden": "node --test dist/tests/golden/bootstrap.test.js",
+    "pretest:golden": "npm run build",
+    "test:golden": "node --test dist/tests/golden/*.test.js",
     "pretest:security": "npm run build",
     "test:security": "node --test dist/tests/security/*.test.js"
   },

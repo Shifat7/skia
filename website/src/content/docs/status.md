@@ -24,16 +24,16 @@ Alpha. Phase 1 foundation is in the repository. The product CLI is not released.
 | TypeScript, TSX, and Python analysis | <span class="status-badge status-badge--ships">Ships today</span> |
 | Local path-safe storage | <span class="status-badge status-badge--ships">Ships today</span> |
 | Coverage states, including `partial` and `unmapped` | <span class="status-badge status-badge--ships">Ships today</span> |
-| Bootstrap `skia` shell (`implemented: false`) | <span class="status-badge status-badge--ships">Ships today</span> |
+| Narrow `skia review` pilot (`implemented: "partial"`) | <span class="status-badge status-badge--ships">Ships today</span> |
 
-The shell that ships today returns an unimplemented result. It does not review a diff.
+The shell that ships today runs `review` for exactly one staged `.ts` file containing one named function with a strict literal guard and literal return. Other command surfaces return an unimplemented result. `skia repo review` does not run.
 
 ## Planned
 
 | Capability | Status |
 |---|---|
-| Simplified view and one prediction prompt | <span class="status-badge status-badge--planned">Planned</span> |
-| `skia review` and `skia repo review` | <span class="status-badge status-badge--planned">Planned</span> |
+| Simplified view and one prediction prompt beyond the literal-guard pilot | <span class="status-badge status-badge--planned">Planned</span> |
+| `skia repo review` | <span class="status-badge status-badge--planned">Planned</span> |
 | HLD / LLD drafts (`model_derived`, not authoritative) | <span class="status-badge status-badge--planned">Planned</span> |
 | npm publish (first channel, still private) | <span class="status-badge status-badge--planned">Planned</span> |
 | Homebrew tap | <span class="status-badge status-badge--planned">Planned</span> |

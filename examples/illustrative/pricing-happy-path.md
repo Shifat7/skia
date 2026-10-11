@@ -2,8 +2,7 @@
 
 **Illustrative / intended UX — not a live CLI session.**
 
-This transcript was written to match the README example. It is not output
-from `skia review`, and `skia review` is not runnable. The simplified view is
+This transcript was written to match the README example. It is not output from `skia review`. The runnable pilot covers one staged literal-guard function, not this pricing example. The simplified view is
 **not executable**. The prediction below is an illustration of a
 `developer_supplied` answer, not a test result and not semantic equivalence.
 

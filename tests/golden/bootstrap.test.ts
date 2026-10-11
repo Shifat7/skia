@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { createCliShell } from "../../src/main.js";
 
-test("golden harness boots against the package shell only", () => {
-  assert.strictEqual(createCliShell().implemented, false);
+test("golden harness reports the staged review command as implemented", () => {
+  assert.strictEqual(createCliShell().implemented, "partial");
+  assert.deepStrictEqual(createCliShell().implementedCommandSurfaces, ["review"]);
 });

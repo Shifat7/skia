@@ -2,9 +2,7 @@
 
 **Illustrative / intended UX — not a live CLI session.**
 
-This transcript shows a simplified view that stops where the reading is no
-longer safe. It was not produced by the Skia CLI. The CLI shell is
-unimplemented. The simplified view is **not executable**.
+This transcript shows a simplified view that stops where the reading is no longer safe. It was not produced by the Skia CLI. The runnable pilot does not cover this shape. The simplified view is **not executable**.
 
 `partial` and `unmapped` are the result. They are not a gap to smooth over.
 
