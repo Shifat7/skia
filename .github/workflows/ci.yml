@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  ASTRO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  foundation:
+    name: Foundation checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install pinned npm
+        run: npm install -g npm@11.18.0
+
+      - name: Use main as Git's default init branch
+        run: git config --global init.defaultBranch main
+
+      - name: Install, typecheck, and test
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+      - name: Install documentation checker dependency
+        run: python3 -m pip install --break-system-packages PyYAML
+
+      - name: Check documentation
+        run: python3 scripts/check_docs.py
+
+      - name: Check diff whitespace
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE="$PR_BASE_SHA"
+          else
+            BASE="$PUSH_BEFORE_SHA"
+          fi
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "No base revision available; skipping whitespace diff."
+            exit 0
+          fi
+          git diff --check "$BASE" HEAD
+
+  site:
+    name: Marketing site build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install pinned npm
+        run: npm install -g npm@11.18.0
+
+      - name: Install and build site
+        working-directory: website
+        run: |
+          npm ci
+          npm run build
