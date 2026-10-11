@@ -375,6 +375,39 @@ test("git snapshot does not execute git after core.worktree leaves the checkout"
   assert.strictEqual(fs.existsSync(marker), false);
 });
 
+test("git snapshot realpaths a linked-worktree commondir before trusting PATH", () => {
+  const repositoryRoot = createTempGitRepository();
+  const linkedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-linked-commondir-"));
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stageAll(repositoryRoot);
+  commitAll(repositoryRoot, "seed");
+  runGit(repositoryRoot, ["worktree", "add", "-q", "-b", "linked-commondir", linkedRoot]);
+  const markerText = fs.readFileSync(path.join(linkedRoot, ".git"), "utf8");
+  const gitDir = markerText.match(/^gitdir: (.+)\s*$/m)?.[1];
+  if (gitDir === undefined) {
+    throw new Error("linked worktree gitdir missing");
+  }
+  const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "skia-fake-commondir-"));
+  fs.symlinkSync(path.join(repositoryRoot, ".git"), path.join(fakeRoot, ".git"));
+  fs.writeFileSync(path.join(gitDir, "commondir"), `${path.join(fakeRoot, ".git")}\n`);
+  const marker = path.join(repositoryRoot, "executed-local-git");
+  const bin = path.join(repositoryRoot, "bin");
+  fs.mkdirSync(bin);
+  const localGit = path.join(bin, "git");
+  fs.writeFileSync(localGit, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 99\n`);
+  fs.chmodSync(localGit, 0o755);
+
+  captureStagedSnapshot(linkedRoot, {
+    process_env: {
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      TMPDIR: process.env.TMPDIR,
+    },
+  });
+
+  assert.strictEqual(fs.existsSync(marker), false);
+});
+
 test("git snapshot does not execute git from a checkout named by a directory commondir", () => {
   const repositoryRoot = createTempGitRepository();
   const other = createTempGitRepository();
@@ -641,23 +674,159 @@ test("git snapshot keeps the original copied index when its path is replaced", (
   assert.ok(paths.includes("src/example.ts"));
 });
 
-test("git snapshot rejects a copied index that changes before capture is accepted", () => {
+test("git snapshot keeps the bound copied index when its directory entry is overwritten", () => {
   const repositoryRoot = createTempGitRepository();
   writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
   writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
   stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
   commitAll(repositoryRoot, "initial");
-  const stamp = 1_710_000_000_003;
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    `${readGitFixture("sample.ts")}\nexport const reviewed = true;\n`,
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+
+  const snapshot = captureStagedSnapshot(repositoryRoot, {
+    test_hooks: {
+      after_copied_index_created: () => {
+        for (const name of fs.readdirSync(tmpRoot)) {
+          if (name.startsWith("copied-index-")) {
+            fs.writeFileSync(path.join(tmpRoot, name), Buffer.from("changed\n"));
+          }
+        }
+      },
+    },
+  });
+
+  const paths = snapshot.raw_records.map((record) =>
+    Buffer.from(record.path_bytes).toString("utf8"),
+  );
+  assert.ok(paths.includes("src/example.ts"));
+});
+
+test("git snapshot ignores an in-place copied index swap restored before hashing", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  const cleanIndex = fs.readFileSync(path.join(repositoryRoot, ".git", "index"));
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    `${readGitFixture("sample.ts")}\nexport const reviewed = true;\n`,
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+  const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
+  const originals = new Map<string, Buffer>();
+  const mutatedDescriptors: Array<{ readonly descriptor: number; readonly bytes: Buffer }> = [];
+
+  const snapshot = captureStagedSnapshot(repositoryRoot, {
+    test_hooks: {
+      after_copied_index_created: () => {
+        for (const name of fs.readdirSync(tmpRoot)) {
+          if (!name.startsWith("copied-index-")) {
+            continue;
+          }
+          const indexPath = path.join(tmpRoot, name);
+          originals.set(indexPath, Buffer.from(fs.readFileSync(indexPath)));
+          fs.chmodSync(indexPath, 0o600);
+          fs.writeFileSync(indexPath, cleanIndex);
+        }
+        for (const entry of fs.readdirSync("/proc/self/fd")) {
+          const magic = path.join("/proc/self/fd", entry);
+          let reader: number | null = null;
+          try {
+            reader = fs.openSync(magic, fs.constants.O_RDONLY);
+            const header = Buffer.alloc(4);
+            if (fs.readSync(reader, header, 0, 4, 0) < 4 || header.toString() !== "DIRC") {
+              continue;
+            }
+            const writer = fs.openSync(magic, fs.constants.O_WRONLY);
+            fs.ftruncateSync(writer, cleanIndex.byteLength);
+            fs.writeSync(writer, cleanIndex);
+            const original = [...originals.values()][0];
+            if (original !== undefined) {
+              mutatedDescriptors.push({ descriptor: writer, bytes: original });
+            } else {
+              fs.closeSync(writer);
+            }
+          } catch {
+            // The bound snapshot is not writable through its descriptor.
+          } finally {
+            if (reader !== null) {
+              fs.closeSync(reader);
+            }
+          }
+        }
+      },
+      before_live_index_revalidation: () => {
+        for (const [indexPath, bytes] of originals) {
+          if (fs.existsSync(indexPath)) {
+            fs.chmodSync(indexPath, 0o600);
+            fs.writeFileSync(indexPath, bytes);
+          }
+        }
+        for (const mutated of mutatedDescriptors) {
+          fs.ftruncateSync(mutated.descriptor, mutated.bytes.byteLength);
+          fs.writeSync(mutated.descriptor, mutated.bytes);
+          fs.closeSync(mutated.descriptor);
+        }
+      },
+    },
+  });
+
+  const paths = snapshot.raw_records.map((record) =>
+    Buffer.from(record.path_bytes).toString("utf8"),
+  );
+  assert.ok(paths.includes("src/example.ts"));
+});
+
+test("git snapshot captures when the copied index has no descriptor path", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
+  writeRepoTextFile(
+    repositoryRoot,
+    "src/example.ts",
+    `${readGitFixture("sample.ts")}\nexport const reviewed = true;\n`,
+  );
+  stagePaths(repositoryRoot, "src/example.ts");
+
+  const snapshot = captureStagedSnapshot(repositoryRoot, {
+    test_hooks: {
+      force_path_index_binding: true,
+    },
+  });
+
+  const paths = snapshot.raw_records.map((record) =>
+    Buffer.from(record.path_bytes).toString("utf8"),
+  );
+  assert.ok(paths.includes("src/example.ts"));
+});
+
+test("git snapshot rejects a path-bound copied index that changes before capture is accepted", () => {
+  const repositoryRoot = createTempGitRepository();
+  writeRepoTextFile(repositoryRoot, ".gitignore", ".skia/\n");
+  writeRepoTextFile(repositoryRoot, "src/example.ts", readGitFixture("sample.ts"));
+  stagePaths(repositoryRoot, ".gitignore", "src/example.ts");
+  commitAll(repositoryRoot, "initial");
   const tmpRoot = path.join(repositoryRoot, ".skia", TMP_DIRECTORY_NAME);
 
   assert.throws(
     () => captureStagedSnapshot(repositoryRoot, {
-      temporary_stamp: stamp,
       test_hooks: {
+        force_path_index_binding: true,
         before_live_index_revalidation: () => {
           for (const name of fs.readdirSync(tmpRoot)) {
             if (name.startsWith("copied-index-")) {
-              fs.writeFileSync(path.join(tmpRoot, name), Buffer.from("changed\n"));
+              const indexPath = path.join(tmpRoot, name);
+              fs.chmodSync(indexPath, 0o600);
+              fs.writeFileSync(indexPath, Buffer.from("changed\n"));
             }
           }
         },

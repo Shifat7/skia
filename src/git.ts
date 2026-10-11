@@ -55,6 +55,7 @@ export interface GitSnapshotTestHooks {
   readonly after_copied_index_created?: () => void;
   readonly before_capture_temporary_removal?: () => void;
   readonly before_live_index_revalidation?: () => void;
+  readonly force_path_index_binding?: boolean;
   readonly force_path_temporary_removal?: boolean;
   readonly force_unavailable_descriptor_cleanup?: boolean;
 }
@@ -619,16 +620,7 @@ function mainCheckoutForGitMarker(markerPath: string, containingDirectory: strin
     );
   }
 
-  const commonDir = path.resolve(gitDir, commonText);
-  const mainCheckout = path.dirname(commonDir);
-  if (path.join(mainCheckout, ".git") === commonDir) {
-    return mainCheckout;
-  }
-
-  throw new GitSnapshotError(
-    "git_process_failed",
-    "separate git directory is outside the trusted checkout layout",
-  );
+  return checkoutContainingGitDirectory(path.resolve(gitDir, commonText));
 }
 
 function directoryMarkerCheckout(gitDir: string): string | null {
@@ -637,7 +629,10 @@ function directoryMarkerCheckout(gitDir: string): string | null {
     return null;
   }
 
-  const commonDir = path.resolve(gitDir, commonText);
+  return checkoutContainingGitDirectory(path.resolve(gitDir, commonText));
+}
+
+function checkoutContainingGitDirectory(commonDir: string): string {
   let resolved: string;
   try {
     resolved = fs.realpathSync(commonDir);
@@ -1732,17 +1727,15 @@ function captureStagedAttempt(
       copiedIndexSha256 = sha256Hex(readLiveIndexBytes(copiedIndexPath));
     }
     rememberCaptureTemporary(cleanup, tmpRoot, copiedIndexPath);
-    copiedIndexDescriptor = fs.openSync(
+    const indexBytes = readLiveIndexBytes(copiedIndexPath);
+    copiedIndexSha256 = sha256Hex(indexBytes);
+    const boundIndex = bindCopiedIndex(
       copiedIndexPath,
-      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+      indexBytes,
+      tmpRoot,
+      options?.test_hooks?.force_path_index_binding === true,
     );
-    const boundIndex = processDescriptorPath(copiedIndexDescriptor);
-    if (boundIndex === null) {
-      throw new GitSnapshotError(
-        "git_process_failed",
-        "Git index snapshot cannot be bound to its file",
-      );
-    }
+    copiedIndexDescriptor = boundIndex.descriptor;
 
     options?.test_hooks?.after_copied_index_created?.();
 
@@ -1752,7 +1745,7 @@ function captureStagedAttempt(
         : (EMPTY_TREE_OIDS[objectFormat] as GitObjectId);
     const copiedIndexEnv = {
       GIT_DIR: gitDirectory,
-      GIT_INDEX_FILE: boundIndex,
+      GIT_INDEX_FILE: boundIndex.gitPath,
       GIT_WORK_TREE: attributeWorkTree,
     };
     const statusEntries = parseStatusEntries(
@@ -1943,16 +1936,183 @@ function openCaptureTemporaryDirectory(tmpRoot: string): number | null {
   }
 }
 
-function processDescriptorPath(descriptor: number): string | null {
-  const magic = `/proc/${process.pid}/fd/${descriptor}`;
+const LINUX_O_TMPFILE = 0o20200000;
+
+function sameFileIdentity(
+  followed: ReturnType<typeof fs.fstatSync>,
+  viaDescriptor: ReturnType<typeof fs.fstatSync>,
+): boolean {
+  return followed.isFile()
+    && followed.dev === viaDescriptor.dev
+    && followed.ino === viaDescriptor.ino;
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) {
+    return false;
+  }
+
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function writeEntireDescriptor(descriptor: number, bytes: Uint8Array): void {
+  let offset = 0;
+
+  while (offset < bytes.length) {
+    const written = fs.writeSync(descriptor, bytes.subarray(offset));
+
+    if (written <= 0) {
+      throw new GitSnapshotError("write_error", "could not write Git index snapshot");
+    }
+
+    offset += written;
+  }
+
+  fs.fsyncSync(descriptor);
+}
+
+function magicFilePath(descriptor: number): string | null {
+  for (const magic of [
+    `/proc/${process.pid}/fd/${descriptor}`,
+    `/proc/self/fd/${descriptor}`,
+    `/dev/fd/${descriptor}`,
+  ]) {
+    try {
+      if (sameFileIdentity(fs.statSync(magic), fs.fstatSync(descriptor))) {
+        return magic;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function bindImmutableIndexBytes(
+  tmpRoot: string,
+  bytes: Uint8Array,
+  forcePath: boolean,
+): { readonly descriptor: number; readonly gitPath: string } | null {
+  if (forcePath || process.platform !== "linux") {
+    return null;
+  }
+
+  let writable: number;
   try {
-    const followed = fs.statSync(magic);
-    const viaDescriptor = fs.fstatSync(descriptor);
-    return followed.dev === viaDescriptor.dev && followed.ino === viaDescriptor.ino
-      ? magic
-      : null;
+    writable = fs.openSync(
+      tmpRoot,
+      LINUX_O_TMPFILE | fs.constants.O_RDWR,
+      0o400,
+    );
   } catch {
     return null;
+  }
+
+  let readOnly: number | null = null;
+  try {
+    writeEntireDescriptor(writable, bytes);
+    const writableMagic = magicFilePath(writable);
+    if (writableMagic === null) {
+      return null;
+    }
+
+    readOnly = fs.openSync(writableMagic, fs.constants.O_RDONLY);
+    const readMagic = magicFilePath(readOnly);
+    const stats = fs.fstatSync(readOnly);
+    if (
+      readMagic === null ||
+      stats.nlink !== 0 ||
+      !stats.isFile() ||
+      !bytesEqual(readDescriptorBytes(readOnly), bytes)
+    ) {
+      return null;
+    }
+
+    const bound = { descriptor: readOnly, gitPath: readMagic };
+    readOnly = null;
+    return bound;
+  } catch {
+    return null;
+  } finally {
+    fs.closeSync(writable);
+    if (readOnly !== null) {
+      fs.closeSync(readOnly);
+    }
+  }
+}
+
+function bindCopiedIndex(
+  copiedIndexPath: string,
+  bytes: Uint8Array,
+  tmpRoot: string,
+  forcePath: boolean,
+): { readonly descriptor: number; readonly gitPath: string } {
+  const immutable = bindImmutableIndexBytes(tmpRoot, bytes, forcePath);
+  if (immutable !== null) {
+    return immutable;
+  }
+
+  let descriptor: number | null = null;
+  try {
+    try {
+      fs.chmodSync(copiedIndexPath, 0o400);
+    } catch {
+      // A platform that cannot change mode still has the read-only descriptor.
+    }
+    descriptor = fs.openSync(
+      copiedIndexPath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+
+    const stats = fs.fstatSync(descriptor);
+    if (!stats.isFile() || !bytesEqual(readDescriptorBytes(descriptor), bytes)) {
+      throw new GitSnapshotError(
+        "git_process_failed",
+        "Git index snapshot cannot be bound to its file",
+      );
+    }
+
+    const magic = forcePath ? null : magicFilePath(descriptor);
+    if (magic !== null) {
+      fs.unlinkSync(copiedIndexPath);
+      const after = fs.fstatSync(descriptor);
+      const rebound = magicFilePath(descriptor);
+      if (
+        rebound === null ||
+        after.nlink !== 0 ||
+        after.dev !== stats.dev ||
+        after.ino !== stats.ino
+      ) {
+        throw new GitSnapshotError(
+          "git_process_failed",
+          "Git index snapshot cannot be bound to its file",
+        );
+      }
+
+      return { descriptor, gitPath: rebound };
+    }
+
+    return { descriptor, gitPath: copiedIndexPath };
+  } catch (error) {
+    if (descriptor !== null) {
+      fs.closeSync(descriptor);
+    }
+
+    if (error instanceof GitSnapshotError) {
+      throw error;
+    }
+
+    throw new GitSnapshotError(
+      "git_process_failed",
+      "Git index snapshot cannot be bound to its file",
+    );
   }
 }
 

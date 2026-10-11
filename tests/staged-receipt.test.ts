@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -1532,6 +1533,49 @@ test("completing a staged run leaves a pre-existing receipt temporary in place",
     /EEXIST|already exists/,
   );
   assert.strictEqual(fs.readFileSync(temporaryPath, "utf8"), "kept\n");
+});
+
+test("staged artifact creation stays inside the checked artifacts directory", () => {
+  const prepared = preparedMismatchReceipt();
+  const artifactsDirectory = path.join(prepared.repositoryRoot, ".skia", "artifacts");
+  const displacedDirectory = `${artifactsDirectory}-real`;
+  const outsideDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "skia-outside-artifacts-"));
+  setStorageTestHooks({
+    beforeBoundFileCreate: () => {
+      fs.renameSync(artifactsDirectory, displacedDirectory);
+      fs.symlinkSync(outsideDirectory, artifactsDirectory);
+    },
+  });
+
+  try {
+    const written = writeStagedArtifactFile(prepared.allocation, "hld", "# hld\n");
+    const fileName = written.absolutePath.slice(
+      written.absolutePath.lastIndexOf(path.sep) + 1,
+    );
+    assert.strictEqual(fs.existsSync(path.join(outsideDirectory, fileName)), false);
+    assert.strictEqual(fs.readFileSync(path.join(displacedDirectory, fileName), "utf8"), "# hld\n");
+  } finally {
+    setStorageTestHooks(null);
+  }
+});
+
+test("staged run completion rejects an artifact the receipt does not reference", () => {
+  const prepared = preparedMismatchReceipt();
+  const extra = writeStagedArtifactFile(prepared.allocation, "hld", "# hld\n");
+
+  assert.throws(
+    () => completeStagedRun(prepared.allocation, prepared.receipt),
+    /does not reference/,
+  );
+  assert.strictEqual(fs.readFileSync(extra.absolutePath, "utf8"), "# hld\n");
+  const receiptsDirectory = path.join(prepared.repositoryRoot, ".skia", "receipts");
+  const receiptNames = fs.existsSync(receiptsDirectory)
+    ? fs.readdirSync(receiptsDirectory).filter((name) => !name.startsWith("."))
+    : [];
+  assert.deepStrictEqual(receiptNames, []);
+
+  abortStagedRun(prepared.allocation);
+  assert.strictEqual(fs.existsSync(extra.absolutePath), false);
 });
 
 test("completing a staged run retires the allocation", () => {

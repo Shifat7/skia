@@ -60,6 +60,7 @@ declare module "node:fs" {
     isSymbolicLink(): boolean;
     readonly dev: number;
     readonly ino: number;
+    readonly nlink: number;
     readonly size: number;
     readonly mode: number;
   }
@@ -75,6 +76,7 @@ declare module "node:fs" {
   export function closeSync(fd: number): void;
   export function fstatSync(fd: number): Stats;
   export function fsyncSync(fd: number): void;
+  export function ftruncateSync(fd: number, len: number): void;
   export function readSync(
     fd: number,
     buffer: Uint8Array,
@@ -109,6 +111,8 @@ declare module "node:fs" {
     readonly O_DIRECTORY: number;
     readonly O_NOFOLLOW: number;
     readonly O_RDONLY: number;
+    readonly O_RDWR: number;
+    readonly O_WRONLY: number;
   };
   export function writeFileSync(
     path: string,
@@ -128,6 +132,7 @@ declare module "node:fs" {
     closeSync: typeof closeSync;
     fstatSync: typeof fstatSync;
     fsyncSync: typeof fsyncSync;
+    ftruncateSync: typeof ftruncateSync;
     readSync: typeof readSync;
     writeSync: typeof writeSync;
     readFileSync: typeof readFileSync;

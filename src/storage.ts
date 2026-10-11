@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -187,6 +187,9 @@ export interface StorageTestHooks {
     readonly temporaryPath: string;
     readonly receiptPath: string;
   }) => void;
+  readonly beforeBoundFileCreate?: () => void;
+  readonly beforeBoundChildRename?: (childName: string) => void;
+  readonly forcePathDescriptorBinding?: boolean;
 }
 
 interface RunIdClaimRecord {
@@ -788,40 +791,115 @@ function descriptorPath(descriptor: number): string | null {
   return null;
 }
 
-function removeEntryThroughDirectory(directory: number, childName: string): void {
-  const magic = descriptorPath(directory);
+function removalLocation(directory: number, directoryPath: string): string {
+  const magic = storageTestHooks?.forcePathDescriptorBinding === true
+    ? null
+    : descriptorPath(directory);
+  if (magic !== null) {
+    return magic;
+  }
+
+  const viaDescriptor = fs.fstatSync(directory);
+  const seen = fs.lstatSync(directoryPath);
   if (
-    magic === null ||
+    seen.isSymbolicLink() ||
+    !seen.isDirectory() ||
+    seen.dev !== viaDescriptor.dev ||
+    seen.ino !== viaDescriptor.ino
+  ) {
+    throw new Error("storage directory descriptor is unavailable");
+  }
+
+  return directoryPath;
+}
+
+function assertChildName(childName: string): void {
+  if (
     childName.length === 0 ||
+    childName === "." ||
+    childName === ".." ||
     childName.includes("/") ||
     childName.includes("\\")
   ) {
     throw new Error("storage directory descriptor is unavailable");
   }
+}
 
-  const childPath = path.join(magic, childName);
-  const stats = fs.lstatSync(childPath);
-  if (stats.isSymbolicLink() || !stats.isDirectory()) {
-    fs.unlinkSync(childPath);
+function removeBoundChild(
+  directory: number,
+  location: string,
+  childName: string,
+  expected: { readonly dev: number; readonly ino: number },
+): void {
+  assertChildName(childName);
+  const childPath = path.join(location, childName);
+  const seen = fs.lstatSync(childPath);
+  if (seen.dev !== expected.dev || seen.ino !== expected.ino) {
+    throw new Error("storage directory descriptor is unavailable");
+  }
+
+  storageTestHooks?.beforeBoundChildRename?.(childName);
+
+  const current = fs.lstatSync(childPath);
+  if (current.dev !== expected.dev || current.ino !== expected.ino) {
+    throw new Error("storage directory descriptor is unavailable");
+  }
+
+  const privateName = `.${childName}.removing-${randomBytes(8).toString("hex")}`;
+  assertChildName(privateName);
+  const privatePath = path.join(location, privateName);
+  fs.renameSync(childPath, privatePath);
+
+  let moved: ReturnType<typeof fs.lstatSync>;
+  try {
+    moved = fs.lstatSync(privatePath);
+  } catch (error) {
+    throw error;
+  }
+
+  if (moved.dev !== expected.dev || moved.ino !== expected.ino) {
+    try {
+      fs.renameSync(privatePath, childPath);
+    } catch {
+      // Leave the unexpected inode under its private name instead of deleting it.
+    }
+    throw new Error("storage directory descriptor is unavailable");
+  }
+
+  if (moved.isSymbolicLink() || !moved.isDirectory()) {
+    fs.unlinkSync(privatePath);
     return;
   }
 
-  const child = fs.openSync(
-    childPath,
-    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY,
-  );
+  let removed = false;
   try {
-    const childMagic = descriptorPath(child);
-    if (childMagic === null) {
-      throw new Error("storage directory descriptor is unavailable");
+    const child = fs.openSync(
+      privatePath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY,
+    );
+    try {
+      const childLocation = removalLocation(child, privatePath);
+      for (const name of fs.readdirSync(childLocation)) {
+        const grandchild = fs.lstatSync(path.join(childLocation, name));
+        removeBoundChild(child, childLocation, name, {
+          dev: grandchild.dev,
+          ino: grandchild.ino,
+        });
+      }
+    } finally {
+      fs.closeSync(child);
     }
-    for (const name of fs.readdirSync(childMagic)) {
-      removeEntryThroughDirectory(child, name);
-    }
+    fs.rmdirSync(privatePath);
+    removed = true;
   } finally {
-    fs.closeSync(child);
+    if (!removed) {
+      try {
+        fs.renameSync(privatePath, childPath);
+      } catch {
+        // The directory is still under its private name and remains inside .skia.
+      }
+    }
   }
-  fs.rmdirSync(childPath);
 }
 
 function deleteTree(
@@ -848,15 +926,15 @@ function deleteTree(
         parentPath,
         fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY,
       );
-      const magic = descriptorPath(parent);
-      if (magic === null) {
-        throw new Error("storage directory descriptor is unavailable");
-      }
-      const seen = fs.lstatSync(path.join(magic, childName));
+      const location = removalLocation(parent, parentPath);
+      const seen = fs.lstatSync(path.join(location, childName));
       if (seen.dev !== stats.dev || seen.ino !== stats.ino) {
         throw new Error("storage directory descriptor is unavailable");
       }
-      removeEntryThroughDirectory(parent, childName);
+      removeBoundChild(parent, location, childName, {
+        dev: stats.dev,
+        ino: stats.ino,
+      });
     } catch {
       // A path that cannot be deleted through its directory descriptor stays reported.
     } finally {
@@ -1872,6 +1950,65 @@ function removeCreatedStagedArtifacts(
   };
 }
 
+function writeNewFileInBoundDirectory(
+  directoryPath: string,
+  childName: string,
+  data: string | Uint8Array,
+): void {
+  assertChildName(childName);
+  const directoryStats = fs.lstatSync(directoryPath);
+  if (directoryStats.isSymbolicLink() || !directoryStats.isDirectory()) {
+    throw createStorageError("staged artifact directory cannot be bound");
+  }
+
+  const directory = fs.openSync(
+    directoryPath,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_DIRECTORY,
+  );
+  try {
+    const viaDescriptor = fs.fstatSync(directory);
+    if (
+      !viaDescriptor.isDirectory() ||
+      viaDescriptor.dev !== directoryStats.dev ||
+      viaDescriptor.ino !== directoryStats.ino
+    ) {
+      throw createStorageError("staged artifact directory cannot be bound");
+    }
+
+    const location = removalLocation(directory, directoryPath);
+    storageTestHooks?.beforeBoundFileCreate?.();
+    writeNewFile(path.join(location, childName), data);
+  } finally {
+    fs.closeSync(directory);
+  }
+}
+
+function assertCreatedStagedArtifactsAreReferenced(
+  allocation: StagedRunAllocation,
+  receipt: StagedReceipt,
+): void {
+  const created = stagedArtifactsCreatedByAllocation.get(allocation);
+  if (created === undefined || created.size === 0) {
+    throw createStorageError(
+      "staged run completion requires the artifacts recorded for this allocation",
+    );
+  }
+
+  const referenced = new Set(
+    receipt.artifact_hashes
+      .filter((artifact) => artifact.kind !== "receipt")
+      .map((artifact) => validateContainedPath(allocation.skiaRootPath, artifact.path)),
+  );
+
+  for (const absolutePath of created) {
+    if (!referenced.has(absolutePath)) {
+      throw createStorageError(
+        "staged run completion includes an artifact the receipt does not reference",
+      );
+    }
+  }
+}
+
 function assertStagedAllocationPaths(allocation: StagedRunAllocation): void {
   const held = stagedAllocationIdentity.get(allocation);
   const repositoryRoot = path.resolve(allocation.repositoryRoot);
@@ -1917,7 +2054,8 @@ export function writeStagedArtifactFile(
     );
   }
 
-  writeNewFile(absolutePath, bytes);
+  const childName = absolutePath.slice(path.dirname(absolutePath).length + 1);
+  writeNewFileInBoundDirectory(path.dirname(absolutePath), childName, bytes);
   rememberCreatedStagedArtifact(allocation, absolutePath);
 
   return {
@@ -2148,6 +2286,7 @@ export function completeStagedRun(
     rehashedArtifacts,
     runInstant ?? undefined,
   );
+  assertCreatedStagedArtifactsAreReferenced(allocation, validation.value);
   const absolutePath = receiptFilePath(
     allocation.repositoryRoot,
     validation.value,
@@ -2554,6 +2693,14 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
 
     const receipt = validateStagedReceiptFile(receiptsRoots.skiaRootPath, absoluteReceiptPath);
     assertReceiptFileBinding(targets.receiptName, receipt);
+    const temporaryResult = removeStagedReceiptTemporaries(
+      receiptsRoots,
+      targets.receiptName,
+    );
+    if (!temporaryResult.deleted) {
+      return temporaryResult;
+    }
+
     const deleteTargets = [
       ...receiptOwnedArtifactPaths(receiptsRoots.skiaRootPath, receipt),
     ];
@@ -2569,14 +2716,6 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
         deleted: false,
         remaining_paths: [...new Set(failures)].sort(),
       };
-    }
-
-    const temporaryResult = removeStagedReceiptTemporaries(
-      receiptsRoots,
-      targets.receiptName,
-    );
-    if (!temporaryResult.deleted) {
-      return temporaryResult;
     }
 
     const receiptDeleteResult = deleteTree(
@@ -2621,16 +2760,6 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
         );
       }
 
-      const artifactResult = removeIncompleteStagedArtifacts(
-        repositoryRoot,
-        runId,
-        parsedReceipt.sessionId,
-      );
-
-      if (!artifactResult.deleted) {
-        return artifactResult;
-      }
-
       const receiptsRoots = readStorageRoots(
         repositoryRoot,
         RECEIPTS_DIRECTORY_NAME,
@@ -2644,6 +2773,16 @@ export function deleteRun(repositoryRoot: string, runIdInput: string): DeleteRun
         if (!temporaryResult.deleted) {
           return temporaryResult;
         }
+      }
+
+      const artifactResult = removeIncompleteStagedArtifacts(
+        repositoryRoot,
+        runId,
+        parsedReceipt.sessionId,
+      );
+
+      if (!artifactResult.deleted) {
+        return artifactResult;
       }
     }
 
