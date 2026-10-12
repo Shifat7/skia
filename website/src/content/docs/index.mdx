@@ -1,6 +1,6 @@
 ---
 title: Skia
-description: Alpha local pre-PR checkpoint. Foundation is in the repo. Product CLI is not released.
+description: Local reading check for engineers who review their own diffs, including ones an AI wrote. Narrow pilot. You read the change; Skia does not approve it.
 template: splash
 sidebar:
   hidden: true
@@ -8,10 +8,10 @@ prev: false
 next: false
 banner:
   content: |
-    <a href="/status/">Alpha · foundation shipping · product CLI not released → /status/</a>
+    <a href="/status/">Alpha · foundation shipping · narrow review pilot · package not released → /status/</a>
 hero:
-  title: Read the AI diff before you trust the commit
-  tagline: Local pre-PR comprehension for vibecoders. Map what a generated change appears to do, then keep every analysis gap visible.
+  title: Review your own diff before you commit
+  tagline: A local reading check for engineers who stay accountable for what they commit, including changes an AI wrote. You read what the change appears to do, predict one result, and keep every gap visible.
   actions:
     - text: View on GitHub
       link: https://github.com/Shifat7/skia
@@ -28,11 +28,11 @@ import { withBase } from '../../lib/withBase';
 
 ## What ships today
 
-Phase 1 foundation is in the repository. Planned items stay on <a href={withBase('/status/')}>Status</a> — they do not get a green check here.
+Phase 1 foundation is in the repository. The only review command that runs is a narrow `skia review` pilot. Planned items stay on <a href={withBase('/status/')}>Status</a> — they do not get a green check here.
 
 ## How it works
 
-`skia review` runs for one narrow staged TypeScript shape. The shell in `src/main.ts` is `implemented: "partial"`. `skia repo review` is still planned. The intended loop:
+`skia review` runs for exactly one staged `.ts` file containing one named function with a strict literal guard and a literal return. The shell in `src/main.ts` is `implemented: "partial"`. `skia repo review` is still planned, as is any simplified view or prediction prompt beyond that pilot. You do the reading. The intended loop:
 
 <Steps>
 
@@ -66,11 +66,17 @@ Phase 1 foundation is in the repository. Planned items stay on <a href={withBase
 
 ## Problem
 
-AI tools can produce a working-looking diff faster than you can build a mental model of it. Extra abstractions, buried branches, and unfamiliar behavior that still passes tests are easy to miss. Skia is meant as the checkpoint for one developer before that gap becomes a reviewer's problem.
+An AI can write a diff faster than you can understand it. Sending that diff to another model for review does not make the commit yours. Extra abstractions, buried branches, and behavior that still passes tests are easy to miss when you have not read them.
+
+Skia is a local checkpoint for that read. It is for the engineer who stays accountable for what they commit: you read the change, predict one result, and open anything the analysis could not cover. Handing the diff to an AI and shipping without reading it — vibe coding — is the wrong workflow for this tool.
 
 ## FAQ
 
 <div class="faq">
+	<details>
+		<summary>Who is this for?</summary>
+		<p>Engineers who review their own changes, including diffs an AI wrote, and who stay accountable for what they commit. You read the change, predict one result, and check the source yourself. It is the wrong tool if you want to hand the diff to a model and ship without reading it.</p>
+	</details>
 	<details>
 		<summary>Is <code>skia review</code> available today?</summary>
 		<p>Only as a narrow pilot: one staged <code>.ts</code> file, one named function, a strict literal guard, and a literal return, via <code>node dist/src/main.js review</code> after a build. The package is private at 0.0.0. There is no working global npm install, Homebrew formula, or curl installer. <code>skia repo review</code> does not run.</p>
@@ -80,8 +86,8 @@ AI tools can produce a working-looking diff faster than you can build a mental m
 		<p>Foundation work keeps snapshot and parse artifacts local. Skia does not operate a review backend and does not send product telemetry. A future repository mode may send bounded context to an endpoint you configure, after consent. See <a href={withBase('/privacy/')}>Privacy</a>.</p>
 	</details>
 	<details>
-		<summary>Is this a CodeRabbit or Greptile replacement?</summary>
-		<p>No. Skia is a local pre-PR comprehension checkpoint for one developer — simplify, predict, surface uncertainty — not a hosted PR bot or agent fix loop.</p>
+		<summary>Does Skia review the change for me?</summary>
+		<p>No. You read what the change appears to do, you supply the prediction, and you open the original source where coverage is incomplete. Skia does not approve a commit, and it does not post review comments.</p>
 	</details>
 	<details>
 		<summary>How do I install it?</summary>
@@ -98,8 +104,8 @@ AI tools can produce a working-looking diff faster than you can build a mental m
 </div>
 
 <div class="cta-band not-content">
-	<p class="cta-band__line">Start from the repository. There is no review CLI to install yet.</p>
-	<p class="cta-band__note">Marketing drafts stay unpublished until a stranger can run a real review. No curl or global install here.</p>
+	<p class="cta-band__line">Read the change yourself. Start from the repository.</p>
+	<p class="cta-band__note">The narrow pilot runs from a local build. There is no published installer, no curl command, and no global npm package. Skia does not review the diff for you.</p>
 	<div class="cta-row">
 		<LinkButton href="https://github.com/Shifat7/skia" variant="primary" icon="external">View on GitHub</LinkButton>
 		<LinkButton href={withBase('/status/')} variant="secondary" icon="right-arrow">What's real vs planned</LinkButton>

@@ -2,8 +2,10 @@
 
 Astro and Starlight site for GitHub Pages at <https://shifat7.github.io/skia/>.
 
-The site describes the Phase 1 foundation and the intended review experience.
-It does not claim a runnable `skia review` command or a published npm package.
+The site describes the Phase 1 foundation, the narrow `skia review` pilot, and the
+intended reading loop. It is written for engineers who review their own
+changes, including AI-written diffs. It does not claim a published npm
+package, `skia repo review`, or a general review command.
 Product design documents stay in the repository `docs/` directory. This site
 does not live there.
 
