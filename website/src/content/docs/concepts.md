@@ -28,7 +28,7 @@ If a run cannot safely reduce something, it must say so. Hiding the gap behind a
 | `failed` | Read the reason. Decoding, parsing, or an operational step failed. |
 | `unchecked` | Do not treat the area as reviewed. |
 
-`partial` and `unmapped` are the cases a vibecoder most needs to see: a callback the reducer cannot map, an SDK failure mode, a syntax error, a file outside TypeScript, TSX, and Python.
+`partial` and `unmapped` are the cases to open before you commit: a callback the reducer cannot map, an SDK failure mode, a syntax error, a file outside TypeScript, TSX, and Python.
 
 ## Illustrative transcripts
 

@@ -1,9 +1,11 @@
 ---
 title: Status
-description: What ships in the Skia repository today, what is planned, and what is not on the roadmap.
+description: What ships in the Skia repository today, what is planned, and who the reading check is for.
 ---
 
-Alpha. Phase 1 foundation is in the repository. The product CLI is not released.
+Alpha. Phase 1 foundation is in the repository. The package is not released.
+
+Skia is for engineers who review their own changes, including AI-written diffs. It does not review or approve the commit for you.
 
 | Fact | Value |
 |---|---|

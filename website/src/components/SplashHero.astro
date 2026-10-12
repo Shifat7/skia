@@ -6,18 +6,18 @@ import HeroDemo from './HeroDemo.astro';
 const { data } = Astro.locals.starlightRoute.entry;
 const { title = data.title, tagline, actions = [] } = data.hero || {};
 const titleText = String(title ?? '');
-const knownTitle = 'Read the AI diff before you trust the commit';
+const knownTitle = 'Review your own diff before you commit';
 const isKnownTitle = titleText === knownTitle;
 ---
 
 <div class="splash-hero">
 	<div class="splash-hero__copy">
-		<p class="splash-hero__eyebrow">Alpha · demos are illustrative until Gate A</p>
+		<p class="splash-hero__eyebrow">Alpha · panel below is illustrative</p>
 		<h1 id="_top" data-page-title>
 			{
 				isKnownTitle ? (
 					<>
-						Read the <span class="h1-dim">AI diff</span> <span class="accent">before you trust</span> the commit
+						Review <span class="h1-dim">your own diff</span> <span class="accent">before you commit</span>
 					</>
 				) : (
 					titleText
@@ -45,8 +45,8 @@ const isKnownTitle = titleText === knownTitle;
 				</div>
 			)
 		}
-		<ul class="trust-strip trust-strip--hero" aria-label="Current product facts">
-			<li>Local-first</li>
+		<ul class="trust-strip trust-strip--hero" aria-label="Reading check">
+			<li>You read the diff</li>
 			<li>TS / TSX / Python foundation</li>
 			<li>Narrow <code>skia review</code> pilot</li>
 		</ul>
